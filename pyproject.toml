@@ -1,7 +1,12 @@
 [project]
 name = "homelab-ai-in-docker"
 version = "0.1.0"
-description = "Add your description here"
+description = "REST API service wrapping common AI capabilities for homelab developers"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "crawl4ai>=0.7.0",
+    "pydantic>=2.0.0",
+]

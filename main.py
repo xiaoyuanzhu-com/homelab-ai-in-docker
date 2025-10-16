@@ -1,6 +1,49 @@
-def main():
-    print("Hello from homelab-ai-in-docker!")
+"""Main FastAPI application for Homelab AI Services."""
+
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+
+from src.api.routers import crawl
+
+# Create FastAPI app
+app = FastAPI(
+    title="Homelab AI Services API",
+    description="REST API wrapping common AI capabilities for homelab developers",
+    version="0.1.0",
+)
+
+# Include routers
+app.include_router(crawl.router)
+
+
+@app.get("/")
+async def root():
+    """Root endpoint with API information."""
+    return {
+        "name": "Homelab AI Services API",
+        "version": "0.1.0",
+        "status": "running",
+        "endpoints": {
+            "crawl": "/api/crawl",
+            "docs": "/docs",
+            "health": "/health",
+        },
+    }
+
+
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
+
+@app.get("/ready")
+async def ready():
+    """Readiness check endpoint."""
+    return {"status": "ready", "services": {"crawl": "available"}}
 
 
 if __name__ == "__main__":
-    main()
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
