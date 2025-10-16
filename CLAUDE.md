@@ -45,6 +45,10 @@ npm run dev
 
 UI runs on `http://localhost:3000`
 - **Note**: User manages the UI dev server separately. Assume it's running when working on UI features.
+- **Development Proxy**: Next.js dev server proxies `/api/*`, `/health`, `/ready`, `/docs` to `http://localhost:8000`
+  - Frontend code uses relative URLs (e.g., `fetch('/api/crawl')`)
+  - In production, Python server will serve the built UI and handle API requests
+  - This enables same-origin requests and simplifies deployment
 
 ## Project Structure
 
