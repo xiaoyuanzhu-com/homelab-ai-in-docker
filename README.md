@@ -32,8 +32,9 @@ python main.py
 
 The API will be available at `http://localhost:8000`
 
-- Interactive API docs: `http://localhost:8000/docs`
-- Health check: `http://localhost:8000/health`
+- Interactive API docs: `http://localhost:8000/api/docs`
+- Health check: `http://localhost:8000/api/health`
+- API info: `http://localhost:8000/api`
 
 ### Example Usage
 
@@ -66,10 +67,13 @@ curl -X POST http://localhost:8000/api/crawl \
 
 ## API Endpoints
 
+All endpoints are under the `/api` prefix:
+
+- `GET /api` - API status and information
 - `POST /api/crawl` - Crawl and extract content from a URL
-- `GET /health` - Health check
-- `GET /ready` - Readiness check
-- `GET /docs` - Interactive API documentation
+- `GET /api/health` - Health check
+- `GET /api/ready` - Readiness check
+- `GET /api/docs` - Interactive API documentation (Swagger UI)
 
 ## Documentation
 

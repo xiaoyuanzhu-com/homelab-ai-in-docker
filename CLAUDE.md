@@ -34,8 +34,10 @@ uvicorn main:app --reload
 ```
 
 API runs on `http://localhost:8000`
-- Docs: `/docs`
-- Health: `/health`
+- All endpoints under `/api` prefix
+- Docs: `/api/docs`
+- Health: `/api/health`
+- Ready: `/api/ready`
 
 ### Frontend UI
 ```bash
@@ -45,8 +47,9 @@ npm run dev
 
 UI runs on `http://localhost:3000`
 - **Note**: User manages the UI dev server separately. Assume it's running when working on UI features.
-- **Development Proxy**: Next.js dev server proxies `/api/*`, `/health`, `/ready`, `/docs` to `http://localhost:8000`
-  - Frontend code uses relative URLs (e.g., `fetch('/api/crawl')`)
+- **Development Proxy**: Next.js dev server proxies `/api/*` to `http://localhost:8000/api/*`
+  - Single rewrite rule covers all API endpoints
+  - Frontend code uses relative URLs (e.g., `fetch('/api/crawl')`, `fetch('/api/health')`)
   - In production, Python server will serve the built UI and handle API requests
   - This enables same-origin requests and simplifies deployment
 
@@ -78,10 +81,14 @@ docs/
 
 ## Implemented Features
 
+- GET `/api` - API status and info
+- GET `/api/health` - Health check
+- GET `/api/ready` - Readiness check
 - POST `/api/crawl` - Web scraping with JS rendering
   - Returns Markdown-formatted content
   - Optional screenshot capture
   - Handles modern JS-heavy websites
+- GET `/api/docs` - Interactive Swagger documentation
 
 ## Planned Features
 

@@ -10,34 +10,38 @@ app = FastAPI(
     title="Homelab AI Services API",
     description="REST API wrapping common AI capabilities for homelab developers",
     version="0.1.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 
 # Include routers
 app.include_router(crawl.router)
 
 
-@app.get("/")
+@app.get("/api")
 async def root():
-    """Root endpoint with API information."""
+    """Root API endpoint with service information."""
     return {
         "name": "Homelab AI Services API",
         "version": "0.1.0",
         "status": "running",
         "endpoints": {
             "crawl": "/api/crawl",
-            "docs": "/docs",
-            "health": "/health",
+            "docs": "/api/docs",
+            "health": "/api/health",
+            "ready": "/api/ready",
         },
     }
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health():
     """Health check endpoint."""
     return {"status": "healthy"}
 
 
-@app.get("/ready")
+@app.get("/api/ready")
 async def ready():
     """Readiness check endpoint."""
     return {"status": "ready", "services": {"crawl": "available"}}

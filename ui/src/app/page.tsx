@@ -19,7 +19,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/status")
+    fetch("/api")
       .then((res) => res.json())
       .then((data) => {
         setApiStatus(data);
@@ -128,7 +128,7 @@ export default function Home() {
           </h2>
           <div className="grid sm:grid-cols-2 gap-4">
             <a
-              href="/docs"
+              href="/api/docs"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 transition-colors"
@@ -144,7 +144,7 @@ export default function Home() {
               </div>
             </a>
             <a
-              href="/health"
+              href="/api/health"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 transition-colors"
