@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from src.api.routers import crawl
+from src.api.routers import crawl, embedding, caption, history
 
 # Create FastAPI app
 app = FastAPI(
@@ -17,6 +17,9 @@ app = FastAPI(
 
 # Include routers
 app.include_router(crawl.router)
+app.include_router(embedding.router)
+app.include_router(caption.router)
+app.include_router(history.router)
 
 
 @app.get("/api")
@@ -28,6 +31,8 @@ async def root():
         "status": "running",
         "endpoints": {
             "crawl": "/api/crawl",
+            "embed": "/api/embed",
+            "caption": "/api/caption",
             "docs": "/api/docs",
             "health": "/api/health",
             "ready": "/api/ready",
@@ -44,7 +49,7 @@ async def health():
 @app.get("/api/ready")
 async def ready():
     """Readiness check endpoint."""
-    return {"status": "ready", "services": {"crawl": "available"}}
+    return {"status": "ready", "services": {"crawl": "available", "embedding": "available", "caption": "available"}}
 
 
 if __name__ == "__main__":

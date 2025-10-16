@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from crawl4ai import AsyncWebCrawler
 
 from ..models.crawl import CrawlRequest, CrawlResponse, ErrorResponse
+from ...storage.history import history_storage
 
 
 router = APIRouter(prefix="/api", tags=["crawl"])
@@ -94,7 +95,7 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
         if request.screenshot and result.get("screenshot"):
             screenshot_base64 = base64.b64encode(result["screenshot"]).decode("utf-8")
 
-        return CrawlResponse(
+        response = CrawlResponse(
             request_id=request_id,
             url=result["url"],
             title=result.get("title"),
@@ -104,6 +105,17 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             fetch_time_ms=fetch_time_ms,
             success=result["success"],
         )
+
+        # Save to history
+        history_storage.add_request(
+            service="crawl",
+            request_id=request_id,
+            request_data=request.model_dump(),
+            response_data=response.model_dump(exclude={"html", "screenshot_base64"}),
+            status="success",
+        )
+
+        return response
 
     except HTTPException:
         raise

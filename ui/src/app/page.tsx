@@ -35,16 +35,16 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="max-w-6xl mx-auto px-4 py-16">
-        {/* Header */}
-        <header className="text-center mb-16">
-          <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            Homelab AI Services
+      <div className="container mx-auto px-4 py-8">
+        {/* Page Header */}
+        <div className="text-center mb-12">
+          <h1 className="text-4xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            AI Services Dashboard
           </h1>
-          <p className="text-xl text-gray-600 dark:text-gray-300">
-            REST API wrapping common AI capabilities for homelab developers
+          <p className="text-lg text-muted-foreground">
+            Monitor and manage your AI capabilities
           </p>
-        </header>
+        </div>
 
         {/* API Status Card */}
         <Card className="mb-8">
