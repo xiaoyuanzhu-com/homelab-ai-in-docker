@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Important Notes
+
+- **DO NOT commit without explicit user instruction** - Wait for the user to ask to commit changes before running git commit commands.
+
 ## Project Overview
 
 REST API service that wraps common AI capabilities for homelab developers. Built with FastAPI and Python, designed to run in Docker.
