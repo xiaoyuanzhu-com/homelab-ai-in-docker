@@ -106,11 +106,11 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             success=result["success"],
         )
 
-        # Save to history
+        # Save to history (convert HttpUrl to string)
         history_storage.add_request(
             service="crawl",
             request_id=request_id,
-            request_data=request.model_dump(),
+            request_data=request.model_dump(mode="json"),
             response_data=response.model_dump(exclude={"html", "screenshot_base64"}),
             status="success",
         )
