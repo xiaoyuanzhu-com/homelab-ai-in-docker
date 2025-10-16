@@ -56,6 +56,10 @@ UI runs on `http://localhost:3000`
   - Frontend code uses relative URLs (e.g., `fetch('/api/crawl')`, `fetch('/api/health')`)
   - In production, Python server will serve the built UI and handle API requests
   - This enables same-origin requests and simplifies deployment
+- **UI Framework**: shadcn/ui (New York style) with Tailwind CSS v4
+  - Add components: `npx shadcn@latest add <component>`
+  - Components in `src/components/ui/`
+  - Utilities in `src/lib/utils.ts`
 
 ## Project Structure
 
