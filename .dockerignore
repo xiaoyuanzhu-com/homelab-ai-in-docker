@@ -1,0 +1,51 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+*.egg-info
+build/
+dist/
+wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Data and cache
+data/
+.history/
+*.log
+
+# UI (Next.js frontend - not needed in backend container)
+ui/
+node_modules/
+
+# Testing and development
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+*.sqlite
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# UV lock file (we use pyproject.toml)
+uv.lock

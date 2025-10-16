@@ -1,0 +1,11 @@
+services:
+  api:
+    image: ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest
+    restart: unless-stopped
+    container_name: homelab-ai-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/haid/data
+    environment:
+      - PYTHONUNBUFFERED=1

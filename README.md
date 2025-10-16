@@ -5,10 +5,48 @@ REST API service wrapping common AI capabilities for homelab developers. Enables
 ## Features
 
 - **Smart Web Scraping**: Crawl URLs with JavaScript rendering support, extract clean Markdown content
-- **Text Embedding**: (Coming soon) Convert text to vectors for semantic search
-- **Image Captioning**: (Coming soon) Generate descriptions from images
+- **Text Embedding**: Convert text to vectors for semantic search and similarity matching
+- **Image Captioning**: Generate natural language descriptions from images
 
 ## Quick Start
+
+### Docker (Recommended for Production)
+
+**Option 1: Use pre-built image from GitHub Container Registry**
+
+```bash
+# Pull and run the latest image
+docker pull ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest
+
+# Run with docker-compose (update image in docker-compose.yml)
+docker-compose up -d
+
+# Or run directly
+docker run -d \
+  -p 8000:8000 \
+  -v $(pwd)/data:/haid/data \
+  --name homelab-ai \
+  ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest
+```
+
+**Option 2: Build locally**
+
+```bash
+# Build and run with docker-compose
+docker-compose up -d
+
+# Or build manually
+docker build -t homelab-ai .
+docker run -d \
+  -p 8000:8000 \
+  -v $(pwd)/data:/haid/data \
+  --name homelab-ai \
+  homelab-ai
+```
+
+The API will be available at `http://localhost:8000`
+
+### Local Development
 
 ### Installation
 
@@ -76,14 +114,30 @@ All endpoints are under the `/api` prefix:
 
 - `GET /api` - API status and information
 - `POST /api/crawl` - Crawl and extract content from a URL
+- `POST /api/embed` - Generate text embeddings
+- `POST /api/caption` - Generate image captions
+- `GET /api/history/{service}` - Get request history for a service
 - `GET /api/health` - Health check
 - `GET /api/ready` - Readiness check
 - `GET /api/docs` - Interactive API documentation (Swagger UI)
+
+## Directory Structure
+
+```
+/haid (or . in dev)
+├── data/              # Model cache and history database (git-ignored)
+│   ├── embedding/     # sentence-transformers models
+│   ├── image-caption/ # BLIP models
+│   └── history.db     # SQLite database for request history
+├── src/               # Application source
+└── main.py            # Application entry point
+```
 
 ## Documentation
 
 - [Product Design](docs/product-design.md) - User-focused overview
 - [Technical Design](docs/tech-design.md) - Implementation details
+- [Deployment Guide](docs/deployment.md) - Docker, GHCR, and production deployment
 - [CLAUDE.md](CLAUDE.md) - AI assistant context
 
 ## Development

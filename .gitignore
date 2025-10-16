@@ -9,5 +9,5 @@ wheels/
 # Virtual environments
 .venv
 
-# Request history
-.history/
+# Model data cache and history database
+data/

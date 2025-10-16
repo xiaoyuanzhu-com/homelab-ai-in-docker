@@ -2,6 +2,7 @@
 
 import base64
 import io
+import os
 import time
 import uuid
 from typing import Optional
@@ -13,6 +14,7 @@ import torch
 
 from ..models.caption import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
+from ...config import get_model_cache_dir
 
 
 router = APIRouter(prefix="/api", tags=["caption"])
@@ -33,8 +35,19 @@ def get_model():
     global _model_cache, _processor_cache, _current_model_name
 
     if _model_cache is None or _processor_cache is None:
-        _processor_cache = BlipProcessor.from_pretrained(_current_model_name)
-        _model_cache = BlipForConditionalGeneration.from_pretrained(_current_model_name)
+        # Get custom cache directory
+        cache_dir = get_model_cache_dir("image-caption", _current_model_name)
+
+        # Set HuggingFace cache environment variable
+        os.environ["TRANSFORMERS_CACHE"] = str(cache_dir)
+
+        # Load model and processor with custom cache location
+        _processor_cache = BlipProcessor.from_pretrained(
+            _current_model_name, cache_dir=str(cache_dir)
+        )
+        _model_cache = BlipForConditionalGeneration.from_pretrained(
+            _current_model_name, cache_dir=str(cache_dir)
+        )
 
     return _processor_cache, _model_cache
 

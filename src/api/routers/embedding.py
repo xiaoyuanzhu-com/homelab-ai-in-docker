@@ -9,6 +9,7 @@ from sentence_transformers import SentenceTransformer
 
 from ..models.embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
+from ...config import get_model_cache_dir
 
 
 router = APIRouter(prefix="/api", tags=["embedding"])
@@ -34,7 +35,11 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
 
     # Load model if not cached or if different model requested
     if _model_cache is None or target_model != _current_model_name:
-        _model_cache = SentenceTransformer(target_model)
+        # Get custom cache directory
+        cache_dir = get_model_cache_dir("embedding", target_model)
+
+        # Load model with custom cache location
+        _model_cache = SentenceTransformer(target_model, cache_folder=str(cache_dir))
         _current_model_name = target_model
 
     return _model_cache
