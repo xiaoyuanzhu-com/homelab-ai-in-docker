@@ -27,6 +27,11 @@ crawl4ai-setup
 ### Running the Server
 
 ```bash
+# With uv (no activation needed)
+uv run python main.py
+
+# Or activate and run
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 python main.py
 ```
 
@@ -87,7 +92,11 @@ All endpoints are under the `/api` prefix:
 # Install in development mode
 uv pip install -e ".[dev]"
 
-# Run with auto-reload
+# Run with auto-reload (using uv)
+uv run uvicorn main:app --reload
+
+# Or activate first
+source .venv/bin/activate
 uvicorn main:app --reload
 ```
 

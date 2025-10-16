@@ -26,11 +26,15 @@ crawl4ai-setup  # Installs Playwright browsers
 
 ### Backend API
 ```bash
-# Development mode
-python main.py
+# Quick start with uv (no activation needed)
+uv run python main.py
 
 # Or with auto-reload
-uvicorn main:app --reload
+uv run uvicorn main:app --reload
+
+# Or activate venv first
+source .venv/bin/activate
+python main.py
 ```
 
 API runs on `http://localhost:8000`
