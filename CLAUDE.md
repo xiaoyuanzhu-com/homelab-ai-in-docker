@@ -24,6 +24,7 @@ crawl4ai-setup  # Installs Playwright browsers
 
 ## Running the Application
 
+### Backend API
 ```bash
 # Development mode
 python main.py
@@ -36,6 +37,15 @@ API runs on `http://localhost:8000`
 - Docs: `/docs`
 - Health: `/health`
 
+### Frontend UI
+```bash
+cd ui
+npm run dev
+```
+
+UI runs on `http://localhost:3000`
+- **Note**: User manages the UI dev server separately. Assume it's running when working on UI features.
+
 ## Project Structure
 
 ```
@@ -46,6 +56,10 @@ src/
       crawl.py            - Crawl API endpoints
     models/
       crawl.py            - Pydantic models for crawl API
+ui/
+  src/app/
+    page.tsx              - Homepage with API status and features
+    layout.tsx            - Root layout and metadata
 docs/
   product-design.md       - User-focused product overview
   tech-design.md          - Technical implementation details
