@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 
 interface ApiStatus {
   name: string;
@@ -45,125 +47,125 @@ export default function Home() {
         </header>
 
         {/* API Status Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
-          <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-white">
-            API Status
-          </h2>
-          {isLoading ? (
-            <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
-              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              Checking API status...
-            </div>
-          ) : error ? (
-            <div className="text-red-600 dark:text-red-400">
-              ✗ API Offline: {error}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
-                <span className="text-green-600 dark:text-green-400 font-medium">
-                  {apiStatus?.status === "running" ? "Online" : "Unknown"}
-                </span>
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>API Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                Checking API status...
               </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                Version: {apiStatus?.version}
+            ) : error ? (
+              <div className="text-destructive">
+                ✗ API Offline: {error}
               </div>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+                  <Badge variant="outline" className="text-green-600 border-green-600">
+                    {apiStatus?.status === "running" ? "Online" : "Unknown"}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Version: {apiStatus?.version}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Features Grid */}
         <div className="grid md:grid-cols-3 gap-6 mb-12">
           {/* Crawl Feature */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow">
-            <div className="text-4xl mb-4">🌐</div>
-            <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
-              Smart Web Scraping
-            </h3>
-            <p className="text-gray-600 dark:text-gray-300 mb-4">
-              Crawl URLs with JavaScript rendering support, extract clean
-              Markdown content
-            </p>
-            <span className="inline-block px-3 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded-full text-sm font-medium">
-              Available
-            </span>
-          </div>
+          <Card className="hover:shadow-lg transition-shadow">
+            <CardHeader>
+              <div className="text-4xl mb-2">🌐</div>
+              <CardTitle>Smart Web Scraping</CardTitle>
+              <CardDescription>
+                Crawl URLs with JavaScript rendering support, extract clean
+                Markdown content
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Badge className="bg-green-600 hover:bg-green-700">Available</Badge>
+            </CardContent>
+          </Card>
 
           {/* Embedding Feature */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow opacity-60">
-            <div className="text-4xl mb-4">🔢</div>
-            <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
-              Text Embedding
-            </h3>
-            <p className="text-gray-600 dark:text-gray-300 mb-4">
-              Convert text to vectors for semantic search and similarity
-              matching
-            </p>
-            <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full text-sm font-medium">
-              Coming Soon
-            </span>
-          </div>
+          <Card className="hover:shadow-lg transition-shadow opacity-60">
+            <CardHeader>
+              <div className="text-4xl mb-2">🔢</div>
+              <CardTitle>Text Embedding</CardTitle>
+              <CardDescription>
+                Convert text to vectors for semantic search and similarity
+                matching
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Badge variant="secondary">Coming Soon</Badge>
+            </CardContent>
+          </Card>
 
           {/* Captioning Feature */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 hover:shadow-xl transition-shadow opacity-60">
-            <div className="text-4xl mb-4">🖼️</div>
-            <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
-              Image Captioning
-            </h3>
-            <p className="text-gray-600 dark:text-gray-300 mb-4">
-              Generate descriptive text from images for accessibility and
-              search
-            </p>
-            <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full text-sm font-medium">
-              Coming Soon
-            </span>
-          </div>
+          <Card className="hover:shadow-lg transition-shadow opacity-60">
+            <CardHeader>
+              <div className="text-4xl mb-2">🖼️</div>
+              <CardTitle>Image Captioning</CardTitle>
+              <CardDescription>
+                Generate descriptive text from images for accessibility and
+                search
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Badge variant="secondary">Coming Soon</Badge>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Quick Links */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-          <h2 className="text-2xl font-semibold mb-4 text-gray-800 dark:text-white">
-            Quick Links
-          </h2>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <a
-              href="/api/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 transition-colors"
-            >
-              <span className="text-2xl">📚</span>
-              <div>
-                <div className="font-medium text-gray-800 dark:text-white">
-                  API Documentation
+        <Card>
+          <CardHeader>
+            <CardTitle>Quick Links</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <a
+                href="/api/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 p-4 rounded-lg border hover:border-primary transition-colors"
+              >
+                <span className="text-2xl">📚</span>
+                <div>
+                  <div className="font-medium">API Documentation</div>
+                  <div className="text-sm text-muted-foreground">
+                    Interactive Swagger UI
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">
-                  Interactive Swagger UI
+              </a>
+              <a
+                href="/api/health"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 p-4 rounded-lg border hover:border-primary transition-colors"
+              >
+                <span className="text-2xl">💚</span>
+                <div>
+                  <div className="font-medium">Health Check</div>
+                  <div className="text-sm text-muted-foreground">
+                    API health endpoint
+                  </div>
                 </div>
-              </div>
-            </a>
-            <a
-              href="/api/health"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 transition-colors"
-            >
-              <span className="text-2xl">💚</span>
-              <div>
-                <div className="font-medium text-gray-800 dark:text-white">
-                  Health Check
-                </div>
-                <div className="text-sm text-gray-600 dark:text-gray-400">
-                  API health endpoint
-                </div>
-              </div>
-            </a>
-          </div>
-        </div>
+              </a>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Footer */}
-        <footer className="text-center mt-16 text-gray-600 dark:text-gray-400">
+        <footer className="text-center mt-16 text-muted-foreground">
           <p>Built for homelab developers who need AI capabilities</p>
         </footer>
       </div>
