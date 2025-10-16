@@ -15,27 +15,27 @@ export function Header() {
           </Link>
 
           {/* Navigation Menu */}
-          <NavigationMenu className="hidden md:flex">
+          <NavigationMenu className="hidden md:flex" viewport={false}>
             <NavigationMenuList>
               <NavigationMenuItem>
-                <NavigationMenuLink asChild className={navigationMenuTriggerStyle()}>
-                  <Link href="/">Home</Link>
-                </NavigationMenuLink>
+                <Link href="/" className={navigationMenuTriggerStyle()}>
+                  Home
+                </Link>
               </NavigationMenuItem>
               <NavigationMenuItem>
-                <NavigationMenuLink asChild className={navigationMenuTriggerStyle()}>
-                  <Link href="/embedding">Embedding</Link>
-                </NavigationMenuLink>
+                <Link href="/embedding" className={navigationMenuTriggerStyle()}>
+                  Embedding
+                </Link>
               </NavigationMenuItem>
               <NavigationMenuItem>
-                <NavigationMenuLink asChild className={navigationMenuTriggerStyle()}>
-                  <Link href="/image-caption">Image Caption</Link>
-                </NavigationMenuLink>
+                <Link href="/image-caption" className={navigationMenuTriggerStyle()}>
+                  Image Caption
+                </Link>
               </NavigationMenuItem>
               <NavigationMenuItem>
-                <NavigationMenuLink asChild className={navigationMenuTriggerStyle()}>
-                  <Link href="/crawl">Crawl</Link>
-                </NavigationMenuLink>
+                <Link href="/crawl" className={navigationMenuTriggerStyle()}>
+                  Crawl
+                </Link>
               </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>

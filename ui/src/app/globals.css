@@ -1,52 +1,75 @@
 @import "tailwindcss";
 
-@theme inline {
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-
-  /* shadcn/ui colors */
-  --color-background: 0 0% 100%;
-  --color-foreground: 0 0% 9%;
-  --color-card: 0 0% 100%;
-  --color-card-foreground: 0 0% 9%;
-  --color-popover: 0 0% 100%;
-  --color-popover-foreground: 0 0% 9%;
-  --color-primary: 0 0% 9%;
-  --color-primary-foreground: 0 0% 98%;
-  --color-secondary: 0 0% 96%;
-  --color-secondary-foreground: 0 0% 9%;
-  --color-muted: 0 0% 96%;
-  --color-muted-foreground: 0 0% 45%;
-  --color-accent: 0 0% 96%;
-  --color-accent-foreground: 0 0% 9%;
-  --color-destructive: 0 84% 60%;
-  --color-destructive-foreground: 0 0% 98%;
-  --color-border: 0 0% 89%;
-  --color-input: 0 0% 89%;
-  --color-ring: 0 0% 9%;
+:root {
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(0 0% 9%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(0 0% 9%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(0 0% 9%);
+  --primary: hsl(0 0% 9%);
+  --primary-foreground: hsl(0 0% 98%);
+  --secondary: hsl(0 0% 96%);
+  --secondary-foreground: hsl(0 0% 9%);
+  --muted: hsl(0 0% 96%);
+  --muted-foreground: hsl(0 0% 45%);
+  --accent: hsl(0 0% 96%);
+  --accent-foreground: hsl(0 0% 9%);
+  --destructive: hsl(0 84% 60%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --border: hsl(0 0% 89%);
+  --input: hsl(0 0% 89%);
+  --ring: hsl(0 0% 9%);
   --radius: 0.5rem;
 }
 
 .dark {
-  --color-background: 0 0% 4%;
-  --color-foreground: 0 0% 93%;
-  --color-card: 0 0% 4%;
-  --color-card-foreground: 0 0% 93%;
-  --color-popover: 0 0% 4%;
-  --color-popover-foreground: 0 0% 93%;
-  --color-primary: 0 0% 98%;
-  --color-primary-foreground: 0 0% 9%;
-  --color-secondary: 0 0% 15%;
-  --color-secondary-foreground: 0 0% 98%;
-  --color-muted: 0 0% 15%;
-  --color-muted-foreground: 0 0% 64%;
-  --color-accent: 0 0% 15%;
-  --color-accent-foreground: 0 0% 98%;
-  --color-destructive: 0 63% 31%;
-  --color-destructive-foreground: 0 0% 98%;
-  --color-border: 0 0% 15%;
-  --color-input: 0 0% 15%;
-  --color-ring: 0 0% 83%;
+  --background: hsl(0 0% 4%);
+  --foreground: hsl(0 0% 93%);
+  --card: hsl(0 0% 4%);
+  --card-foreground: hsl(0 0% 93%);
+  --popover: hsl(0 0% 4%);
+  --popover-foreground: hsl(0 0% 93%);
+  --primary: hsl(0 0% 98%);
+  --primary-foreground: hsl(0 0% 9%);
+  --secondary: hsl(0 0% 15%);
+  --secondary-foreground: hsl(0 0% 98%);
+  --muted: hsl(0 0% 15%);
+  --muted-foreground: hsl(0 0% 64%);
+  --accent: hsl(0 0% 15%);
+  --accent-foreground: hsl(0 0% 98%);
+  --destructive: hsl(0 63% 31%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --border: hsl(0 0% 15%);
+  --input: hsl(0 0% 15%);
+  --ring: hsl(0 0% 83%);
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* shadcn/ui colors - map from :root */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius: 0.5rem;
 }
 
 body {
