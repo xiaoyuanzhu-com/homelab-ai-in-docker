@@ -72,6 +72,14 @@
   --radius: 0.5rem;
 }
 
-body {
-  font-family: var(--font-sans);
+@layer base {
+  *,
+  ::after,
+  ::before {
+    border-color: var(--border);
+  }
+
+  body {
+    font-family: var(--font-sans);
+  }
 }
