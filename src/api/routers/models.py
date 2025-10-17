@@ -128,18 +128,24 @@ async def download_model_with_progress(
         logger = logging.getLogger(__name__)
         env = os.environ.copy()
 
+        # Log all HF-related environment variables for transparency
+        logger.info(f"=== Download Starting for {model_id} ===")
+        logger.info(f"Target directory: {cache_dir}")
+
+        hf_vars = {k: v for k, v in env.items() if k.startswith('HF_')}
+        logger.info(f"Current HF environment variables: {hf_vars}")
+
         # Check for HF_ENDPOINT and ensure both env vars are set
         hf_endpoint = env.get("HF_ENDPOINT")
         if hf_endpoint:
             # Set both HF_ENDPOINT and HF_HUB_ENDPOINT for compatibility
             env["HF_ENDPOINT"] = hf_endpoint
             env["HF_HUB_ENDPOINT"] = hf_endpoint
-            logger.info(f"Using mirror endpoint: {hf_endpoint}")
-            logger.info(f"Set HF_ENDPOINT and HF_HUB_ENDPOINT to: {hf_endpoint}")
+            logger.info(f"✓ Mirror configured: {hf_endpoint}")
+            logger.info(f"✓ Set HF_ENDPOINT={hf_endpoint}")
+            logger.info(f"✓ Set HF_HUB_ENDPOINT={hf_endpoint}")
         else:
-            logger.info(f"Using default HuggingFace endpoint")
-
-        logger.info(f"Starting download for {model_id} to {cache_dir}")
+            logger.warning("⚠ No HF_ENDPOINT set - using default huggingface.co")
 
         cmd = ["huggingface-cli", "download", model_id, "--local-dir", str(cache_dir)]
         logger.info(f"Command: {' '.join(cmd)}")
@@ -156,8 +162,9 @@ async def download_model_with_progress(
         # Track active download
         active_downloads[model_id] = process
 
-        # Log subprocess output in real-time
-        logger.info(f"Download process started with PID: {process.pid}")
+        # Log subprocess details
+        logger.info(f"✓ Download process started (PID: {process.pid})")
+        logger.info(f"=== Monitoring download progress ===")
 
         last_progress_time = time.time()
         last_size = 0
@@ -173,11 +180,14 @@ async def download_model_with_progress(
                     if select.select([process.stdout], [], [], 0.1)[0]:
                         line = process.stdout.readline()
                         if line:
-                            # Log output every 5 seconds to avoid spam
-                            current_time = time.time()
-                            if current_time - last_log_time >= 5.0:
-                                logger.info(f"Download output: {line.strip()}")
-                                last_log_time = current_time
+                            line_stripped = line.strip()
+                            # Always log lines containing URLs or important info
+                            if any(keyword in line_stripped for keyword in ['http', 'Downloading', 'Fetching', 'hf.co', 'hf-mirror']):
+                                logger.info(f"CLI: {line_stripped}")
+                            # Log other output every 5 seconds to avoid spam
+                            elif time.time() - last_log_time >= 5.0:
+                                logger.info(f"CLI: {line_stripped}")
+                                last_log_time = time.time()
                 except Exception as e:
                     pass  # Ignore read errors
             # Check if client disconnected
@@ -217,12 +227,14 @@ async def download_model_with_progress(
         returncode = process.returncode
         del active_downloads[model_id]
 
-        logger.info(f"Download process completed with exit code: {returncode}")
+        logger.info(f"=== Download Process Completed ===")
+        logger.info(f"Exit code: {returncode}")
 
         if returncode != 0:
             # Download failed - read remaining output
             stdout_output = process.stdout.read() if process.stdout else "Unknown error"
-            logger.error(f"Download failed for {model_id}: {stdout_output[:500]}")
+            logger.error(f"✗ Download FAILED for {model_id}")
+            logger.error(f"Error output: {stdout_output[:500]}")
             event = DownloadProgressEvent(
                 type="error", message=f"Download failed: {stdout_output[:200]}"
             )
@@ -242,7 +254,10 @@ async def download_model_with_progress(
             )
         final_size_mb = final_size // (1024 * 1024)
 
-        logger.info(f"Download completed successfully for {model_id}: {final_size_mb} MB")
+        logger.info(f"✓ Download SUCCESS for {model_id}")
+        logger.info(f"Downloaded size: {final_size_mb} MB")
+        logger.info(f"Location: {cache_dir}")
+        logger.info(f"=== Download Complete ===")
 
         # Success! (no size verification - sizes vary too much)
         event = DownloadProgressEvent(
