@@ -46,8 +46,8 @@ def check_model_downloaded(model_id: str) -> tuple[bool, Optional[int]]:
     # Instead, construct path without creating it
     from ...config import get_data_dir
 
-    safe_model_name = model_id.replace("/", "--")
-    cache_dir = get_data_dir() / "embedding" / safe_model_name
+    # Preserve the original HuggingFace path structure
+    cache_dir = get_data_dir() / "embedding" / "models" / model_id
 
     # Check if the model directory exists and has content
     if cache_dir.exists():
@@ -115,8 +115,8 @@ async def download_model_with_progress(
     """
     from ...config import get_data_dir
 
-    safe_model_name = model_id.replace("/", "--")
-    cache_dir = get_data_dir() / "embedding" / safe_model_name
+    # Preserve the original HuggingFace path structure (e.g., BAAI/bge-large-en-v1.5)
+    cache_dir = get_data_dir() / "embedding" / "models" / model_id
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -377,8 +377,7 @@ async def cancel_download(model_id: str):
         from ...config import get_data_dir
         import shutil
 
-        safe_model_name = model_id.replace("/", "--")
-        cache_dir = get_data_dir() / "embedding" / safe_model_name
+        cache_dir = get_data_dir() / "embedding" / "models" / model_id
 
         if cache_dir.exists():
             shutil.rmtree(cache_dir)
@@ -428,8 +427,7 @@ async def delete_embedding_model(model_id: str):
     try:
         from ...config import get_data_dir
 
-        safe_model_name = model_id.replace("/", "--")
-        cache_dir = get_data_dir() / "embedding" / safe_model_name
+        cache_dir = get_data_dir() / "embedding" / "models" / model_id
 
         if not cache_dir.exists():
             return {
