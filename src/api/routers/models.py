@@ -123,7 +123,15 @@ async def download_model_with_progress(
         # Start huggingface-cli download subprocess
         # Pass environment variables including HF_ENDPOINT if set
         import os
+        import logging
+
+        logger = logging.getLogger(__name__)
         env = os.environ.copy()
+
+        # Log environment variables for debugging
+        hf_endpoint = env.get("HF_ENDPOINT", "default (https://huggingface.co)")
+        logger.info(f"Starting download for {model_id} to {cache_dir}")
+        logger.info(f"Using HF_ENDPOINT: {hf_endpoint}")
 
         process = subprocess.Popen(
             [
@@ -134,7 +142,7 @@ async def download_model_with_progress(
                 str(cache_dir),
             ],
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Redirect stderr to stdout for unified logging
             universal_newlines=True,
             bufsize=1,
             env=env,  # Pass all environment variables including HF_ENDPOINT
@@ -143,11 +151,30 @@ async def download_model_with_progress(
         # Track active download
         active_downloads[model_id] = process
 
+        # Log subprocess output in real-time
+        logger.info(f"Download process started with PID: {process.pid}")
+
         last_progress_time = time.time()
         last_size = 0
+        last_log_time = time.time()
 
         # Monitor download progress
         while process.poll() is None:
+            # Read and log subprocess output (non-blocking)
+            if process.stdout:
+                try:
+                    import select
+                    # Check if there's output available (with short timeout)
+                    if select.select([process.stdout], [], [], 0.1)[0]:
+                        line = process.stdout.readline()
+                        if line:
+                            # Log output every 5 seconds to avoid spam
+                            current_time = time.time()
+                            if current_time - last_log_time >= 5.0:
+                                logger.info(f"Download output: {line.strip()}")
+                                last_log_time = current_time
+                except Exception as e:
+                    pass  # Ignore read errors
             # Check if client disconnected
             if await request.is_disconnected():
                 process.terminate()
@@ -190,11 +217,14 @@ async def download_model_with_progress(
         returncode = process.returncode
         del active_downloads[model_id]
 
+        logger.info(f"Download process completed with exit code: {returncode}")
+
         if returncode != 0:
-            # Download failed
-            stderr_output = process.stderr.read() if process.stderr else "Unknown error"
+            # Download failed - read remaining output
+            stdout_output = process.stdout.read() if process.stdout else "Unknown error"
+            logger.error(f"Download failed for {model_id}: {stdout_output[:500]}")
             event = DownloadProgressEvent(
-                type="error", message=f"Download failed: {stderr_output[:200]}"
+                type="error", message=f"Download failed: {stdout_output[:200]}"
             )
             yield event.model_dump_json()
             # Clean up partial download
@@ -211,6 +241,8 @@ async def download_model_with_progress(
                 f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()
             )
         final_size_mb = final_size // (1024 * 1024)
+
+        logger.info(f"Download completed successfully for {model_id}: {final_size_mb} MB")
 
         # Success! (no size verification - sizes vary too much)
         event = DownloadProgressEvent(
