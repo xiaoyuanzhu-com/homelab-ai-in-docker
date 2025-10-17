@@ -34,11 +34,24 @@ async def crawl_url(
     """
     try:
         async with AsyncWebCrawler(verbose=False) as crawler:
-            result = await crawler.arun(
-                url=url,
-                screenshot=screenshot,
-                wait_for=2000 if wait_for_js else 0,  # Wait 2s for JS
-            )
+            # For JS-heavy pages, wait for content to load
+            kwargs = {
+                "url": url,
+                "screenshot": screenshot,
+            }
+
+            if wait_for_js:
+                # For JavaScript-heavy SPAs:
+                # - wait_until="networkidle" waits until network is idle
+                # - delay_before_return_html gives extra time for rendering
+                # - simulate_user helps avoid bot detection
+                # - scan_full_page scrolls the page to trigger lazy loading
+                kwargs["wait_until"] = "networkidle"
+                kwargs["delay_before_return_html"] = 2.0
+                kwargs["simulate_user"] = True
+                kwargs["scan_full_page"] = True
+
+            result = await crawler.arun(**kwargs)
 
             return {
                 "url": result.url,
