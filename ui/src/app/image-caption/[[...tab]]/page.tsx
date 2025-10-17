@@ -36,13 +36,7 @@ export default function ImageCaptionPage() {
   useEffect(() => {
     // Infer API base URL from current window location
     if (typeof window !== "undefined") {
-      const origin = window.location.origin;
-      // If running on localhost:3000 (Next.js dev), use localhost:8000 (API)
-      // Otherwise use the same origin (production with reverse proxy)
-      const baseUrl = origin.includes("localhost:3000")
-        ? "http://localhost:8000"
-        : origin;
-      setApiBaseUrl(baseUrl);
+      setApiBaseUrl(window.location.origin);
     }
   }, []);
 
