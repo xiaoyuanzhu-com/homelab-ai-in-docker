@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -22,8 +22,9 @@ interface CaptionResult {
 
 export default function ImageCaptionPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "try");
+  const params = useParams();
+  const tab = (params.tab as string[]) || [];
+  const [activeTab, setActiveTab] = useState(tab[0] || "try");
 
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
@@ -33,7 +34,8 @@ export default function ImageCaptionPage() {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    router.push(`/image-caption?tab=${tab}`, { scroll: false });
+    const path = tab === "try" ? "/image-caption" : `/image-caption/${tab}`;
+    router.push(path, { scroll: false });
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -97,7 +99,7 @@ export default function ImageCaptionPage() {
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="mb-6">
           <TabsTrigger value="try">Try</TabsTrigger>
-          <TabsTrigger value="api">API</TabsTrigger>
+          <TabsTrigger value="doc">Doc</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
 
@@ -215,7 +217,7 @@ export default function ImageCaptionPage() {
         </TabsContent>
 
         {/* API Tab */}
-        <TabsContent value="api">
+        <TabsContent value="doc">
           <Card>
             <CardHeader>
               <CardTitle>API Reference</CardTitle>
@@ -289,7 +291,7 @@ print(result["caption"])`}
             service="caption"
             onSelectEntry={() => {
               setActiveTab("try");
-              router.push("/image-caption?tab=try", { scroll: false });
+              router.push("/image-caption", { scroll: false });
             }}
           />
         </TabsContent>

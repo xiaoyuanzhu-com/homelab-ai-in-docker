@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,8 +24,9 @@ interface EmbeddingResult {
 
 export default function EmbeddingPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "try");
+  const params = useParams();
+  const tab = (params.tab as string[]) || [];
+  const [activeTab, setActiveTab] = useState(tab[0] || "try");
 
   const [texts, setTexts] = useState("");
   const [loading, setLoading] = useState(false);
@@ -34,7 +35,8 @@ export default function EmbeddingPage() {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    router.push(`/embedding?tab=${tab}`, { scroll: false });
+    const path = tab === "try" ? "/embedding" : `/embedding/${tab}`;
+    router.push(path, { scroll: false });
   };
 
   const handleEmbed = async () => {
@@ -84,7 +86,7 @@ export default function EmbeddingPage() {
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="mb-6">
           <TabsTrigger value="try">Try</TabsTrigger>
-          <TabsTrigger value="api">API</TabsTrigger>
+          <TabsTrigger value="doc">Doc</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
 
@@ -199,7 +201,7 @@ export default function EmbeddingPage() {
         </TabsContent>
 
         {/* API Tab */}
-        <TabsContent value="api">
+        <TabsContent value="doc">
           <Card>
             <CardHeader>
               <CardTitle>API Reference</CardTitle>
@@ -272,7 +274,7 @@ export default function EmbeddingPage() {
               if (entry.request.texts) {
                 setTexts(entry.request.texts.join("\n"));
                 setActiveTab("try");
-                router.push("/embedding?tab=try", { scroll: false });
+                router.push("/embedding", { scroll: false });
               }
             }}
           />

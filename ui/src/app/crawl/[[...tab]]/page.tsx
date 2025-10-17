@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,8 +28,9 @@ interface CrawlResult {
 
 export default function CrawlPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get("tab") || "try");
+  const params = useParams();
+  const tab = (params.tab as string[]) || [];
+  const [activeTab, setActiveTab] = useState(tab[0] || "try");
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const [url, setUrl] = useState("");
@@ -40,7 +41,8 @@ export default function CrawlPage() {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    router.push(`/crawl?tab=${tab}`, { scroll: false });
+    const path = tab === "try" ? "/crawl" : `/crawl/${tab}`;
+    router.push(path, { scroll: false });
   };
 
   const handleCrawl = async () => {
@@ -94,7 +96,7 @@ export default function CrawlPage() {
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="mb-6">
             <TabsTrigger value="try">Try</TabsTrigger>
-            <TabsTrigger value="api">API</TabsTrigger>
+            <TabsTrigger value="doc">Doc</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
 
@@ -228,7 +230,7 @@ export default function CrawlPage() {
           </TabsContent>
 
           {/* API Tab */}
-          <TabsContent value="api">
+          <TabsContent value="doc">
             <Card>
               <CardHeader>
                 <CardTitle>API Reference</CardTitle>
@@ -301,7 +303,7 @@ export default function CrawlPage() {
                 if (entry.request.url) {
                   setUrl(entry.request.url);
                   setActiveTab("try");
-                  router.push("/crawl?tab=try", { scroll: false });
+                  router.push("/crawl", { scroll: false });
                 }
               }}
             />
