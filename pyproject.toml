@@ -13,6 +13,7 @@ dependencies = [
     "torch>=2.0.0",
     "pillow>=10.0.0",
     "transformers>=4.30.0",
+    "sse-starlette>=2.0.0",
 ]
 
 [tool.setuptools]

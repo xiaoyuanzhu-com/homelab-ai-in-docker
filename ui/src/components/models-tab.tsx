@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertCircle, Download, Trash2, Loader2, ExternalLink } from "lucide-react";
+import { AlertCircle, Download, Trash2, Loader2, ExternalLink, X } from "lucide-react";
 import { toast } from "sonner";
+import { Progress } from "@/components/ui/progress";
 
 interface EmbeddingModel {
   id: string;
@@ -28,11 +29,18 @@ interface ModelsTabProps {
   onModelSelect?: (modelId: string) => void;
 }
 
+interface DownloadProgress {
+  percent: number;
+  currentMb: number;
+  totalMb: number;
+}
+
 export function ModelsTab({ onModelSelect }: ModelsTabProps) {
   const [models, setModels] = useState<EmbeddingModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [downloadingModels, setDownloadingModels] = useState<Set<string>>(new Set());
+  const [downloadProgress, setDownloadProgress] = useState<Map<string, DownloadProgress>>(new Map());
+  const [activeEventSources, setActiveEventSources] = useState<Map<string, EventSource>>(new Map());
   const [deletingModels, setDeletingModels] = useState<Set<string>>(new Set());
 
   const fetchModels = async () => {
@@ -60,39 +68,115 @@ export function ModelsTab({ onModelSelect }: ModelsTabProps) {
   }, []);
 
   const handleDownload = async (modelId: string) => {
-    setDownloadingModels((prev) => new Set(prev).add(modelId));
+    const eventSource = new EventSource(`/api/models/embedding/${modelId}/download`);
 
-    try {
-      const response = await fetch("/api/models/embedding/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model_id: modelId }),
-      });
+    // Store EventSource for cancellation
+    setActiveEventSources((prev) => new Map(prev).set(modelId, eventSource));
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+    // Initialize progress
+    setDownloadProgress((prev) => new Map(prev).set(modelId, { percent: 0, currentMb: 0, totalMb: 0 }));
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      switch (data.type) {
+        case "progress":
+          setDownloadProgress((prev) =>
+            new Map(prev).set(modelId, {
+              percent: data.percent || 0,
+              currentMb: data.current_mb || 0,
+              totalMb: data.total_mb || 0,
+            })
+          );
+          break;
+
+        case "complete":
+          eventSource.close();
+          setActiveEventSources((prev) => {
+            const next = new Map(prev);
+            next.delete(modelId);
+            return next;
+          });
+          setDownloadProgress((prev) => {
+            const next = new Map(prev);
+            next.delete(modelId);
+            return next;
+          });
+          toast.success("Model downloaded successfully", {
+            description: `${data.size_mb} MB`,
+          });
+          // Refresh models list
+          fetchModels();
+          break;
+
+        case "error":
+          eventSource.close();
+          setActiveEventSources((prev) => {
+            const next = new Map(prev);
+            next.delete(modelId);
+            return next;
+          });
+          setDownloadProgress((prev) => {
+            const next = new Map(prev);
+            next.delete(modelId);
+            return next;
+          });
+          toast.error("Download failed", {
+            description: data.message || "Unknown error",
+          });
+          break;
       }
+    };
 
-      const data = await response.json();
-
-      toast.success("Model downloaded", {
-        description: data.message,
-      });
-
-      // Refresh models list
-      await fetchModels();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to download model";
-      toast.error("Download failed", {
-        description: errorMsg,
-      });
-    } finally {
-      setDownloadingModels((prev) => {
-        const next = new Set(prev);
+    eventSource.onerror = () => {
+      eventSource.close();
+      setActiveEventSources((prev) => {
+        const next = new Map(prev);
         next.delete(modelId);
         return next;
       });
+      setDownloadProgress((prev) => {
+        const next = new Map(prev);
+        next.delete(modelId);
+        return next;
+      });
+      toast.error("Connection error", {
+        description: "Lost connection to server during download",
+      });
+    };
+  };
+
+  const handleCancelDownload = async (modelId: string) => {
+    // Close EventSource
+    const eventSource = activeEventSources.get(modelId);
+    if (eventSource) {
+      eventSource.close();
     }
+
+    // Call backend to cancel
+    try {
+      await fetch(`/api/models/embedding/${modelId}/download`, {
+        method: "DELETE",
+      });
+
+      toast.info("Download cancelled", {
+        description: "Download stopped and partial files removed",
+      });
+    } catch (err) {
+      console.error("Failed to cancel download:", err);
+    }
+
+    // Clean up state
+    setActiveEventSources((prev) => {
+      const next = new Map(prev);
+      next.delete(modelId);
+      return next;
+    });
+    setDownloadProgress((prev) => {
+      const next = new Map(prev);
+      next.delete(modelId);
+      return next;
+    });
   };
 
   const handleDelete = async (modelId: string) => {
@@ -103,7 +187,7 @@ export function ModelsTab({ onModelSelect }: ModelsTabProps) {
     setDeletingModels((prev) => new Set(prev).add(modelId));
 
     try {
-      const response = await fetch(`/api/models/embedding/${encodeURIComponent(modelId)}`, {
+      const response = await fetch(`/api/models/embedding/${modelId}`, {
         method: "DELETE",
       });
 
@@ -186,7 +270,8 @@ export function ModelsTab({ onModelSelect }: ModelsTabProps) {
               </TableHeader>
               <TableBody>
                 {models.map((model) => {
-                  const isDownloading = downloadingModels.has(model.id);
+                  const progress = downloadProgress.get(model.id);
+                  const isDownloading = !!progress;
                   const isDeleting = deletingModels.has(model.id);
 
                   return (
@@ -217,7 +302,14 @@ export function ModelsTab({ onModelSelect }: ModelsTabProps) {
                         <span className="text-sm">{model.description}</span>
                       </TableCell>
                       <TableCell>
-                        {model.is_downloaded ? (
+                        {isDownloading && progress ? (
+                          <div className="space-y-1 min-w-[100px]">
+                            <Progress value={progress.percent} className="h-2" />
+                            <div className="text-xs text-muted-foreground">
+                              {progress.currentMb} / {progress.totalMb} MB ({progress.percent}%)
+                            </div>
+                          </div>
+                        ) : model.is_downloaded ? (
                           <Badge variant="default" className="bg-green-600 hover:bg-green-700">
                             {model.downloaded_size_mb} MB
                           </Badge>
@@ -229,38 +321,41 @@ export function ModelsTab({ onModelSelect }: ModelsTabProps) {
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1">
-                          {!model.is_downloaded ? (
+                          {isDownloading ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                              onClick={() => handleCancelDownload(model.id)}
+                              title="Cancel download"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          ) : !model.is_downloaded ? (
                             <Button
                               size="sm"
                               variant="ghost"
                               className="h-8 w-8 p-0"
                               onClick={() => handleDownload(model.id)}
-                              disabled={isDownloading}
                               title="Download model"
                             >
-                              {isDownloading ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Download className="h-4 w-4" />
-                              )}
+                              <Download className="h-4 w-4" />
                             </Button>
                           ) : (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                                onClick={() => handleDelete(model.id)}
-                                disabled={isDeleting}
-                                title="Delete model"
-                              >
-                                {isDeleting ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                              onClick={() => handleDelete(model.id)}
+                              disabled={isDeleting}
+                              title="Delete model"
+                            >
+                              {isDeleting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
                           )}
                         </div>
                       </TableCell>

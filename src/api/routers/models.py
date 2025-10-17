@@ -1,20 +1,27 @@
 """Models API router for managing embedding models."""
 
+import asyncio
 import json
+import subprocess
+import time
 from pathlib import Path
-from typing import Optional
+from typing import AsyncGenerator, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
-from sentence_transformers import SentenceTransformer
+from fastapi import APIRouter, HTTPException, Request
+from sse_starlette.sse import EventSourceResponse
 
 from ..models.models import (
+    DownloadProgressEvent,
     EmbeddingModelInfo,
-    ModelListResponse,
     ModelDownloadRequest,
     ModelDownloadResponse,
+    ModelListResponse,
 )
 
 router = APIRouter(prefix="/api", tags=["models"])
+
+# Active downloads tracking: {model_id: subprocess.Popen}
+active_downloads: Dict[str, subprocess.Popen] = {}
 
 
 def load_model_catalog() -> list[dict]:
@@ -92,6 +99,187 @@ async def list_embedding_models() -> ModelListResponse:
     return ModelListResponse(models=models)
 
 
+async def download_model_with_progress(
+    model_id: str, expected_size_mb: int, request: Request
+) -> AsyncGenerator[str, None]:
+    """
+    Download a model using huggingface-cli and stream progress via SSE.
+
+    Args:
+        model_id: The model identifier
+        expected_size_mb: Expected model size from manifest
+        request: FastAPI request object for disconnect detection
+
+    Yields:
+        SSE events with download progress
+    """
+    from ...config import get_data_dir
+
+    safe_model_name = model_id.replace("/", "--")
+    cache_dir = get_data_dir() / "embedding" / safe_model_name
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Start huggingface-cli download subprocess
+        # Pass environment variables including HF_ENDPOINT if set
+        import os
+        env = os.environ.copy()
+
+        process = subprocess.Popen(
+            [
+                "huggingface-cli",
+                "download",
+                model_id,
+                "--local-dir",
+                str(cache_dir),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            bufsize=1,
+            env=env,  # Pass all environment variables including HF_ENDPOINT
+        )
+
+        # Track active download
+        active_downloads[model_id] = process
+
+        last_progress_time = time.time()
+        last_size = 0
+
+        # Monitor download progress
+        while process.poll() is None:
+            # Check if client disconnected
+            if await request.is_disconnected():
+                process.terminate()
+                process.wait(timeout=5)
+                del active_downloads[model_id]
+                return
+
+            # Get current directory size
+            current_size = 0
+            if cache_dir.exists():
+                current_size = sum(
+                    f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()
+                )
+
+            current_size_mb = current_size // (1024 * 1024)
+
+            # Calculate progress percentage
+            if expected_size_mb > 0:
+                percent = min(int((current_size_mb / expected_size_mb) * 100), 99)
+            else:
+                percent = 0
+
+            # Send progress update every second or if significant size change
+            current_time = time.time()
+            if current_time - last_progress_time >= 1.0 or current_size_mb > last_size + 10:
+                event = DownloadProgressEvent(
+                    type="progress",
+                    percent=percent,
+                    current_mb=current_size_mb,
+                    total_mb=expected_size_mb,
+                )
+                yield event.model_dump_json()
+                last_progress_time = current_time
+                last_size = current_size_mb
+
+            # Small delay to prevent CPU spinning
+            await asyncio.sleep(0.5)
+
+        # Download completed - check exit code
+        returncode = process.returncode
+        del active_downloads[model_id]
+
+        if returncode != 0:
+            # Download failed
+            stderr_output = process.stderr.read() if process.stderr else "Unknown error"
+            event = DownloadProgressEvent(
+                type="error", message=f"Download failed: {stderr_output[:200]}"
+            )
+            yield event.model_dump_json()
+            # Clean up partial download
+            import shutil
+
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+            return
+
+        # Calculate final size for reporting
+        final_size = 0
+        if cache_dir.exists():
+            final_size = sum(
+                f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()
+            )
+        final_size_mb = final_size // (1024 * 1024)
+
+        # Success! (no size verification - sizes vary too much)
+        event = DownloadProgressEvent(
+            type="complete", percent=100, size_mb=final_size_mb
+        )
+        yield event.model_dump_json()
+
+    except Exception as e:
+        # Unexpected error
+        if model_id in active_downloads:
+            del active_downloads[model_id]
+        event = DownloadProgressEvent(type="error", message=f"Unexpected error: {str(e)}")
+        yield event.model_dump_json()
+
+
+@router.get("/models/embedding/{model_id:path}/download")
+async def download_embedding_model_stream(model_id: str, request: Request):
+    """
+    Download an embedding model with SSE progress streaming.
+
+    Args:
+        model_id: The model identifier (can contain slashes, e.g., BAAI/bge-large-en-v1.5)
+        request: FastAPI request
+
+    Returns:
+        EventSourceResponse with progress events
+
+    Raises:
+        HTTPException: If model not found or already downloaded
+    """
+    # Validate model exists in catalog
+    catalog = load_model_catalog()
+    model_info = next((m for m in catalog if m["id"] == model_id), None)
+
+    if not model_info:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_MODEL",
+                "message": f"Model '{model_id}' not found in catalog",
+            },
+        )
+
+    # Check if already downloaded
+    is_downloaded, _ = check_model_downloaded(model_id)
+    if is_downloaded:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "ALREADY_DOWNLOADED",
+                "message": f"Model '{model_id}' is already downloaded",
+            },
+        )
+
+    # Check if already downloading
+    if model_id in active_downloads:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DOWNLOAD_IN_PROGRESS",
+                "message": f"Model '{model_id}' is already being downloaded",
+            },
+        )
+
+    return EventSourceResponse(
+        download_model_with_progress(model_id, model_info["size_mb"], request)
+    )
+
+
 @router.post("/models/embedding/download", response_model=ModelDownloadResponse)
 async def download_embedding_model(
     request: ModelDownloadRequest,
@@ -159,13 +347,65 @@ async def download_embedding_model(
         )
 
 
-@router.delete("/models/embedding/{model_id}")
+@router.delete("/models/embedding/{model_id:path}/download")
+async def cancel_download(model_id: str):
+    """
+    Cancel an in-progress model download.
+
+    Args:
+        model_id: The model identifier (can contain slashes)
+
+    Returns:
+        Cancellation status
+    """
+    if model_id not in active_downloads:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "NOT_DOWNLOADING",
+                "message": f"Model '{model_id}' is not currently being downloaded",
+            },
+        )
+
+    try:
+        process = active_downloads[model_id]
+        process.terminate()
+        process.wait(timeout=5)
+        del active_downloads[model_id]
+
+        # Clean up partial download
+        from ...config import get_data_dir
+        import shutil
+
+        safe_model_name = model_id.replace("/", "--")
+        cache_dir = get_data_dir() / "embedding" / safe_model_name
+
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir)
+
+        return {
+            "model_id": model_id,
+            "status": "cancelled",
+            "message": "Download cancelled and partial files removed",
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "CANCEL_FAILED",
+                "message": f"Failed to cancel download: {str(e)}",
+            },
+        )
+
+
+@router.delete("/models/embedding/{model_id:path}")
 async def delete_embedding_model(model_id: str):
     """
     Delete a downloaded embedding model.
 
     Args:
-        model_id: The model identifier
+        model_id: The model identifier (can contain slashes)
 
     Returns:
         Deletion status

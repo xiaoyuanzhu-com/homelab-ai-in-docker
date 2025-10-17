@@ -38,3 +38,14 @@ class ModelDownloadResponse(BaseModel):
     model_id: str
     status: str
     message: str
+
+
+class DownloadProgressEvent(BaseModel):
+    """Progress event during model download."""
+
+    type: str  # "progress", "complete", "error"
+    percent: Optional[int] = None
+    current_mb: Optional[int] = None
+    total_mb: Optional[int] = None
+    message: Optional[str] = None
+    size_mb: Optional[int] = None
