@@ -133,17 +133,13 @@ async def download_model_with_progress(
         if hf_endpoint:
             # huggingface_hub uses HF_HUB_ENDPOINT, not HF_ENDPOINT
             env["HF_HUB_ENDPOINT"] = hf_endpoint
-            logger.info(f"Using mirror endpoint: {hf_endpoint}")
+            logger.info(f"Using mirror endpoint via HF_HUB_ENDPOINT: {hf_endpoint}")
         else:
             logger.info(f"Using default HuggingFace endpoint")
 
         logger.info(f"Starting download for {model_id} to {cache_dir}")
 
-        # Build command with endpoint flag if specified
         cmd = ["huggingface-cli", "download", model_id, "--local-dir", str(cache_dir)]
-        if hf_endpoint:
-            cmd.extend(["--endpoint", hf_endpoint])
-
         logger.info(f"Command: {' '.join(cmd)}")
 
         process = subprocess.Popen(
