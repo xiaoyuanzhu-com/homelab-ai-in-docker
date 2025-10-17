@@ -128,19 +128,26 @@ async def download_model_with_progress(
         logger = logging.getLogger(__name__)
         env = os.environ.copy()
 
-        # Log environment variables for debugging
-        hf_endpoint = env.get("HF_ENDPOINT", "default (https://huggingface.co)")
+        # Check for HF_ENDPOINT and set the correct env var for huggingface_hub
+        hf_endpoint = env.get("HF_ENDPOINT")
+        if hf_endpoint:
+            # huggingface_hub uses HF_HUB_ENDPOINT, not HF_ENDPOINT
+            env["HF_HUB_ENDPOINT"] = hf_endpoint
+            logger.info(f"Using mirror endpoint: {hf_endpoint}")
+        else:
+            logger.info(f"Using default HuggingFace endpoint")
+
         logger.info(f"Starting download for {model_id} to {cache_dir}")
-        logger.info(f"Using HF_ENDPOINT: {hf_endpoint}")
+
+        # Build command with endpoint flag if specified
+        cmd = ["huggingface-cli", "download", model_id, "--local-dir", str(cache_dir)]
+        if hf_endpoint:
+            cmd.extend(["--endpoint", hf_endpoint])
+
+        logger.info(f"Command: {' '.join(cmd)}")
 
         process = subprocess.Popen(
-            [
-                "huggingface-cli",
-                "download",
-                model_id,
-                "--local-dir",
-                str(cache_dir),
-            ],
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # Redirect stderr to stdout for unified logging
             universal_newlines=True,

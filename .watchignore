@@ -1,0 +1,7 @@
+# Ignore data directory to prevent reloading during model downloads
+data/
+*.pyc
+__pycache__/
+.git/
+.venv/
+node_modules/

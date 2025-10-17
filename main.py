@@ -1,9 +1,17 @@
 """Main FastAPI application for Homelab AI Services."""
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from src.api.routers import crawl, embedding, caption, history, models
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 
 # Create FastAPI app
 app = FastAPI(

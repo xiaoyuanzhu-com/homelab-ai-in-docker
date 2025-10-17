@@ -33,8 +33,8 @@ crawl4ai-setup  # Installs Playwright browsers
 # Quick start with uv (no activation needed)
 uv run python main.py
 
-# Or with auto-reload
-uv run uvicorn main:app --reload
+# Or with auto-reload (recommended - excludes data dir from watch)
+uv run uvicorn main:app --reload --reload-exclude 'data/*'
 
 # Or activate venv first
 source .venv/bin/activate
