@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { HistoryPanel } from "@/components/history-panel";
+import { ModelsTab } from "@/components/models-tab";
 
 interface EmbeddingResult {
   request_id: string;
@@ -94,6 +95,7 @@ export default function EmbeddingPage() {
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="mb-6">
           <TabsTrigger value="try">Try</TabsTrigger>
+          <TabsTrigger value="models">Models</TabsTrigger>
           <TabsTrigger value="doc">Doc</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
@@ -206,6 +208,11 @@ export default function EmbeddingPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Models Tab */}
+        <TabsContent value="models">
+          <ModelsTab />
         </TabsContent>
 
         {/* API Tab */}

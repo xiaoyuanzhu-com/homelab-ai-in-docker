@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from src.api.routers import crawl, embedding, caption, history
+from src.api.routers import crawl, embedding, caption, history, models
 
 # Create FastAPI app
 app = FastAPI(
@@ -20,6 +20,7 @@ app.include_router(crawl.router)
 app.include_router(embedding.router)
 app.include_router(caption.router)
 app.include_router(history.router)
+app.include_router(models.router)
 
 
 @app.get("/api")

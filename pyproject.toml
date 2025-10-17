@@ -14,3 +14,9 @@ dependencies = [
     "pillow>=10.0.0",
     "transformers>=4.30.0",
 ]
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.setuptools.package-data]
+"src.api.models" = ["*.json"]

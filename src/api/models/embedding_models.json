@@ -1,0 +1,48 @@
+{
+  "models": [
+    {
+      "id": "BAAI/bge-large-en-v1.5",
+      "name": "bge-large-en-v1.5",
+      "team": "BAAI",
+      "license": "Open Source",
+      "dimensions": 1024,
+      "languages": "English",
+      "description": "State-of-the-art open source",
+      "size_mb": 1340,
+      "link": "https://huggingface.co/BAAI/bge-large-en-v1.5"
+    },
+    {
+      "id": "Alibaba-NLP/gte-large-en-v1.5",
+      "name": "gte-large",
+      "team": "Alibaba DAMO",
+      "license": "Open Source",
+      "dimensions": 1024,
+      "languages": "Multi",
+      "description": "Great multilingual recall",
+      "size_mb": 1340,
+      "link": "https://huggingface.co/Alibaba-NLP/gte-large-en-v1.5"
+    },
+    {
+      "id": "intfloat/e5-large-v2",
+      "name": "E5-large-v2",
+      "team": "Microsoft",
+      "license": "Open Source",
+      "dimensions": 1024,
+      "languages": "English",
+      "description": "Solid general-purpose",
+      "size_mb": 1340,
+      "link": "https://huggingface.co/intfloat/e5-large-v2"
+    },
+    {
+      "id": "sentence-transformers/all-MiniLM-L6-v2",
+      "name": "all-MiniLM-L6-v2",
+      "team": "SBERT",
+      "license": "Open Source",
+      "dimensions": 384,
+      "languages": "English",
+      "description": "Lightweight, fast",
+      "size_mb": 90,
+      "link": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
+    }
+  ]
+}
