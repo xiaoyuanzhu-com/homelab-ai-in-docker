@@ -16,6 +16,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronDown, AlertCircle, Info } from "lucide-react";
 import { toast } from "sonner";
 import { HistoryPanel } from "@/components/history-panel";
+import { MarkdownDoc } from "@/components/markdown-doc";
+import crawlDoc from "@/docs/crawl.md";
 
 interface CrawlResult {
   request_id: string;
@@ -237,68 +239,11 @@ export default function CrawlPage() {
             </div>
           </TabsContent>
 
-          {/* API Tab */}
+          {/* Doc Tab */}
           <TabsContent value="doc">
             <Card>
-              <CardHeader>
-                <CardTitle>API Reference</CardTitle>
-                <CardDescription>HTTP endpoint details and examples</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">Endpoint</h3>
-                  <div className="bg-muted p-4 rounded-lg">
-                    <code className="text-sm">POST /api/crawl</code>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">Request Body</h3>
-                  <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`{
-  "url": "https://example.com",
-  "screenshot": false,
-  "wait_for_js": true
-}`}
-                  </pre>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">Parameters</h3>
-                  <ul className="space-y-2 text-sm">
-                    <li><code className="bg-muted px-2 py-1 rounded">url</code> (string, required) - The URL to crawl</li>
-                    <li><code className="bg-muted px-2 py-1 rounded">screenshot</code> (boolean, optional) - Capture screenshot (default: false)</li>
-                    <li><code className="bg-muted px-2 py-1 rounded">wait_for_js</code> (boolean, optional) - Wait for JavaScript execution (default: true)</li>
-                  </ul>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">Response</h3>
-                  <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`{
-  "request_id": "uuid",
-  "url": "https://example.com/",
-  "title": "Example Domain",
-  "markdown": "# Example Domain\\n\\nThis domain...",
-  "html": "<!DOCTYPE html>...",
-  "screenshot_base64": null,
-  "fetch_time_ms": 1580,
-  "success": true
-}`}
-                  </pre>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold mb-2">cURL Example</h3>
-                  <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`curl -X POST ${apiBaseUrl}/api/crawl \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "url": "https://example.com",
-    "wait_for_js": true
-  }'`}
-                  </pre>
-                </div>
+              <CardContent className="pt-6">
+                <MarkdownDoc content={crawlDoc} apiBaseUrl={apiBaseUrl} />
               </CardContent>
             </Card>
           </TabsContent>
