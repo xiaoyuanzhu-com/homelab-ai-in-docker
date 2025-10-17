@@ -128,12 +128,14 @@ async def download_model_with_progress(
         logger = logging.getLogger(__name__)
         env = os.environ.copy()
 
-        # Check for HF_ENDPOINT and set the correct env var for huggingface_hub
+        # Check for HF_ENDPOINT and ensure both env vars are set
         hf_endpoint = env.get("HF_ENDPOINT")
         if hf_endpoint:
-            # huggingface_hub uses HF_HUB_ENDPOINT, not HF_ENDPOINT
+            # Set both HF_ENDPOINT and HF_HUB_ENDPOINT for compatibility
+            env["HF_ENDPOINT"] = hf_endpoint
             env["HF_HUB_ENDPOINT"] = hf_endpoint
-            logger.info(f"Using mirror endpoint via HF_HUB_ENDPOINT: {hf_endpoint}")
+            logger.info(f"Using mirror endpoint: {hf_endpoint}")
+            logger.info(f"Set HF_ENDPOINT and HF_HUB_ENDPOINT to: {hf_endpoint}")
         else:
             logger.info(f"Using default HuggingFace endpoint")
 
@@ -194,20 +196,15 @@ async def download_model_with_progress(
 
             current_size_mb = current_size // (1024 * 1024)
 
-            # Calculate progress percentage
-            if expected_size_mb > 0:
-                percent = min(int((current_size_mb / expected_size_mb) * 100), 99)
-            else:
-                percent = 0
-
             # Send progress update every second or if significant size change
+            # Don't calculate percent since manifest sizes are unreliable
             current_time = time.time()
             if current_time - last_progress_time >= 1.0 or current_size_mb > last_size + 10:
                 event = DownloadProgressEvent(
                     type="progress",
-                    percent=percent,
+                    percent=None,  # Don't show percentage - manifest sizes are unreliable
                     current_mb=current_size_mb,
-                    total_mb=expected_size_mb,
+                    total_mb=expected_size_mb,  # Show as reference only
                 )
                 yield event.model_dump_json()
                 last_progress_time = current_time

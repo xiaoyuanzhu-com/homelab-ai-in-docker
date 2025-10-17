@@ -303,11 +303,19 @@ export function ModelsTab({ onModelSelect }: ModelsTabProps) {
                       </TableCell>
                       <TableCell>
                         {isDownloading && progress ? (
-                          <div className="space-y-1 min-w-[100px]">
-                            <Progress value={progress.percent} className="h-2" />
-                            <div className="text-xs text-muted-foreground">
-                              {progress.currentMb} / {progress.totalMb} MB ({progress.percent}%)
-                            </div>
+                          <div className="space-y-1 min-w-[120px]">
+                            {progress.percent !== null && progress.percent > 0 ? (
+                              <>
+                                <Progress value={progress.percent} className="h-2" />
+                                <div className="text-xs text-muted-foreground">
+                                  {progress.currentMb} MB ({progress.percent}%)
+                                </div>
+                              </>
+                            ) : (
+                              <div className="text-xs text-muted-foreground">
+                                Downloading... {progress.currentMb} MB
+                              </div>
+                            )}
                           </div>
                         ) : model.is_downloaded ? (
                           <Badge variant="default" className="bg-green-600 hover:bg-green-700">
