@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,20 @@ export default function EmbeddingPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<EmbeddingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
+
+  useEffect(() => {
+    // Infer API base URL from current window location
+    if (typeof window !== "undefined") {
+      const origin = window.location.origin;
+      // If running on localhost:3000 (Next.js dev), use localhost:8000 (API)
+      // Otherwise use the same origin (production with reverse proxy)
+      const baseUrl = origin.includes("localhost:3000")
+        ? "http://localhost:8000"
+        : origin;
+      setApiBaseUrl(baseUrl);
+    }
+  }, []);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -255,7 +269,7 @@ export default function EmbeddingPage() {
               <div>
                 <h3 className="text-lg font-semibold mb-2">cURL Example</h3>
                 <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`curl -X POST http://localhost:8000/api/embed \\
+{`curl -X POST ${apiBaseUrl}/api/embed \\
   -H "Content-Type: application/json" \\
   -d '{
     "texts": ["Hello world", "Semantic search"]
