@@ -3,18 +3,11 @@
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle } from "lucide-react";
 import { toast } from "sonner";
-import { HistoryPanel } from "@/components/history-panel";
 import { ModelsTab } from "@/components/models-tab";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TextEmbeddingInputOutput } from "@/components/text-embedding-input-output";
+import { EmbeddingHistory } from "@/components/embedding-history";
 
 interface EmbeddingResult {
   request_id: string;
@@ -141,139 +134,19 @@ export default function EmbeddingPage() {
 
         {/* Try Tab */}
         <TabsContent value="try">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Left: Input */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Input</CardTitle>
-                <CardDescription>Enter texts to embed (one per line)</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="model">Model</Label>
-                  {modelsLoading ? (
-                    <Skeleton className="h-10 w-full" />
-                  ) : availableModels.length === 0 ? (
-                    <Alert>
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>
-                        No models downloaded. Please go to the Models tab to download a model first.
-                      </AlertDescription>
-                    </Alert>
-                  ) : (
-                    <Select value={selectedModel} onValueChange={setSelectedModel}>
-                      <SelectTrigger id="model">
-                        <SelectValue placeholder="Select a model" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableModels.map((model) => (
-                          <SelectItem key={model.id} value={model.id}>
-                            {model.name} ({model.team}) - {model.dimensions}d
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="texts">Texts</Label>
-                  <Textarea
-                    id="texts"
-                    placeholder="Enter text here&#10;One text per line&#10;Example: The quick brown fox"
-                    value={texts}
-                    onChange={(e) => setTexts(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && e.ctrlKey) {
-                        handleEmbed();
-                      }
-                    }}
-                    rows={10}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {texts.split("\n").filter((t) => t.trim()).length} text(s)
-                  </p>
-                </div>
-
-                <Button onClick={handleEmbed} disabled={loading || !texts.trim() || !selectedModel} className="w-full">
-                  {loading ? "Generating..." : "Generate Embeddings"}
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Right: Output */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Output</CardTitle>
-                <CardDescription>Embedding vectors</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {loading && (
-                  <div className="space-y-4">
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-32 w-full" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </div>
-                )}
-
-                {error && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Error</AlertTitle>
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
-
-                {result && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge>{result.embeddings.length} vectors</Badge>
-                      <Badge variant="outline">{result.dimensions} dimensions</Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {result.processing_time_ms}ms
-                      </span>
-                    </div>
-
-                    <div>
-                      <Label>Model</Label>
-                      <p className="text-sm mt-1 font-mono">{result.model_used}</p>
-                    </div>
-
-                    <div>
-                      <Label>Embeddings</Label>
-                      <div className="mt-2 p-4 bg-muted rounded-lg max-h-96 overflow-y-auto">
-                        {result.embeddings.map((embedding, idx) => (
-                          <div key={idx} className="mb-4 last:mb-0">
-                            <div className="text-xs text-muted-foreground mb-1">
-                              Vector {idx + 1}:
-                            </div>
-                            <div className="text-xs font-mono break-all">
-                              [{embedding.slice(0, 5).map(n => n.toFixed(4)).join(", ")}
-                              {embedding.length > 5 && `, ... (${embedding.length} total)`}]
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label>Request ID</Label>
-                      <p className="text-xs text-muted-foreground font-mono mt-1">
-                        {result.request_id}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {!loading && !error && !result && (
-                  <p className="text-muted-foreground text-center py-8">
-                    Enter texts and click &quot;Generate Embeddings&quot; to see results
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          <TextEmbeddingInputOutput
+            mode="try"
+            texts={texts}
+            onTextsChange={setTexts}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            availableModels={availableModels}
+            modelsLoading={modelsLoading}
+            result={result}
+            loading={loading}
+            error={error}
+            onSend={handleEmbed}
+          />
         </TabsContent>
 
         {/* Models Tab */}
@@ -349,16 +222,7 @@ export default function EmbeddingPage() {
 
         {/* History Tab */}
         <TabsContent value="history">
-          <HistoryPanel
-            service="embed"
-            onSelectEntry={(entry) => {
-              if (Array.isArray(entry.request.texts)) {
-                setTexts(entry.request.texts.join("\n"));
-                setActiveTab("try");
-                router.push("/embedding", { scroll: false });
-              }
-            }}
-          />
+          <EmbeddingHistory availableModels={availableModels} />
         </TabsContent>
       </Tabs>
     </div>
