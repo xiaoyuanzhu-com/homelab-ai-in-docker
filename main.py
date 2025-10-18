@@ -5,7 +5,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from src.api.routers import crawl, embedding, caption, history, models
+from src.api.routers import crawl, embedding, caption, history, models, hardware
 
 # Configure logging
 logging.basicConfig(
@@ -29,6 +29,7 @@ app.include_router(embedding.router)
 app.include_router(caption.router)
 app.include_router(history.router)
 app.include_router(models.router)
+app.include_router(hardware.router)
 
 
 @app.get("/api")
@@ -42,6 +43,7 @@ async def root():
             "crawl": "/api/crawl",
             "embed": "/api/embed",
             "caption": "/api/caption",
+            "hardware": "/api/hardware",
             "docs": "/api/docs",
             "health": "/api/health",
             "ready": "/api/ready",
