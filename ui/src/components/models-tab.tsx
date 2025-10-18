@@ -35,7 +35,7 @@ interface DownloadProgress {
   totalMb: number;
 }
 
-export function ModelsTab({ onModelSelect }: ModelsTabProps) {
+export function ModelsTab({ onModelSelect: _onModelSelect }: ModelsTabProps) {
   const [models, setModels] = useState<EmbeddingModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

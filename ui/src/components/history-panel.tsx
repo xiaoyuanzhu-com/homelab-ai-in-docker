@@ -10,8 +10,8 @@ interface HistoryEntry {
   timestamp: string;
   request_id: string;
   status: string;
-  request: any;
-  response: any;
+  request: Record<string, unknown>;
+  response: Record<string, unknown>;
 }
 
 interface HistoryPanelProps {
@@ -44,6 +44,7 @@ export function HistoryPanel({ service, onSelectEntry }: HistoryPanelProps) {
 
   useEffect(() => {
     loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [service]);
 
   const formatTimestamp = (timestamp: string) => {
@@ -98,7 +99,7 @@ export function HistoryPanel({ service, onSelectEntry }: HistoryPanelProps) {
                     </span>
                   </div>
                   <div className="text-sm">
-                    {entry.response.processing_time_ms && (
+                    {typeof entry.response.processing_time_ms === "number" && (
                       <span className="text-muted-foreground">
                         {entry.response.processing_time_ms}ms
                       </span>

@@ -9,7 +9,7 @@ from sentence_transformers import SentenceTransformer
 
 from ..models.embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
-from ...config import get_model_cache_dir
+from ...config import get_data_dir
 
 
 router = APIRouter(prefix="/api", tags=["embedding"])
@@ -28,6 +28,9 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
 
     Returns:
         Loaded SentenceTransformer model
+
+    Raises:
+        HTTPException: If model not found or not downloaded
     """
     global _model_cache, _current_model_name
 
@@ -35,11 +38,22 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
 
     # Load model if not cached or if different model requested
     if _model_cache is None or target_model != _current_model_name:
-        # Get custom cache directory
-        cache_dir = get_model_cache_dir("embedding", target_model)
+        # Use the downloaded models directory (preserves HuggingFace structure)
+        # Path: data/embedding/models/BAAI/bge-large-en-v1.5
+        model_dir = get_data_dir() / "embedding" / "models" / target_model
 
-        # Load model with custom cache location
-        _model_cache = SentenceTransformer(target_model, cache_folder=str(cache_dir))
+        # Check if model exists
+        if not model_dir.exists():
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "MODEL_NOT_FOUND",
+                    "message": f"Model '{target_model}' not found. Please download it first from the Models tab.",
+                },
+            )
+
+        # Load model from local directory
+        _model_cache = SentenceTransformer(str(model_dir))
         _current_model_name = target_model
 
     return _model_cache

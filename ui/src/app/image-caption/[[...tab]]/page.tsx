@@ -26,7 +26,7 @@ export default function ImageCaptionPage() {
   const tab = (params.tab as string[]) || [];
   const [activeTab, setActiveTab] = useState(tab[0] || "try");
 
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [_imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CaptionResult | null>(null);
@@ -216,7 +216,7 @@ export default function ImageCaptionPage() {
 
                 {!loading && !error && !result && (
                   <p className="text-muted-foreground text-center py-8">
-                    Upload an image and click "Generate Caption" to see results
+                    Upload an image and click &quot;Generate Caption&quot; to see results
                   </p>
                 )}
               </CardContent>

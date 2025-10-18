@@ -14,6 +14,7 @@ import { AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { HistoryPanel } from "@/components/history-panel";
 import { ModelsTab } from "@/components/models-tab";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface EmbeddingResult {
   request_id: string;
@@ -21,6 +22,14 @@ interface EmbeddingResult {
   dimensions: number;
   model_used: string;
   processing_time_ms: number;
+}
+
+interface EmbeddingModel {
+  id: string;
+  name: string;
+  team: string;
+  is_downloaded: boolean;
+  dimensions: number;
 }
 
 export default function EmbeddingPage() {
@@ -34,6 +43,9 @@ export default function EmbeddingPage() {
   const [result, setResult] = useState<EmbeddingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
+  const [availableModels, setAvailableModels] = useState<EmbeddingModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [modelsLoading, setModelsLoading] = useState(true);
 
   useEffect(() => {
     // Infer API base URL from current window location
@@ -41,6 +53,28 @@ export default function EmbeddingPage() {
       setApiBaseUrl(window.location.origin);
     }
   }, []);
+
+  useEffect(() => {
+    // Load available models
+    const fetchModels = async () => {
+      try {
+        const response = await fetch("/api/models/embedding");
+        if (!response.ok) throw new Error("Failed to fetch models");
+        const data = await response.json();
+        const downloadedModels = data.models.filter((m: EmbeddingModel) => m.is_downloaded);
+        setAvailableModels(downloadedModels);
+        // Select first downloaded model by default
+        if (downloadedModels.length > 0 && !selectedModel) {
+          setSelectedModel(downloadedModels[0].id);
+        }
+      } catch (err) {
+        console.error("Failed to fetch models:", err);
+      } finally {
+        setModelsLoading(false);
+      }
+    };
+    fetchModels();
+  }, [selectedModel]);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -52,6 +86,11 @@ export default function EmbeddingPage() {
     const textList = texts.split("\n").filter((t) => t.trim());
     if (textList.length === 0) return;
 
+    if (!selectedModel) {
+      toast.error("Please select a model first");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResult(null);
@@ -60,7 +99,7 @@ export default function EmbeddingPage() {
       const response = await fetch("/api/embed", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ texts: textList }),
+        body: JSON.stringify({ texts: textList, model: selectedModel }),
       });
 
       if (!response.ok) {
@@ -111,6 +150,33 @@ export default function EmbeddingPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
+                  <Label htmlFor="model">Model</Label>
+                  {modelsLoading ? (
+                    <Skeleton className="h-10 w-full" />
+                  ) : availableModels.length === 0 ? (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        No models downloaded. Please go to the Models tab to download a model first.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <Select value={selectedModel} onValueChange={setSelectedModel}>
+                      <SelectTrigger id="model">
+                        <SelectValue placeholder="Select a model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableModels.map((model) => (
+                          <SelectItem key={model.id} value={model.id}>
+                            {model.name} ({model.team}) - {model.dimensions}d
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="texts">Texts</Label>
                   <Textarea
                     id="texts"
@@ -129,7 +195,7 @@ export default function EmbeddingPage() {
                   </p>
                 </div>
 
-                <Button onClick={handleEmbed} disabled={loading || !texts.trim()} className="w-full">
+                <Button onClick={handleEmbed} disabled={loading || !texts.trim() || !selectedModel} className="w-full">
                   {loading ? "Generating..." : "Generate Embeddings"}
                 </Button>
               </CardContent>
@@ -202,7 +268,7 @@ export default function EmbeddingPage() {
 
                 {!loading && !error && !result && (
                   <p className="text-muted-foreground text-center py-8">
-                    Enter texts and click "Generate Embeddings" to see results
+                    Enter texts and click &quot;Generate Embeddings&quot; to see results
                   </p>
                 )}
               </CardContent>
@@ -286,7 +352,7 @@ export default function EmbeddingPage() {
           <HistoryPanel
             service="embed"
             onSelectEntry={(entry) => {
-              if (entry.request.texts) {
+              if (Array.isArray(entry.request.texts)) {
                 setTexts(entry.request.texts.join("\n"));
                 setActiveTab("try");
                 router.push("/embedding", { scroll: false });

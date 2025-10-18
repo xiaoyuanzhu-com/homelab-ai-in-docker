@@ -283,7 +283,7 @@ export default function CrawlPage() {
 
                   {!loading && !error && !result && (
                     <p className="text-muted-foreground text-center py-8">
-                      Enter a URL and click "Crawl URL" to see results
+                      Enter a URL and click &quot;Crawl URL&quot; to see results
                     </p>
                   )}
                 </CardContent>
@@ -305,7 +305,7 @@ export default function CrawlPage() {
             <HistoryPanel
               service="crawl"
               onSelectEntry={(entry) => {
-                if (entry.request.url) {
+                if (entry.request.url && typeof entry.request.url === "string") {
                   setUrl(entry.request.url);
                   setActiveTab("try");
                   router.push("/crawl", { scroll: false });
