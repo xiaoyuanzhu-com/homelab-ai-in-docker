@@ -20,6 +20,17 @@ class HistoryEntry(BaseModel):
     response: dict
 
 
+@router.get("/stats")
+async def get_stats():
+    """
+    Get overall task statistics.
+
+    Returns:
+        Dictionary with running, today, and total task counts
+    """
+    return history_storage.get_stats()
+
+
 @router.get("/{service}", response_model=List[HistoryEntry])
 async def get_history(
     service: str,

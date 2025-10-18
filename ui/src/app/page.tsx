@@ -38,8 +38,15 @@ interface HardwareStats {
   };
 }
 
+interface TaskStats {
+  running: number;
+  today: number;
+  total: number;
+}
+
 export default function Home() {
   const [hardwareStats, setHardwareStats] = useState<HardwareStats | null>(null);
+  const [taskStats, setTaskStats] = useState<TaskStats | null>(null);
 
   useEffect(() => {
     // Fetch hardware stats
@@ -54,7 +61,17 @@ export default function Home() {
         console.error("Failed to fetch hardware stats:", err);
       });
 
-    // Refresh hardware stats every 5 seconds
+    // Fetch task stats
+    fetch("/api/history/stats")
+      .then((res) => res.json())
+      .then((data) => {
+        setTaskStats(data);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch task stats:", err);
+      });
+
+    // Refresh stats every 5 seconds
     const interval = setInterval(() => {
       fetch("/api/hardware")
         .then((res) => res.json())
@@ -66,6 +83,15 @@ export default function Home() {
         .catch((err) => {
           console.error("Failed to fetch hardware stats:", err);
         });
+
+      fetch("/api/history/stats")
+        .then((res) => res.json())
+        .then((data) => {
+          setTaskStats(data);
+        })
+        .catch((err) => {
+          console.error("Failed to fetch task stats:", err);
+        });
     }, 5000);
 
     return () => clearInterval(interval);
@@ -73,9 +99,35 @@ export default function Home() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* Task Stats Card */}
+      {taskStats && (
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Tasks</CardTitle>
+            <CardDescription>AI processing tasks overview</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-8">
+              <div className="text-center">
+                <div className="text-3xl font-bold text-blue-600">{taskStats.running}</div>
+                <div className="text-sm text-muted-foreground mt-1">Running</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-green-600">{taskStats.today}</div>
+                <div className="text-sm text-muted-foreground mt-1">Today</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold text-purple-600">{taskStats.total}</div>
+                <div className="text-sm text-muted-foreground mt-1">Total</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Hardware Stats Card */}
-        {hardwareStats && (
-          <Card className="mb-8">
+      {hardwareStats && (
+        <Card className="mb-8">
             <CardHeader>
               <CardTitle>Hardware Resources</CardTitle>
               <CardDescription>

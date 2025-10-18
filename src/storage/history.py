@@ -208,6 +208,43 @@ class HistoryStorage:
         conn.commit()
         conn.close()
 
+    def get_stats(self) -> Dict[str, int]:
+        """
+        Get overall task statistics.
+
+        Returns:
+            Dictionary with running, today, and total counts
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Get today's date in ISO format (start of day)
+        today = datetime.utcnow().date().isoformat()
+
+        # Total count
+        cursor.execute("SELECT COUNT(*) FROM request_history")
+        total = cursor.fetchone()[0]
+
+        # Today's count (using created_at timestamp)
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM request_history
+            WHERE DATE(created_at) = ?
+            """,
+            (today,),
+        )
+        today_count = cursor.fetchone()[0]
+
+        conn.close()
+
+        # For now, running is 0 since we don't track active requests
+        # This could be enhanced in the future with a separate tracking mechanism
+        return {
+            "running": 0,
+            "today": today_count,
+            "total": total,
+        }
+
 
 # Global instance
 history_storage = HistoryStorage()
