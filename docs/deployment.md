@@ -101,6 +101,60 @@ mkdir -p data
 docker-compose up -d
 ```
 
+#### Remote Chrome Browser (Optional)
+
+The API supports using a remote Chrome instance for web crawling via Chrome DevTools Protocol (CDP). This allows you to offload browser operations to a separate service for better resource management and scalability.
+
+**Configuration Options**:
+
+1. **Environment Variable (Default for all requests)**:
+
+   Edit `docker-compose.yml` and uncomment the `CHROME_CDP_URL` line:
+   ```yaml
+   environment:
+     - PYTHONUNBUFFERED=1
+     - CHROME_CDP_URL=http://172.16.2.2:9223
+   ```
+
+2. **Per-Request Parameter** (overrides environment variable):
+   ```bash
+   curl -X POST http://localhost:8000/api/crawl \
+     -H "Content-Type: application/json" \
+     -d '{
+       "url": "https://example.com",
+       "chrome_cdp_url": "http://172.16.2.2:9223"
+     }'
+   ```
+
+**Setting Up Remote Chrome**:
+
+You'll need to run Chrome with remote debugging enabled on your network:
+
+```bash
+# Example: Run Chrome in Docker with remote debugging
+docker run -d \
+  --name chrome \
+  -p 9223:3000 \
+  --shm-size 2gb \
+  browserless/chrome:latest
+```
+
+Or use an existing Chrome instance with `--remote-debugging-port`:
+```bash
+google-chrome --remote-debugging-port=9223 --headless
+```
+
+**Benefits of Remote Chrome**:
+- Better resource isolation between crawling and API processes
+- Horizontal scaling of browser instances
+- Centralized browser management
+- Reduced memory usage on API server
+- Support for managed browser services (e.g., browserless, BlitzBrowser)
+
+**How It Works**:
+
+When a remote Chrome URL is provided, the API uses crawl4ai's `browser_mode="cdp"` to connect to the remote browser via Chrome DevTools Protocol. The remote browser handles all page rendering and JavaScript execution, while the API server only processes the extracted content.
+
 ### Kubernetes / Homelab
 
 Example pod configuration:

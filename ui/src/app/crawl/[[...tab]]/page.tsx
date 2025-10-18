@@ -26,7 +26,8 @@ POST /api/crawl
 {
   "url": "https://example.com",
   "screenshot": false,
-  "wait_for_js": true
+  "wait_for_js": true,
+  "chrome_cdp_url": "http://172.16.2.2:9223"
 }
 \`\`\`
 
@@ -35,6 +36,7 @@ POST /api/crawl
 - \`url\` (string, required) - The URL to crawl
 - \`screenshot\` (boolean, optional) - Capture screenshot (default: false)
 - \`wait_for_js\` (boolean, optional) - Wait for JavaScript execution (default: true)
+- \`chrome_cdp_url\` (string, optional) - Remote Chrome CDP URL for browser connection
 
 ## Response
 
@@ -58,7 +60,8 @@ curl -X POST {{API_BASE_URL}}/api/crawl \\
   -H "Content-Type: application/json" \\
   -d '{
     "url": "https://example.com",
-    "wait_for_js": true
+    "wait_for_js": true,
+    "chrome_cdp_url": "http://172.16.2.2:9223"
   }'
 \`\`\`
 `;
@@ -80,6 +83,7 @@ export default function CrawlPage() {
 
   const [url, setUrl] = useState("");
   const [waitForJs, setWaitForJs] = useState(true);
+  const [chromeCdpUrl, setChromeCdpUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CrawlResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,14 +110,21 @@ export default function CrawlPage() {
     setResult(null);
 
     try {
+      const requestBody: any = {
+        url,
+        screenshot: false,
+        wait_for_js: waitForJs,
+      };
+
+      // Only include chrome_cdp_url if it's not empty
+      if (chromeCdpUrl.trim()) {
+        requestBody.chrome_cdp_url = chromeCdpUrl.trim();
+      }
+
       const response = await fetch("/api/crawl", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          screenshot: false,
-          wait_for_js: waitForJs,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -161,6 +172,8 @@ export default function CrawlPage() {
               onUrlChange={setUrl}
               waitForJs={waitForJs}
               onWaitForJsChange={setWaitForJs}
+              chromeCdpUrl={chromeCdpUrl}
+              onChromeCdpUrlChange={setChromeCdpUrl}
               result={result}
               loading={loading}
               error={error}

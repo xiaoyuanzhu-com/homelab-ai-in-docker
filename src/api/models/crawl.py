@@ -12,6 +12,11 @@ class CrawlRequest(BaseModel):
     wait_for_js: bool = Field(
         default=True, description="Wait for JavaScript to execute"
     )
+    chrome_cdp_url: Optional[str] = Field(
+        default=None,
+        description="Remote Chrome CDP URL (e.g., http://localhost:9222). If not provided, uses local browser.",
+        examples=["http://chrome:9222", "ws://127.0.0.1:9222/devtools/browser/..."],
+    )
 
 
 class CrawlResponse(BaseModel):

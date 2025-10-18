@@ -2,12 +2,13 @@
 
 import asyncio
 import base64
+import os
 import time
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from crawl4ai import AsyncWebCrawler
+from crawl4ai import AsyncWebCrawler, BrowserConfig
 
 from ..models.crawl import CrawlRequest, CrawlResponse, ErrorResponse
 from ...storage.history import history_storage
@@ -15,11 +16,15 @@ from ...storage.history import history_storage
 
 router = APIRouter(prefix="/api", tags=["crawl"])
 
+# Get default remote Chrome URL from environment
+DEFAULT_CHROME_CDP_URL = os.environ.get("CHROME_CDP_URL")
+
 
 async def crawl_url(
     url: str,
     screenshot: bool = False,
     wait_for_js: bool = True,
+    chrome_cdp_url: Optional[str] = None,
 ) -> dict:
     """
     Crawl a URL and extract content.
@@ -28,12 +33,34 @@ async def crawl_url(
         url: URL to crawl
         screenshot: Whether to capture a screenshot
         wait_for_js: Whether to wait for JavaScript execution
+        chrome_cdp_url: Remote Chrome CDP URL for browser connection
 
     Returns:
         Dictionary containing crawl results
     """
     try:
-        async with AsyncWebCrawler(verbose=False) as crawler:
+        # Use remote Chrome if URL provided, otherwise use default from env or local
+        cdp_url = chrome_cdp_url or DEFAULT_CHROME_CDP_URL
+
+        # Configure browser with CDP support if URL is provided
+        if cdp_url:
+            # Connect to remote Chrome via CDP
+            import logging
+            logging.info(f"Connecting to remote Chrome at: {cdp_url}")
+            browser_config = BrowserConfig(
+                browser_mode="cdp",
+                cdp_url=cdp_url,
+                headless=True,
+                verbose=False
+            )
+        else:
+            # Use local browser (default mode)
+            browser_config = BrowserConfig(
+                headless=True,
+                verbose=False
+            )
+
+        async with AsyncWebCrawler(config=browser_config, verbose=False) as crawler:
             # For JS-heavy pages, wait for content to load
             kwargs = {
                 "url": url,
@@ -99,6 +126,7 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             url=str(request.url),
             screenshot=request.screenshot,
             wait_for_js=request.wait_for_js,
+            chrome_cdp_url=request.chrome_cdp_url,
         )
 
         fetch_time_ms = int((time.time() - start_time) * 1000)

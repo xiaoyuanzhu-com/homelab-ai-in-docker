@@ -31,6 +31,8 @@ interface CrawlInputOutputProps {
   onUrlChange?: (url: string) => void;
   waitForJs: boolean;
   onWaitForJsChange?: (value: boolean) => void;
+  chromeCdpUrl?: string;
+  onChromeCdpUrlChange?: (url: string) => void;
 
   // Output/Result
   result: CrawlResult | null;
@@ -47,6 +49,8 @@ export function CrawlInputOutput({
   onUrlChange,
   waitForJs,
   onWaitForJsChange,
+  chromeCdpUrl,
+  onChromeCdpUrlChange,
   result,
   loading,
   error,
@@ -121,6 +125,32 @@ export function CrawlInputOutput({
                     disabled={!isEditable}
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <Label htmlFor="chrome-cdp-url">Remote Chrome URL</Label>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="max-w-xs">
+                          Optional Chrome DevTools Protocol (CDP) URL for remote browser.
+                          Example: http://172.16.2.2:9223
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <Input
+                    id="chrome-cdp-url"
+                    type="url"
+                    placeholder="http://172.16.2.2:9223 (optional)"
+                    value={chromeCdpUrl || ""}
+                    onChange={(e) => onChromeCdpUrlChange?.(e.target.value)}
+                    readOnly={!isEditable}
+                    className={!isEditable ? "bg-muted" : ""}
+                  />
+                </div>
               </CollapsibleContent>
             </Collapsible>
 
@@ -143,6 +173,7 @@ export function CrawlInputOutput({
                     {
                       url,
                       wait_for_js: waitForJs,
+                      ...(chromeCdpUrl && { chrome_cdp_url: chromeCdpUrl }),
                     },
                     null,
                     2
