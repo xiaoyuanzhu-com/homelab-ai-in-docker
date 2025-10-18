@@ -72,19 +72,8 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="container mx-auto px-4 py-8">
-        {/* Page Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold mb-3 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            AI Services Dashboard
-          </h1>
-          <p className="text-lg text-muted-foreground">
-            Monitor and manage your AI capabilities
-          </p>
-        </div>
-
-        {/* Hardware Stats Card */}
+    <div className="container mx-auto px-4 py-8">
+      {/* Hardware Stats Card */}
         {hardwareStats && (
           <Card className="mb-8">
             <CardHeader>
@@ -190,12 +179,6 @@ export default function Home() {
             </CardContent>
           </Card>
         )}
-
-        {/* Footer */}
-        <footer className="text-center mt-16 text-muted-foreground">
-          <p>Built for homelab developers who need AI capabilities</p>
-        </footer>
-      </div>
     </div>
   );
 }
