@@ -12,16 +12,29 @@ REST API service wrapping common AI capabilities for homelab developers. Enables
 
 ### Docker (Recommended for Production)
 
+**Prerequisites for GPU Support:**
+- NVIDIA GPU with CUDA support
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed
+- Docker with GPU support enabled
+
 **Option 1: Use pre-built image from GitHub Container Registry**
 
 ```bash
 # Pull and run the latest image
 docker pull ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest
 
-# Run with docker-compose (update image in docker-compose.yml)
+# Run with docker-compose (includes GPU support)
 docker-compose up -d
 
-# Or run directly
+# Or run directly with GPU support
+docker run -d \
+  -p 8000:8000 \
+  -v $(pwd)/data:/haid/data \
+  --gpus all \
+  --name homelab-ai \
+  ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest
+
+# Or run without GPU (CPU-only)
 docker run -d \
   -p 8000:8000 \
   -v $(pwd)/data:/haid/data \
@@ -32,11 +45,21 @@ docker run -d \
 **Option 2: Build locally**
 
 ```bash
-# Build and run with docker-compose
+# Build and run with docker-compose (includes GPU support)
 docker-compose up -d
 
 # Or build manually
 docker build -t homelab-ai .
+
+# Run with GPU support
+docker run -d \
+  -p 8000:8000 \
+  -v $(pwd)/data:/haid/data \
+  --gpus all \
+  --name homelab-ai \
+  homelab-ai
+
+# Or run without GPU (CPU-only)
 docker run -d \
   -p 8000:8000 \
   -v $(pwd)/data:/haid/data \
@@ -45,6 +68,8 @@ docker run -d \
 ```
 
 The API will be available at `http://localhost:8000`
+
+> **Note:** The docker-compose.yml configuration includes GPU support by default. If you don't have a GPU or NVIDIA Container Toolkit installed, remove the `deploy` section from docker-compose.yml to run in CPU-only mode.
 
 ### Local Development
 
