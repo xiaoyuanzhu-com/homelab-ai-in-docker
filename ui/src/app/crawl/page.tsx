@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -76,10 +75,7 @@ interface CrawlResult {
 }
 
 export default function CrawlPage() {
-  const router = useRouter();
-  const params = useParams();
-  const tab = (params.tab as string[]) || [];
-  const [activeTab, setActiveTab] = useState(tab[0] || "try");
+  const [activeTab, setActiveTab] = useState("try");
 
   const [url, setUrl] = useState("");
   const [waitForJs, setWaitForJs] = useState(true);
@@ -98,8 +94,6 @@ export default function CrawlPage() {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    const path = tab === "try" ? "/crawl" : `/crawl/${tab}`;
-    router.push(path, { scroll: false });
   };
 
   const handleCrawl = async () => {
@@ -110,7 +104,12 @@ export default function CrawlPage() {
     setResult(null);
 
     try {
-      const requestBody: any = {
+      const requestBody: {
+        url: string;
+        screenshot: boolean;
+        wait_for_js: boolean;
+        chrome_cdp_url?: string;
+      } = {
         url,
         screenshot: false,
         wait_for_js: waitForJs,

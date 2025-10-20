@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -26,10 +25,7 @@ interface EmbeddingModel {
 }
 
 export default function EmbeddingPage() {
-  const router = useRouter();
-  const params = useParams();
-  const tab = (params.tab as string[]) || [];
-  const [activeTab, setActiveTab] = useState(tab[0] || "try");
+  const [activeTab, setActiveTab] = useState("try");
 
   const [texts, setTexts] = useState("");
   const [loading, setLoading] = useState(false);
@@ -71,8 +67,6 @@ export default function EmbeddingPage() {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    const path = tab === "try" ? "/embedding" : `/embedding/${tab}`;
-    router.push(path, { scroll: false });
   };
 
   const handleEmbed = async () => {

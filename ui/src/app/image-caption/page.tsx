@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -16,12 +15,9 @@ interface CaptionResult {
 }
 
 export default function ImageCaptionPage() {
-  const router = useRouter();
-  const params = useParams();
-  const tab = (params.tab as string[]) || [];
-  const [activeTab, setActiveTab] = useState(tab[0] || "try");
+  const [activeTab, setActiveTab] = useState("try");
 
-  const [_imageFile, setImageFile] = useState<File | null>(null);
+  const [, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CaptionResult | null>(null);
@@ -37,8 +33,6 @@ export default function ImageCaptionPage() {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    const path = tab === "try" ? "/image-caption" : `/image-caption/${tab}`;
-    router.push(path, { scroll: false });
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
