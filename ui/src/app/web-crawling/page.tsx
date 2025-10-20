@@ -150,7 +150,7 @@ export default function CrawlPage() {
     <TooltipProvider>
       <div className="container mx-auto px-4 py-8">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold mb-2">Web Crawl</h1>
+          <h1 className="text-3xl font-bold mb-2">Web Crawling</h1>
           <p className="text-muted-foreground">
             Extract clean content from any URL with JavaScript rendering support
           </p>
