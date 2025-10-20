@@ -50,12 +50,15 @@ class DownloadProgressEvent(BaseModel):
 
 
 @router.get("/models", response_model=ModelsResponse)
-async def list_all_models() -> ModelsResponse:
+async def list_all_models(task: Optional[str] = None) -> ModelsResponse:
     """
     List all available AI models across all types from database.
 
+    Args:
+        task: Optional task filter (e.g., "embedding", "caption", "image-to-text")
+
     Returns:
-        List of all models with download status
+        List of all models with download status, filtered by task if specified
     """
     from ...db.models import get_all_models
 
@@ -63,6 +66,10 @@ async def list_all_models() -> ModelsResponse:
     models = []
 
     for db_model in db_models:
+        # Filter by task if specified
+        if task and db_model["task"].lower() != task.lower():
+            continue
+
         models.append(
             ModelInfo(
                 id=db_model["id"],

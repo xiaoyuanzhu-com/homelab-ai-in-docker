@@ -46,12 +46,12 @@ export default function EmbeddingPage() {
     // Load available models
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/models");
+        const response = await fetch("/api/models?task=Feature Extraction");
         if (!response.ok) throw new Error("Failed to fetch models");
         const data = await response.json();
-        // Filter for embedding type and downloaded models only
+        // Filter for downloaded models only (task filter already applied)
         const downloadedModels = data.models.filter(
-          (m: any) => m.type === "embedding" && m.status === "downloaded"
+          (m: any) => m.status === "downloaded"
         );
         setAvailableModels(downloadedModels);
         // Select first downloaded model by default

@@ -14,10 +14,23 @@ def get_db_path() -> Path:
 
 
 @contextmanager
-def get_db():
-    """Get database connection context manager."""
-    conn = sqlite3.connect(get_db_path())
+def get_db(timeout: float = 5.0):
+    """
+    Get database connection context manager.
+
+    Args:
+        timeout: Database lock timeout in seconds (default: 5.0)
+    """
+    conn = sqlite3.connect(
+        get_db_path(),
+        timeout=timeout,
+        check_same_thread=False,  # Allow connections across threads
+    )
     conn.row_factory = sqlite3.Row
+
+    # Enable WAL mode for better concurrency (allows reads during writes)
+    conn.execute("PRAGMA journal_mode=WAL")
+
     try:
         yield conn
         conn.commit()

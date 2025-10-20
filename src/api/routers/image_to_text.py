@@ -2,37 +2,167 @@
 
 import base64
 import io
+import json
 import os
+import platform
 import time
 import uuid
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException
 from PIL import Image
-from transformers import BlipProcessor, BlipForConditionalGeneration
+from transformers import (
+    AutoProcessor,
+    AutoModelForVision2Seq,
+    AutoModelForCausalLM,
+    LlavaForConditionalGeneration,
+    Blip2ForConditionalGeneration,
+)
 import torch
 
 from ..models.image_to_text import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
 from ...config import get_model_cache_dir
 
+# Check if bitsandbytes is available (Linux only)
+try:
+    import bitsandbytes as bnb
+    HAS_BITSANDBYTES = True
+except ImportError:
+    HAS_BITSANDBYTES = False
+
 
 router = APIRouter(prefix="/api", tags=["image-to-text"])
 
 # Global model cache
-_model_cache: Optional[BlipForConditionalGeneration] = None
-_processor_cache: Optional[BlipProcessor] = None
-_current_model_name: str = "Salesforce/blip-image-captioning-base"
+_model_cache: Optional[Any] = None
+_processor_cache: Optional[Any] = None
+_current_model_name: str = ""
+_current_model_config: Optional[Dict[str, Any]] = None
+
+# Load available models from manifest
+_available_models: Optional[list[str]] = None
+_models_manifest: Optional[Dict[str, list[Dict[str, Any]]]] = None
 
 
-def get_model():
+def load_models_manifest() -> Dict[str, list[Dict[str, Any]]]:
     """
-    Get or load the image captioning model.
+    Load models manifest from JSON file.
 
     Returns:
-        Tuple of (processor, model)
+        Dictionary with model type as key and list of model configs as value
     """
-    global _model_cache, _processor_cache, _current_model_name
+    global _models_manifest
+
+    if _models_manifest is None:
+        manifest_path = Path(__file__).parent.parent / "models" / "models_manifest.json"
+        try:
+            with open(manifest_path) as f:
+                _models_manifest = json.load(f)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load models manifest: {e}")
+
+    return _models_manifest
+
+
+def get_model_config(model_id: str) -> Dict[str, Any]:
+    """
+    Get model configuration from manifest.
+
+    Args:
+        model_id: Model identifier
+
+    Returns:
+        Model configuration dictionary
+
+    Raises:
+        ValueError: If model not found in manifest
+    """
+    manifest = load_models_manifest()
+
+    for model_config in manifest.get("caption", []):
+        if model_config["id"] == model_id:
+            return model_config
+
+    raise ValueError(f"Model '{model_id}' not found in manifest")
+
+
+def get_available_models() -> list[str]:
+    """
+    Load available caption models from the manifest.
+
+    Returns:
+        List of model IDs that can be used
+    """
+    global _available_models
+
+    if _available_models is None:
+        manifest = load_models_manifest()
+        _available_models = [model["id"] for model in manifest.get("caption", [])]
+
+    return _available_models
+
+
+def validate_model(model_name: str) -> None:
+    """
+    Validate that the model is supported.
+
+    Args:
+        model_name: Model identifier to validate
+
+    Raises:
+        ValueError: If model is not supported
+    """
+    available = get_available_models()
+    if model_name not in available:
+        raise ValueError(
+            f"Model '{model_name}' is not supported. "
+            f"Available models: {', '.join(available)}"
+        )
+
+
+def get_model(model_name: str):
+    """
+    Get or load the image captioning model using Auto classes.
+
+    Args:
+        model_name: Model identifier to load. If different from currently
+                   loaded model, will reload with the new model.
+
+    Returns:
+        Tuple of (processor, model, model_config)
+
+    Raises:
+        ValueError: If model is not supported
+    """
+    global _model_cache, _processor_cache, _current_model_name, _current_model_config
+
+    # Validate model is supported and get config
+    validate_model(model_name)
+    model_config = get_model_config(model_name)
+
+    # Check if model requires quantization support
+    if model_config.get("requires_quantization") and not HAS_BITSANDBYTES:
+        platform_req = model_config.get("platform_requirements", "Linux")
+        raise ValueError(
+            f"Model '{model_name}' requires bitsandbytes which is not available. "
+            f"Platform requirements: {platform_req}. "
+            f"Current platform: {platform.system()}. "
+            f"On Linux, install with: pip install bitsandbytes"
+        )
+
+    # Check if we need to reload the model
+    if model_name != _current_model_name:
+        # Clear existing cache
+        if _model_cache is not None:
+            del _model_cache
+            _model_cache = None
+        if _processor_cache is not None:
+            del _processor_cache
+            _processor_cache = None
+        _current_model_name = model_name
+        _current_model_config = model_config
 
     if _model_cache is None or _processor_cache is None:
         # Get custom cache directory
@@ -41,27 +171,60 @@ def get_model():
         # Set HuggingFace cache environment variable
         os.environ["TRANSFORMERS_CACHE"] = str(cache_dir)
 
-        # Load model and processor with custom cache location
-        _processor_cache = BlipProcessor.from_pretrained(
-            _current_model_name, cache_dir=str(cache_dir)
-        )
-        _model_cache = BlipForConditionalGeneration.from_pretrained(
-            _current_model_name, cache_dir=str(cache_dir)
-        )
+        try:
+            # Load processor using Auto class (works for all architectures)
+            _processor_cache = AutoProcessor.from_pretrained(
+                _current_model_name, cache_dir=str(cache_dir)
+            )
 
-    return _processor_cache, _model_cache
+            # Load model based on architecture
+            architecture = model_config.get("architecture", "").lower()
+
+            # Common loading kwargs
+            load_kwargs = {
+                "cache_dir": str(cache_dir),
+                "torch_dtype": torch.float16,  # Use fp16 for efficiency
+                "low_cpu_mem_usage": True,     # Reduce CPU memory usage
+            }
+
+            # Add device_map for quantized models
+            if "bnb" in _current_model_name.lower() or "4bit" in _current_model_name.lower():
+                # Pre-quantized models - load with device_map="auto"
+                load_kwargs["device_map"] = "auto"
+
+            if architecture == "llava":
+                # LLaVA requires specific class
+                _model_cache = LlavaForConditionalGeneration.from_pretrained(
+                    _current_model_name, **load_kwargs
+                )
+            elif architecture == "blip2":
+                # BLIP-2 uses specific class
+                _model_cache = Blip2ForConditionalGeneration.from_pretrained(
+                    _current_model_name, **load_kwargs
+                )
+            else:
+                # BLIP and others use AutoModelForVision2Seq
+                _model_cache = AutoModelForVision2Seq.from_pretrained(
+                    _current_model_name, **load_kwargs
+                )
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model '{model_name}': {str(e)}")
+
+    return _processor_cache, _model_cache, _current_model_config
 
 
 def cleanup():
     """Release model and processor resources on shutdown."""
-    global _model_cache, _processor_cache, _current_model_name
+    global _model_cache, _processor_cache, _current_model_name, _current_model_config
     if _model_cache is not None:
         del _model_cache
         _model_cache = None
     if _processor_cache is not None:
         del _processor_cache
         _processor_cache = None
-    _current_model_name = "Salesforce/blip-image-captioning-base"
+    _current_model_name = ""
+    _current_model_config = None
 
 
 def decode_image(image_data: str) -> Image.Image:
@@ -110,23 +273,46 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
         # Decode image
         image = decode_image(request.image)
 
-        # Load model
-        processor, model = get_model()
+        # Load model and get config
+        processor, model, model_config = get_model(request.model)
 
-        # Process image and generate caption
-        inputs = processor(image, return_tensors="pt")
+        # Determine prompt to use (user-provided or default from config)
+        prompt = request.prompt
+        if prompt is None and model_config.get("default_prompt"):
+            prompt = model_config["default_prompt"]
 
+        # Process image and generate caption with unified interface
+        if prompt:
+            # Models that support text prompts (BLIP-2, LLaVA, etc.)
+            inputs = processor(text=prompt, images=image, return_tensors="pt")
+        else:
+            # Models that only need image (BLIP base/large)
+            inputs = processor(images=image, return_tensors="pt")
+
+        # Move inputs to appropriate device
+        # For quantized models with device_map, inputs are already handled
+        # For regular models, move to first device
+        if not hasattr(model, "hf_device_map"):
+            device = next(model.parameters()).device
+            inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+
+        # Generate caption
         with torch.no_grad():
-            out = model.generate(**inputs, max_length=50)
+            output_ids = model.generate(**inputs, max_new_tokens=150)
 
-        caption = processor.decode(out[0], skip_special_tokens=True)
+        # Decode output
+        caption = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
+
+        # Clean up caption (remove prompt if it was echoed back)
+        if prompt and caption.startswith(prompt):
+            caption = caption[len(prompt):].strip()
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
         response = CaptionResponse(
             request_id=request_id,
             caption=caption,
-            model_used=_current_model_name,
+            model_used=request.model,
             processing_time_ms=processing_time_ms,
         )
 
@@ -134,7 +320,7 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
         history_storage.add_request(
             service="image-to-text",
             request_id=request_id,
-            request_data={"model": request.model},  # Exclude image
+            request_data={"model": request.model, "prompt": request.prompt},  # Exclude image
             response_data=response.model_dump(),
             status="success",
         )
@@ -142,11 +328,18 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
         return response
 
     except ValueError as e:
+        error_msg = str(e)
+        # Distinguish between image and model errors
+        if "Model" in error_msg or "model" in error_msg:
+            code = "INVALID_MODEL"
+        else:
+            code = "INVALID_IMAGE"
+
         raise HTTPException(
             status_code=400,
             detail={
-                "code": "INVALID_IMAGE",
-                "message": str(e),
+                "code": code,
+                "message": error_msg,
                 "request_id": request_id,
             },
         )
