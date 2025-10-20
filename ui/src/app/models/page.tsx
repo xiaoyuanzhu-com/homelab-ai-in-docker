@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Download, Trash2, CheckCircle2, Circle } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Download, Trash2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 interface Model {
@@ -13,10 +12,7 @@ interface Model {
   name: string;
   team: string;
   type: string;
-  license?: string;
-  dimensions?: number;
-  languages?: string[];
-  description: string;
+  task: string;
   size_mb: number;
   link: string;
   is_downloaded: boolean;
@@ -147,125 +143,108 @@ export default function ModelsPage() {
     }
   };
 
-  const groupedModels = models.reduce((acc, model) => {
-    if (!acc[model.type]) {
-      acc[model.type] = [];
-    }
-    acc[model.type].push(model);
-    return acc;
-  }, {} as Record<string, Model[]>);
-
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Model Management</h1>
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold mb-2">Models</h1>
         <p className="text-muted-foreground">
-          Manage AI models for text embedding, image captioning, and other tasks
+          Manage AI models for various tasks
         </p>
       </div>
 
-      {loading ? (
-        <div className="space-y-6">
-          {[1, 2, 3].map((i) => (
-            <Card key={i}>
-              <CardHeader>
-                <Skeleton className="h-6 w-48" />
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[1, 2].map((j) => (
-                    <Skeleton key={j} className="h-24 w-full" />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {Object.entries(groupedModels).map(([type, typeModels]) => (
-            <Card key={type}>
-              <CardHeader>
-                <CardTitle className="capitalize">{type} Models</CardTitle>
-                <CardDescription>
-                  {typeModels.filter(m => m.is_downloaded).length} of {typeModels.length} downloaded
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {typeModels.map((model) => (
-                    <div
-                      key={model.id}
-                      className="flex items-center justify-between p-4 border rounded-lg"
-                    >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          {model.is_downloaded ? (
-                            <CheckCircle2 className="h-5 w-5 text-green-600" />
-                          ) : (
-                            <Circle className="h-5 w-5 text-muted-foreground" />
-                          )}
-                          <h3 className="font-semibold">{model.name}</h3>
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {model.description}
-                        </p>
-                        <div className="flex gap-2 flex-wrap">
-                          <Badge variant="outline" className="text-xs">
-                            {model.team}
-                          </Badge>
-                          {model.dimensions && (
-                            <Badge variant="secondary" className="text-xs">
-                              {model.dimensions}D
-                            </Badge>
-                          )}
-                          {model.languages && model.languages.length > 0 && (
-                            <Badge variant="secondary" className="text-xs">
-                              {model.languages.join(", ")}
-                            </Badge>
-                          )}
-                          <Badge variant="secondary" className="text-xs">
-                            {model.is_downloaded && model.downloaded_size_mb
-                              ? `${model.downloaded_size_mb} MB`
-                              : `~${model.size_mb} MB`}
-                          </Badge>
-                          {model.is_downloaded && (
-                            <Badge variant="default" className="text-xs">
-                              Downloaded
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        {model.is_downloaded ? (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => handleDelete(model.id)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="default"
-                            size="sm"
-                            onClick={() => handleDownload(model.id)}
-                            disabled={downloadingModels.has(model.id)}
-                          >
-                            <Download className="h-4 w-4 mr-2" />
-                            {downloadingModels.has(model.id) ? "Downloading..." : "Download"}
-                          </Button>
-                        )}
-                      </div>
+      <div className="border rounded-lg">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[40px]">Status</TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead>Team</TableHead>
+              <TableHead>Task</TableHead>
+              <TableHead className="text-right">Size</TableHead>
+              <TableHead className="w-[100px]"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  Loading models...
+                </TableCell>
+              </TableRow>
+            ) : models.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  No models available
+                </TableCell>
+              </TableRow>
+            ) : (
+              models.map((model) => (
+                <TableRow key={model.id}>
+                  <TableCell>
+                    {model.is_downloaded ? (
+                      <Badge variant="default" className="text-xs">
+                        ✓
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs text-muted-foreground">
+                        −
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      {model.name}
+                      <a
+                        href={model.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{model.team}</TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" className="text-xs">
+                      {model.task}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground">
+                    {model.is_downloaded && model.downloaded_size_mb
+                      ? `${model.downloaded_size_mb} MB`
+                      : `${model.size_mb} MB`}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1 justify-end">
+                      {model.is_downloaded ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(model.id)}
+                          className="h-8 px-2"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDownload(model.id)}
+                          disabled={downloadingModels.has(model.id)}
+                          className="h-8 px-2"
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

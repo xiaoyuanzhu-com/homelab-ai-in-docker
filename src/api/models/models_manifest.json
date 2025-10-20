@@ -4,21 +4,15 @@
       "id": "BAAI/bge-large-en-v1.5",
       "name": "bge-large-en-v1.5",
       "team": "BAAI",
-      "license": "MIT",
-      "dimensions": 1024,
-      "languages": ["en"],
-      "description": "State-of-the-art English embedding model with 1024 dimensions",
+      "task": "Feature Extraction",
       "size_mb": 1340,
       "link": "https://huggingface.co/BAAI/bge-large-en-v1.5"
     },
     {
       "id": "Alibaba-NLP/gte-large-en-v1.5",
       "name": "gte-large-en-v1.5",
-      "team": "Alibaba DAMO",
-      "license": "Apache 2.0",
-      "dimensions": 1024,
-      "languages": ["en", "zh", "multilingual"],
-      "description": "Multilingual embedding model with great recall performance",
+      "team": "Alibaba",
+      "task": "Feature Extraction",
       "size_mb": 1340,
       "link": "https://huggingface.co/Alibaba-NLP/gte-large-en-v1.5"
     },
@@ -26,10 +20,7 @@
       "id": "intfloat/e5-large-v2",
       "name": "E5-large-v2",
       "team": "Microsoft",
-      "license": "MIT",
-      "dimensions": 1024,
-      "languages": ["en"],
-      "description": "Solid general-purpose embedding model from Microsoft",
+      "task": "Feature Extraction",
       "size_mb": 1340,
       "link": "https://huggingface.co/intfloat/e5-large-v2"
     },
@@ -37,10 +28,7 @@
       "id": "sentence-transformers/all-MiniLM-L6-v2",
       "name": "all-MiniLM-L6-v2",
       "team": "SBERT",
-      "license": "Apache 2.0",
-      "dimensions": 384,
-      "languages": ["en"],
-      "description": "Lightweight and fast embedding model, ideal for development",
+      "task": "Feature Extraction",
       "size_mb": 90,
       "link": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
     }
@@ -50,8 +38,7 @@
       "id": "Salesforce/blip-image-captioning-base",
       "name": "BLIP Base",
       "team": "Salesforce",
-      "license": "BSD-3-Clause",
-      "description": "Base model for generating image captions",
+      "task": "Image to Text",
       "size_mb": 990,
       "link": "https://huggingface.co/Salesforce/blip-image-captioning-base"
     },
@@ -59,8 +46,7 @@
       "id": "Salesforce/blip-image-captioning-large",
       "name": "BLIP Large",
       "team": "Salesforce",
-      "license": "BSD-3-Clause",
-      "description": "Larger variant with improved caption quality",
+      "task": "Image to Text",
       "size_mb": 1900,
       "link": "https://huggingface.co/Salesforce/blip-image-captioning-large"
     },
@@ -68,8 +54,7 @@
       "id": "Salesforce/blip2-opt-2.7b",
       "name": "BLIP-2 OPT 2.7B",
       "team": "Salesforce",
-      "license": "BSD-3-Clause",
-      "description": "BLIP-2 with OPT language model for advanced captioning",
+      "task": "Image to Text",
       "size_mb": 5400,
       "link": "https://huggingface.co/Salesforce/blip2-opt-2.7b"
     }

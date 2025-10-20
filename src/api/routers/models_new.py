@@ -17,10 +17,7 @@ class ModelInfo(BaseModel):
     name: str
     team: str
     type: str
-    license: Optional[str] = None
-    dimensions: Optional[int] = None
-    languages: Optional[list[str]] = None
-    description: str
+    task: str
     size_mb: int
     link: str
     is_downloaded: bool
@@ -92,10 +89,7 @@ async def list_all_models() -> ModelsResponse:
                     name=model_info["name"],
                     team=model_info["team"],
                     type=model_type,
-                    license=model_info.get("license"),
-                    dimensions=model_info.get("dimensions"),
-                    languages=model_info.get("languages"),
-                    description=model_info["description"],
+                    task=model_info["task"],
                     size_mb=model_info["size_mb"],
                     link=model_info["link"],
                     is_downloaded=is_downloaded,
