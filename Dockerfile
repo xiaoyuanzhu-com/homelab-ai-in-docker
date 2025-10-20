@@ -24,11 +24,17 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     git \
+    aria2 \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster Python package management
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
+
+# Install hfd (HuggingFace downloader with aria2 support and mirror compatibility)
+RUN curl -L https://gist.githubusercontent.com/padeoe/697678ab8e528b85a2a7bddafea1fa4f/raw/hfd.sh -o /usr/local/bin/hfd && \
+    chmod +x /usr/local/bin/hfd
 
 # Copy dependency files
 COPY pyproject.toml ./

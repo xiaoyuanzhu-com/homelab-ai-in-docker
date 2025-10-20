@@ -148,18 +148,24 @@ async def download_model_with_progress(
 
     try:
         env = os.environ.copy()
+        hf_endpoint = env.get("HF_ENDPOINT", "https://huggingface.co")
+
         logger.info(f"=== Download Starting for {model_id} ===")
+        logger.info(f"HuggingFace Endpoint: {hf_endpoint}")
         logger.info(f"Target directory: {cache_dir}")
 
-        cmd = ["huggingface-cli", "download", model_id, "--local-dir", str(cache_dir)]
-        logger.info(f"Command: {' '.join(cmd)}")
+        # Use hfd (huggingface downloader with aria2) for better mirror support and resume capability
+        # hfd properly respects HF_ENDPOINT and uses aria2c for faster multi-threaded downloads
+        cmd_str = f"HF_ENDPOINT={hf_endpoint} hfd {model_id} --local-dir {cache_dir}"
+        logger.info(f"Command: {cmd_str}")
 
         process = subprocess.Popen(
-            cmd,
+            cmd_str,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
             bufsize=1,
+            shell=True,
             env=env,
         )
 
