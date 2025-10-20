@@ -51,7 +51,7 @@ export default function EmbeddingPage() {
         const data = await response.json();
         // Filter for downloaded models only (task filter already applied)
         const downloadedModels = data.models.filter(
-          (m: any) => m.status === "downloaded"
+          (m: EmbeddingModel) => m.status === "downloaded"
         );
         setAvailableModels(downloadedModels);
         // Select first downloaded model by default

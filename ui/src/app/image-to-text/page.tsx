@@ -222,7 +222,7 @@ export default function ImageCaptionPage() {
                 <ul className="space-y-2 text-sm">
                   <li><code className="bg-muted px-2 py-1 rounded">image</code> (string, required) - Base64-encoded image data</li>
                   <li><code className="bg-muted px-2 py-1 rounded">model</code> (string, required) - Model ID to use for captioning</li>
-                  <li><code className="bg-muted px-2 py-1 rounded">prompt</code> (string, optional) - Custom prompt or question for the model. If not provided, uses model's default.</li>
+                  <li><code className="bg-muted px-2 py-1 rounded">prompt</code> (string, optional) - Custom prompt or question for the model. If not provided, uses model&apos;s default.</li>
                 </ul>
               </div>
 

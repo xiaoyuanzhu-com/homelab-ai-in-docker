@@ -15,6 +15,7 @@ interface EmbeddingModel {
   id: string;
   name: string;
   team: string;
+  type?: string;
   license: string;
   dimensions: number;
   languages: string;
@@ -52,7 +53,7 @@ export function ModelsTab({}: ModelsTabProps) {
       }
       const data = await response.json();
       // Filter for embedding type only
-      const embeddingModels = data.models.filter((m: any) => m.type === "embedding");
+      const embeddingModels = data.models.filter((m: EmbeddingModel) => m.type === "embedding");
       setModels(embeddingModels);
       setError(null);
     } catch (err) {

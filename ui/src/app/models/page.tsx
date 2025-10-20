@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Download, Trash2, ExternalLink, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { Download, Trash2, ExternalLink, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 
 interface Model {

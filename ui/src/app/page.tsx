@@ -17,7 +17,6 @@ import {
   Brain,
   TrendingUp,
   Table2,
-  Search,
   GitBranch,
   Layers,
   FileImage,
