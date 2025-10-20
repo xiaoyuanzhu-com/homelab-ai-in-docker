@@ -5,6 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Important Notes
 
 - **DO NOT commit without explicit user instruction** - Wait for the user to ask to commit changes before running git commit commands.
+  - **CRITICAL**: This applies to EVERY set of changes, even within a single long session
+  - Even if the user said "commit it" earlier, you MUST wait for explicit "commit" instruction for each subsequent change
+  - Never assume permission to commit based on previous commits in the same conversation
+  - Always wait for the user to review changes and explicitly say "commit" before running git commit
 
 ## Project Overview
 
