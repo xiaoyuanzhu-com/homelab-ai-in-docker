@@ -29,8 +29,9 @@ class ModelInfo(BaseModel):
     parameters_m: int
     gpu_memory_mb: int
     link: str
-    is_downloaded: bool
+    status: str  # init, downloading, failed, downloaded
     downloaded_size_mb: Optional[int] = None
+    error_message: Optional[str] = None
 
 
 class ModelsResponse(BaseModel):
@@ -48,76 +49,55 @@ class DownloadProgressEvent(BaseModel):
     message: Optional[str] = None
 
 
-def load_models_manifest() -> dict:
-    """Load unified models manifest from JSON file."""
-    manifest_path = Path(__file__).parent.parent / "models" / "models_manifest.json"
-    with open(manifest_path, "r") as f:
-        return json.load(f)
-
-
-def check_model_downloaded_hf(model_id: str) -> tuple[bool, Optional[int]]:
-    """
-    Check if a model is downloaded in custom directory structure.
-
-    Models are stored in: data/models/{org}/{model}/
-
-    Args:
-        model_id: The model identifier (e.g., "BAAI/bge-large-en-v1.5")
-
-    Returns:
-        Tuple of (is_downloaded, size_in_mb)
-    """
-    from ...config import get_data_dir
-
-    # Use custom directory structure: data/models/{org}/{model}
-    # "BAAI/bge-large-en-v1.5" -> "data/models/BAAI/bge-large-en-v1.5"
-    cache_path = get_data_dir() / "models" / model_id
-
-    if cache_path.exists():
-        # Calculate directory size
-        files = list(cache_path.rglob("*"))
-        if files:
-            total_size = sum(f.stat().st_size for f in files if f.is_file())
-            size_mb = total_size // (1024 * 1024)
-            if size_mb > 0:
-                return True, size_mb
-
-    return False, None
-
-
 @router.get("/models", response_model=ModelsResponse)
 async def list_all_models() -> ModelsResponse:
     """
-    List all available AI models across all types.
+    List all available AI models across all types from database.
 
     Returns:
         List of all models with download status
     """
-    manifest = load_models_manifest()
+    from ...db.models import get_all_models
+
+    db_models = get_all_models()
     models = []
 
-    # Process each model type
-    for model_type, type_models in manifest.items():
-        for model_info in type_models:
-            is_downloaded, downloaded_size_mb = check_model_downloaded_hf(model_info["id"])
-
-            models.append(
-                ModelInfo(
-                    id=model_info["id"],
-                    name=model_info["name"],
-                    team=model_info["team"],
-                    type=model_type,
-                    task=model_info["task"],
-                    size_mb=model_info["size_mb"],
-                    parameters_m=model_info["parameters_m"],
-                    gpu_memory_mb=model_info["gpu_memory_mb"],
-                    link=model_info["link"],
-                    is_downloaded=is_downloaded,
-                    downloaded_size_mb=downloaded_size_mb,
-                )
+    for db_model in db_models:
+        models.append(
+            ModelInfo(
+                id=db_model["id"],
+                name=db_model["name"],
+                team=db_model["team"],
+                type=db_model["type"],
+                task=db_model["task"],
+                size_mb=db_model["size_mb"],
+                parameters_m=db_model["parameters_m"],
+                gpu_memory_mb=db_model["gpu_memory_mb"],
+                link=db_model["link"],
+                status=db_model["status"],
+                downloaded_size_mb=db_model["downloaded_size_mb"],
+                error_message=db_model["error_message"],
             )
+        )
 
     return ModelsResponse(models=models)
+
+
+@router.get("/models/{model_id:path}/logs")
+async def get_model_download_logs(model_id: str):
+    """
+    Get download logs for a specific model.
+
+    Args:
+        model_id: The model identifier (can contain slashes)
+
+    Returns:
+        List of log entries with timestamps
+    """
+    from ...db.download_logs import get_logs
+
+    logs = get_logs(model_id)
+    return {"model_id": model_id, "logs": logs}
 
 
 async def download_model_with_progress(
@@ -135,6 +115,7 @@ async def download_model_with_progress(
         SSE events with download progress
     """
     from ...config import get_data_dir
+    from ...db.models import update_model_status, ModelStatus
     import os
     import logging
 
@@ -146,6 +127,14 @@ async def download_model_with_progress(
     cache_dir = get_data_dir() / "models" / model_id
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    # Update status to downloading
+    update_model_status(model_id, ModelStatus.DOWNLOADING)
+
+    # Clear old logs for this model
+    from ...db.download_logs import clear_logs, add_log_line
+    clear_logs(model_id)
+
+    process = None
     try:
         env = os.environ.copy()
         hf_endpoint = env.get("HF_ENDPOINT", "https://huggingface.co")
@@ -189,8 +178,14 @@ async def download_model_with_progress(
             if process.stdout:
                 line = process.stdout.readline()
                 if line:
-                    output_lines.append(line.strip())
-                    logger.info(f"Download output: {line.strip()}")
+                    stripped_line = line.strip()
+                    output_lines.append(stripped_line)
+                    logger.info(f"Download output: {stripped_line}")
+                    # Persist log to database
+                    try:
+                        add_log_line(model_id, stripped_line)
+                    except Exception as log_err:
+                        logger.warning(f"Failed to persist log: {log_err}")
 
             # Get current directory size
             current_size = 0
@@ -220,13 +215,20 @@ async def download_model_with_progress(
             remaining = process.stdout.read()
             if remaining:
                 for line in remaining.splitlines():
-                    if line.strip():
-                        output_lines.append(line.strip())
-                        logger.info(f"Download output: {line.strip()}")
+                    stripped_line = line.strip()
+                    if stripped_line:
+                        output_lines.append(stripped_line)
+                        logger.info(f"Download output: {stripped_line}")
+                        # Persist log to database
+                        try:
+                            add_log_line(model_id, stripped_line)
+                        except Exception as log_err:
+                            logger.warning(f"Failed to persist log: {log_err}")
 
         # Download completed - check exit code
         returncode = process.returncode
-        del active_downloads[model_id]
+        if model_id in active_downloads:
+            del active_downloads[model_id]
 
         logger.info(f"=== Download Process Completed ===")
         logger.info(f"Exit code: {returncode}")
@@ -243,6 +245,9 @@ async def download_model_with_progress(
                 error_lines = [l for l in output_lines[-5:] if "error" in l.lower() or "failed" in l.lower()]
                 if error_lines:
                     error_msg = error_lines[-1][:200]  # Limit message length
+
+            # Update status to failed in database
+            update_model_status(model_id, ModelStatus.FAILED, error_message=error_msg)
 
             event = DownloadProgressEvent(
                 type="error", message=error_msg
@@ -264,6 +269,9 @@ async def download_model_with_progress(
         logger.info(f"✓ Download SUCCESS for {model_id}")
         logger.info(f"Downloaded size: {final_size_mb} MB")
 
+        # Update status to downloaded in database
+        update_model_status(model_id, ModelStatus.DOWNLOADED, downloaded_size_mb=final_size_mb)
+
         event = DownloadProgressEvent(
             type="complete", percent=100, size_mb=final_size_mb
         )
@@ -272,8 +280,23 @@ async def download_model_with_progress(
     except Exception as e:
         if model_id in active_downloads:
             del active_downloads[model_id]
-        event = DownloadProgressEvent(type="error", message=f"Error: {str(e)}")
+
+        error_msg = f"Error: {str(e)}"
+        # Update status to failed in database
+        update_model_status(model_id, ModelStatus.FAILED, error_message=error_msg)
+
+        event = DownloadProgressEvent(type="error", message=error_msg)
         yield event.model_dump_json()
+    finally:
+        # Ensure process is cleaned up and not left in downloading state
+        if process and model_id in active_downloads:
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=5)
+            except:
+                pass
+            del active_downloads[model_id]
 
 
 @router.get("/models/download")
@@ -288,37 +311,43 @@ async def download_model_stream(model: str, request: Request):
     Returns:
         EventSourceResponse with progress events
     """
-    # Validate model exists in manifest
-    manifest = load_models_manifest()
-    all_models = {}
-    for type_models in manifest.values():
-        for m in type_models:
-            all_models[m["id"]] = m
+    from ...db.models import get_model, ModelStatus
 
-    if model not in all_models:
+    # Validate model exists in database
+    db_model = get_model(model)
+    if not db_model:
         raise HTTPException(
             status_code=400,
             detail=f"Model '{model}' not found in catalog",
         )
 
     # Check if already downloaded
-    is_downloaded, _ = check_model_downloaded_hf(model)
-    if is_downloaded:
+    if db_model["status"] == ModelStatus.DOWNLOADED.value:
         raise HTTPException(
             status_code=400,
             detail=f"Model '{model}' is already downloaded",
         )
 
-    # Check if already downloading
+    # Check if there's an actual active download process running
+    # Only block if there's a real process, not just a stale "downloading" status in DB
     if model in active_downloads:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Model '{model}' is already being downloaded",
-        )
+        # Verify the process is actually still running
+        process = active_downloads[model]
+        if process.poll() is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Model '{model}' is already being downloaded",
+            )
+        else:
+            # Process died but wasn't cleaned up - remove it
+            del active_downloads[model]
+            # Reset status to failed if it was stuck in downloading
+            if db_model["status"] == ModelStatus.DOWNLOADING.value:
+                from ...db.models import update_model_status
+                update_model_status(model, ModelStatus.FAILED, error_message="Download process died unexpectedly")
 
-    model_info = all_models[model]
     return EventSourceResponse(
-        download_model_with_progress(model, model_info["size_mb"], request)
+        download_model_with_progress(model, db_model["size_mb"], request)
     )
 
 
@@ -333,25 +362,24 @@ async def delete_model(model_id: str):
     Returns:
         Deletion status
     """
-    # Validate model exists in manifest
-    manifest = load_models_manifest()
-    all_models = []
-    for type_models in manifest.values():
-        all_models.extend([m["id"] for m in type_models])
+    from ...config import get_data_dir
+    from ...db.models import get_model, update_model_status, ModelStatus
 
-    if model_id not in all_models:
+    # Validate model exists in database
+    db_model = get_model(model_id)
+    if not db_model:
         raise HTTPException(
             status_code=400,
             detail=f"Model '{model_id}' not found in catalog",
         )
 
     try:
-        from ...config import get_data_dir
-
         # Use custom directory structure: data/models/{org}/{model}
         cache_path = get_data_dir() / "models" / model_id
 
         if not cache_path.exists():
+            # Reset status to init if directory doesn't exist
+            update_model_status(model_id, ModelStatus.INIT, downloaded_size_mb=None, error_message=None)
             return {
                 "model_id": model_id,
                 "status": "not_found",
@@ -360,6 +388,9 @@ async def delete_model(model_id: str):
 
         # Delete the model directory
         shutil.rmtree(cache_path)
+
+        # Reset status to init after deletion
+        update_model_status(model_id, ModelStatus.INIT, downloaded_size_mb=None, error_message=None)
 
         return {
             "model_id": model_id,

@@ -21,8 +21,9 @@ interface EmbeddingModel {
   description: string;
   size_mb: number;
   link: string;
-  is_downloaded: boolean;
+  status: "init" | "downloading" | "failed" | "downloaded";
   downloaded_size_mb: number | null;
+  error_message?: string;
 }
 
 interface ModelsTabProps {
@@ -312,7 +313,7 @@ export function ModelsTab({}: ModelsTabProps) {
                               </div>
                             )}
                           </div>
-                        ) : model.is_downloaded ? (
+                        ) : model.status === "downloaded" ? (
                           <Badge variant="default" className="bg-green-600 hover:bg-green-700">
                             {model.downloaded_size_mb} MB
                           </Badge>
@@ -334,7 +335,7 @@ export function ModelsTab({}: ModelsTabProps) {
                             >
                               <X className="h-4 w-4" />
                             </Button>
-                          ) : !model.is_downloaded ? (
+                          ) : model.status !== "downloaded" ? (
                             <Button
                               size="sm"
                               variant="ghost"

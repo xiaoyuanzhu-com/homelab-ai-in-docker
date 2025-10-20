@@ -21,7 +21,7 @@ interface EmbeddingModel {
   id: string;
   name: string;
   team: string;
-  is_downloaded: boolean;
+  status: string;
   dimensions: number;
 }
 

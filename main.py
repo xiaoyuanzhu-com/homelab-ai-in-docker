@@ -1,5 +1,6 @@
 """Main FastAPI application for Homelab AI Services."""
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.routers import crawl, embedding, caption, history, models_new as models, hardware
+from src.db.models import init_db, upsert_model
 
 # Configure data directories for crawl4ai and playwright
 # Use environment variables if set, otherwise default to /haid/data
@@ -37,6 +39,54 @@ app = FastAPI(
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database and load models manifest on startup."""
+    logger = logging.getLogger(__name__)
+
+    # Initialize database schema (models, history, and download_logs tables in haid.db)
+    logger.info("Initializing database...")
+    init_db()
+
+    # Initialize download logs table
+    from src.db.download_logs import init_download_logs_table
+    init_download_logs_table()
+
+    # Initialize history storage (creates request_history table)
+    from src.storage.history import history_storage
+    # history_storage.__init__() already called on import, table created
+
+    # Load models manifest and upsert into database
+    logger.info("Loading models manifest...")
+    manifest_path = Path(__file__).parent / "src" / "api" / "models" / "models_manifest.json"
+
+    if manifest_path.exists():
+        with open(manifest_path, "r") as f:
+            manifest = json.load(f)
+
+        # Upsert all models from manifest
+        model_count = 0
+        for model_type, models_list in manifest.items():
+            for model_info in models_list:
+                upsert_model(
+                    model_id=model_info["id"],
+                    name=model_info["name"],
+                    team=model_info["team"],
+                    model_type=model_type,
+                    task=model_info["task"],
+                    size_mb=model_info["size_mb"],
+                    parameters_m=model_info["parameters_m"],
+                    gpu_memory_mb=model_info["gpu_memory_mb"],
+                    link=model_info["link"],
+                )
+                model_count += 1
+
+        logger.info(f"Loaded {model_count} models from manifest into database")
+    else:
+        logger.warning(f"Models manifest not found at {manifest_path}")
+
 
 # Include routers
 app.include_router(crawl.router)

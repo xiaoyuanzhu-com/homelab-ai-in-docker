@@ -19,7 +19,7 @@ interface EmbeddingModel {
   id: string;
   name: string;
   team: string;
-  is_downloaded: boolean;
+  status: string;
   dimensions: number;
 }
 
@@ -51,7 +51,7 @@ export default function EmbeddingPage() {
         const data = await response.json();
         // Filter for embedding type and downloaded models only
         const downloadedModels = data.models.filter(
-          (m: any) => m.type === "embedding" && m.is_downloaded
+          (m: any) => m.type === "embedding" && m.status === "downloaded"
         );
         setAvailableModels(downloadedModels);
         // Select first downloaded model by default
