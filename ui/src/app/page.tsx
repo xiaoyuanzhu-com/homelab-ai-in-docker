@@ -46,7 +46,7 @@ const TASK_CATEGORIES: TaskCategory[] = [
     title: "Text",
     tasks: [
       {
-        id: "feature-extraction",
+        id: "embedding",
         title: "Feature Extraction",
         description: "Extract embeddings from text",
         icon: <Type className="h-5 w-5" />,
@@ -281,7 +281,7 @@ const TASK_CATEGORIES: TaskCategory[] = [
     title: "Other",
     tasks: [
       {
-        id: "web-crawling",
+        id: "crawl",
         title: "Web Crawling",
         description: "Extract content from websites",
         icon: <Globe className="h-5 w-5" />,
