@@ -87,7 +87,7 @@ export default function StatsPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">System Statistics</h1>
+        <h1 className="text-3xl font-bold mb-2">System Status</h1>
         <p className="text-muted-foreground">
           Real-time monitoring of hardware resources and task processing
         </p>

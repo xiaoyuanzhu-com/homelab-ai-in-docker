@@ -51,13 +51,13 @@ export function Header() {
             </NavigationMenuItem>
             <NavigationMenuItem>
               <Link
-                href="/stats"
+                href="/status"
                 className={cn(
                   navigationMenuTriggerStyle(),
-                  isActive("/stats") && "bg-accent text-accent-foreground"
+                  isActive("/status") && "bg-accent text-accent-foreground"
                 )}
               >
-                Stats
+                Status
               </Link>
             </NavigationMenuItem>
             <NavigationMenuItem>
