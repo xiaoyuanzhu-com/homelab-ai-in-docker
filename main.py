@@ -95,6 +95,30 @@ async def startup_event():
         logger.warning(f"Models manifest not found at {manifest_path}")
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown."""
+    logger = logging.getLogger(__name__)
+    logger.info("Shutting down application...")
+
+    # Clean up ML model resources
+    from src.api.routers import text_to_embedding, image_to_text
+
+    try:
+        logger.info("Releasing text embedding model resources...")
+        text_to_embedding.cleanup()
+    except Exception as e:
+        logger.warning(f"Error cleaning up text embedding model: {e}")
+
+    try:
+        logger.info("Releasing image captioning model resources...")
+        image_to_text.cleanup()
+    except Exception as e:
+        logger.warning(f"Error cleaning up image captioning model: {e}")
+
+    logger.info("Shutdown complete")
+
+
 # Include routers
 app.include_router(crawl.router)
 app.include_router(text_to_embedding.router)

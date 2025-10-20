@@ -59,6 +59,15 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
     return _model_cache
 
 
+def cleanup():
+    """Release model resources on shutdown."""
+    global _model_cache, _current_model_name
+    if _model_cache is not None:
+        del _model_cache
+        _model_cache = None
+    _current_model_name = "all-MiniLM-L6-v2"
+
+
 @router.post("/text-to-embedding", response_model=EmbeddingResponse)
 async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
     """

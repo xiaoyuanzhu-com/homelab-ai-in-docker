@@ -52,6 +52,18 @@ def get_model():
     return _processor_cache, _model_cache
 
 
+def cleanup():
+    """Release model and processor resources on shutdown."""
+    global _model_cache, _processor_cache, _current_model_name
+    if _model_cache is not None:
+        del _model_cache
+        _model_cache = None
+    if _processor_cache is not None:
+        del _processor_cache
+        _processor_cache = None
+    _current_model_name = "Salesforce/blip-image-captioning-base"
+
+
 def decode_image(image_data: str) -> Image.Image:
     """
     Decode base64 image or load from URL.
