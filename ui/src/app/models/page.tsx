@@ -13,9 +13,14 @@ interface Model {
   name: string;
   team: string;
   type: string;
+  license?: string;
   dimensions?: number;
+  languages?: string[];
+  description: string;
+  size_mb: number;
+  link: string;
   is_downloaded: boolean;
-  size_mb?: number;
+  downloaded_size_mb?: number;
 }
 
 interface ModelsResponse {
@@ -48,24 +53,75 @@ export default function ModelsPage() {
   const handleDownload = async (modelId: string) => {
     setDownloadingModels(prev => new Set(prev).add(modelId));
     toast.info("Downloading model...", {
-      description: "This may take a few minutes",
+      description: "This may take several minutes depending on model size",
     });
 
     try {
-      const response = await fetch("/api/models/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model_id: modelId }),
-      });
+      // Use streaming endpoint for embedding models
+      const modelType = models.find(m => m.id === modelId)?.type;
 
-      if (!response.ok) throw new Error("Download failed");
+      if (modelType === "embedding") {
+        // Use SSE streaming endpoint for real-time progress
+        const encodedId = encodeURIComponent(modelId);
+        const eventSource = new EventSource(`/api/models/embedding/${encodedId}/download`);
 
-      toast.success("Model downloaded successfully!");
-      await fetchModels();
+        eventSource.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+
+          if (data.type === "progress") {
+            // Update progress in toast
+            const message = data.current_mb
+              ? `Downloaded ${data.current_mb} MB...`
+              : "Downloading...";
+            toast.info(message);
+          } else if (data.type === "complete") {
+            eventSource.close();
+            toast.success("Model downloaded successfully!");
+            fetchModels();
+            setDownloadingModels(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(modelId);
+              return newSet;
+            });
+          } else if (data.type === "error") {
+            eventSource.close();
+            toast.error("Download failed", { description: data.message });
+            setDownloadingModels(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(modelId);
+              return newSet;
+            });
+          }
+        };
+
+        eventSource.onerror = () => {
+          eventSource.close();
+          toast.error("Download connection failed");
+          setDownloadingModels(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(modelId);
+            return newSet;
+          });
+        };
+      } else {
+        // For other model types, use simple download endpoint
+        const response = await fetch(`/api/models/download?model_id=${encodeURIComponent(modelId)}`, {
+          method: "POST",
+        });
+
+        if (!response.ok) throw new Error("Download failed");
+
+        toast.success("Model downloaded successfully!");
+        await fetchModels();
+        setDownloadingModels(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(modelId);
+          return newSet;
+        });
+      }
     } catch (error) {
       console.error("Failed to download model:", error);
       toast.error("Failed to download model");
-    } finally {
       setDownloadingModels(prev => {
         const newSet = new Set(prev);
         newSet.delete(modelId);
@@ -76,10 +132,9 @@ export default function ModelsPage() {
 
   const handleDelete = async (modelId: string) => {
     try {
-      const response = await fetch("/api/models/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model_id: modelId }),
+      const encodedId = encodeURIComponent(modelId);
+      const response = await fetch(`/api/models/${encodedId}`, {
+        method: "DELETE",
       });
 
       if (!response.ok) throw new Error("Delete failed");
@@ -153,19 +208,27 @@ export default function ModelsPage() {
                           <h3 className="font-semibold">{model.name}</h3>
                         </div>
                         <p className="text-sm text-muted-foreground mb-2">
-                          {model.team} • {model.id}
+                          {model.description}
                         </p>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap">
+                          <Badge variant="outline" className="text-xs">
+                            {model.team}
+                          </Badge>
                           {model.dimensions && (
                             <Badge variant="secondary" className="text-xs">
                               {model.dimensions}D
                             </Badge>
                           )}
-                          {model.size_mb && (
+                          {model.languages && model.languages.length > 0 && (
                             <Badge variant="secondary" className="text-xs">
-                              {model.size_mb.toFixed(0)} MB
+                              {model.languages.join(", ")}
                             </Badge>
                           )}
+                          <Badge variant="secondary" className="text-xs">
+                            {model.is_downloaded && model.downloaded_size_mb
+                              ? `${model.downloaded_size_mb} MB`
+                              : `~${model.size_mb} MB`}
+                          </Badge>
                           {model.is_downloaded && (
                             <Badge variant="default" className="text-xs">
                               Downloaded
