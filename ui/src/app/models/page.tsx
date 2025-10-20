@@ -14,6 +14,8 @@ interface Model {
   type: string;
   task: string;
   size_mb: number;
+  parameters_m: number;
+  gpu_memory_mb: number;
   link: string;
   is_downloaded: boolean;
   downloaded_size_mb?: number;
@@ -139,6 +141,8 @@ export default function ModelsPage() {
               <TableHead>Name</TableHead>
               <TableHead>Team</TableHead>
               <TableHead>Task</TableHead>
+              <TableHead className="text-right">Parameters</TableHead>
+              <TableHead className="text-right">GPU Memory</TableHead>
               <TableHead className="text-right">Size</TableHead>
               <TableHead className="w-[100px]"></TableHead>
             </TableRow>
@@ -146,13 +150,13 @@ export default function ModelsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                   Loading models...
                 </TableCell>
               </TableRow>
             ) : models.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                   No models available
                 </TableCell>
               </TableRow>
@@ -179,9 +183,22 @@ export default function ModelsPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
-                    {model.is_downloaded && model.downloaded_size_mb
-                      ? `${model.downloaded_size_mb} MB`
-                      : `${model.size_mb} MB`}
+                    {model.parameters_m}M
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground">
+                    {(model.gpu_memory_mb / 1024).toFixed(1)} GB
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end">
+                      <Badge
+                        variant={model.is_downloaded ? "default" : "secondary"}
+                        className={model.is_downloaded ? "bg-green-600 hover:bg-green-700" : ""}
+                      >
+                        {model.is_downloaded && model.downloaded_size_mb
+                          ? `${model.downloaded_size_mb} MB`
+                          : `${model.size_mb} MB`}
+                      </Badge>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1 justify-end">

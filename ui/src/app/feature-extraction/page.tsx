@@ -47,10 +47,13 @@ export default function EmbeddingPage() {
     // Load available models
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/models/embedding");
+        const response = await fetch("/api/models");
         if (!response.ok) throw new Error("Failed to fetch models");
         const data = await response.json();
-        const downloadedModels = data.models.filter((m: EmbeddingModel) => m.is_downloaded);
+        // Filter for embedding type and downloaded models only
+        const downloadedModels = data.models.filter(
+          (m: any) => m.type === "embedding" && m.is_downloaded
+        );
         setAvailableModels(downloadedModels);
         // Select first downloaded model by default
         if (downloadedModels.length > 0 && !selectedModel) {

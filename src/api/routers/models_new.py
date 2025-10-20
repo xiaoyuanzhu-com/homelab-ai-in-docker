@@ -26,6 +26,8 @@ class ModelInfo(BaseModel):
     type: str
     task: str
     size_mb: int
+    parameters_m: int
+    gpu_memory_mb: int
     link: str
     is_downloaded: bool
     downloaded_size_mb: Optional[int] = None
@@ -107,6 +109,8 @@ async def list_all_models() -> ModelsResponse:
                     type=model_type,
                     task=model_info["task"],
                     size_mb=model_info["size_mb"],
+                    parameters_m=model_info["parameters_m"],
+                    gpu_memory_mb=model_info["gpu_memory_mb"],
                     link=model_info["link"],
                     is_downloaded=is_downloaded,
                     downloaded_size_mb=downloaded_size_mb,

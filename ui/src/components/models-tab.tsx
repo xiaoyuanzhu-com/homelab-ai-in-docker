@@ -45,12 +45,14 @@ export function ModelsTab({}: ModelsTabProps) {
 
   const fetchModels = async () => {
     try {
-      const response = await fetch("/api/models/embedding");
+      const response = await fetch("/api/models");
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
-      setModels(data.models);
+      // Filter for embedding type only
+      const embeddingModels = data.models.filter((m: any) => m.type === "embedding");
+      setModels(embeddingModels);
       setError(null);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Failed to load models";
@@ -68,7 +70,8 @@ export function ModelsTab({}: ModelsTabProps) {
   }, []);
 
   const handleDownload = async (modelId: string) => {
-    const eventSource = new EventSource(`/api/models/embedding/${modelId}/download`);
+    const encodedId = encodeURIComponent(modelId);
+    const eventSource = new EventSource(`/api/models/download?model=${encodedId}`);
 
     // Store EventSource for cancellation
     setActiveEventSources((prev) => new Map(prev).set(modelId, eventSource));
@@ -153,18 +156,9 @@ export function ModelsTab({}: ModelsTabProps) {
       eventSource.close();
     }
 
-    // Call backend to cancel
-    try {
-      await fetch(`/api/models/embedding/${modelId}/download`, {
-        method: "DELETE",
-      });
-
-      toast.info("Download cancelled", {
-        description: "Download stopped and partial files removed",
-      });
-    } catch (err) {
-      console.error("Failed to cancel download:", err);
-    }
+    toast.info("Download cancelled", {
+      description: "Connection closed",
+    });
 
     // Clean up state
     setActiveEventSources((prev) => {
@@ -187,7 +181,8 @@ export function ModelsTab({}: ModelsTabProps) {
     setDeletingModels((prev) => new Set(prev).add(modelId));
 
     try {
-      const response = await fetch(`/api/models/embedding/${modelId}`, {
+      const encodedId = encodeURIComponent(modelId);
+      const response = await fetch(`/api/models/${encodedId}`, {
         method: "DELETE",
       });
 
