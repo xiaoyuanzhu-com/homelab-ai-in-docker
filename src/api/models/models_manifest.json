@@ -71,6 +71,16 @@
       "parameters_m": 2700,
       "gpu_memory_mb": 6144,
       "link": "https://huggingface.co/Salesforce/blip2-opt-2.7b"
+    },
+    {
+      "id": "unsloth/llava-1.5-7b-hf-bnb-4bit",
+      "name": "llava-1.5-7b-hf-bnb-4bit",
+      "team": "unsloth",
+      "task": "Image to Text",
+      "size_mb": 4200,
+      "parameters_m": 7000,
+      "gpu_memory_mb": 4096,
+      "link": "https://huggingface.co/unsloth/llava-1.5-7b-hf-bnb-4bit"
     }
   ]
 }

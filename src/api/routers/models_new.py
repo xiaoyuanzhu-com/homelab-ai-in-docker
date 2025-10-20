@@ -168,6 +168,7 @@ async def download_model_with_progress(
 
         last_progress_time = time.time()
         last_size = 0
+        output_lines = []
 
         # Monitor download progress
         while process.poll() is None:
@@ -177,6 +178,13 @@ async def download_model_with_progress(
                 process.wait(timeout=5)
                 del active_downloads[model_id]
                 return
+
+            # Read any available output
+            if process.stdout:
+                line = process.stdout.readline()
+                if line:
+                    output_lines.append(line.strip())
+                    logger.info(f"Download output: {line.strip()}")
 
             # Get current directory size
             current_size = 0
@@ -201,6 +209,15 @@ async def download_model_with_progress(
 
             await asyncio.sleep(0.5)
 
+        # Read any remaining output
+        if process.stdout:
+            remaining = process.stdout.read()
+            if remaining:
+                for line in remaining.splitlines():
+                    if line.strip():
+                        output_lines.append(line.strip())
+                        logger.info(f"Download output: {line.strip()}")
+
         # Download completed - check exit code
         returncode = process.returncode
         del active_downloads[model_id]
@@ -210,8 +227,19 @@ async def download_model_with_progress(
 
         if returncode != 0:
             logger.error(f"✗ Download FAILED for {model_id}")
+            # Log last few lines of output for debugging
+            if output_lines:
+                logger.error(f"Last output lines: {output_lines[-10:]}")
+
+            error_msg = "Download failed"
+            if output_lines:
+                # Try to extract meaningful error from output
+                error_lines = [l for l in output_lines[-5:] if "error" in l.lower() or "failed" in l.lower()]
+                if error_lines:
+                    error_msg = error_lines[-1][:200]  # Limit message length
+
             event = DownloadProgressEvent(
-                type="error", message="Download failed"
+                type="error", message=error_msg
             )
             yield event.model_dump_json()
             # Clean up partial download

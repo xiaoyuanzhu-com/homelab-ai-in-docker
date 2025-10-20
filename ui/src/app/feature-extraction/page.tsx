@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { ModelsTab } from "@/components/models-tab";
 import { TextEmbeddingInputOutput } from "@/components/text-embedding-input-output";
 import { EmbeddingHistory } from "@/components/embedding-history";
 
@@ -124,7 +123,6 @@ export default function EmbeddingPage() {
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="mb-6">
           <TabsTrigger value="try">Try</TabsTrigger>
-          <TabsTrigger value="models">Models</TabsTrigger>
           <TabsTrigger value="doc">Doc</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
@@ -144,11 +142,6 @@ export default function EmbeddingPage() {
             error={error}
             onSend={handleEmbed}
           />
-        </TabsContent>
-
-        {/* Models Tab */}
-        <TabsContent value="models">
-          <ModelsTab />
         </TabsContent>
 
         {/* API Tab */}
