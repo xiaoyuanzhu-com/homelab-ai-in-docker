@@ -40,6 +40,17 @@ export function Header() {
             </NavigationMenuItem>
             <NavigationMenuItem>
               <Link
+                href="/models"
+                className={cn(
+                  navigationMenuTriggerStyle(),
+                  isActive("/models") && "bg-accent text-accent-foreground"
+                )}
+              >
+                Models
+              </Link>
+            </NavigationMenuItem>
+            <NavigationMenuItem>
+              <Link
                 href="/stats"
                 className={cn(
                   navigationMenuTriggerStyle(),
@@ -47,6 +58,17 @@ export function Header() {
                 )}
               >
                 Stats
+              </Link>
+            </NavigationMenuItem>
+            <NavigationMenuItem>
+              <Link
+                href="/settings"
+                className={cn(
+                  navigationMenuTriggerStyle(),
+                  isActive("/settings") && "bg-accent text-accent-foreground"
+                )}
+              >
+                Settings
               </Link>
             </NavigationMenuItem>
           </NavigationMenuList>
