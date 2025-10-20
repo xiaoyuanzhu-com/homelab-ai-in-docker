@@ -9,7 +9,14 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routers import crawl, embedding, caption, history, models_new as models, hardware
+from src.api.routers import (
+    crawl,
+    text_to_embedding,
+    image_to_text,
+    history,
+    models_new as models,
+    hardware,
+)
 from src.db.models import init_db, upsert_model
 
 # Configure data directories for crawl4ai and playwright
@@ -90,8 +97,8 @@ async def startup_event():
 
 # Include routers
 app.include_router(crawl.router)
-app.include_router(embedding.router)
-app.include_router(caption.router)
+app.include_router(text_to_embedding.router)
+app.include_router(image_to_text.router)
 app.include_router(history.router)
 app.include_router(models.router)
 app.include_router(hardware.router)

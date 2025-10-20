@@ -58,7 +58,7 @@ export default function ImageCaptionPage() {
       // Extract base64 from data URL
       const base64Data = imagePreview.split(",")[1];
 
-      const response = await fetch("/api/caption", {
+      const response = await fetch("/api/image-to-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ image: base64Data }),
@@ -124,7 +124,7 @@ export default function ImageCaptionPage() {
               <div>
                 <h3 className="text-lg font-semibold mb-2">Endpoint</h3>
                 <div className="bg-muted p-4 rounded-lg">
-                  <code className="text-sm">POST /api/caption</code>
+                  <code className="text-sm">POST /api/image-to-text</code>
                 </div>
               </div>
 
@@ -170,7 +170,7 @@ with open("image.jpg", "rb") as f:
 
 # Send request
 response = requests.post(
-    "${apiBaseUrl}/api/caption",
+    "${apiBaseUrl}/api/image-to-text",
     json={"image": image_data}
 )
 

@@ -85,7 +85,7 @@ export default function EmbeddingPage() {
     setResult(null);
 
     try {
-      const response = await fetch("/api/embed", {
+      const response = await fetch("/api/text-to-embedding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ texts: textList, model: selectedModel }),
@@ -155,7 +155,7 @@ export default function EmbeddingPage() {
               <div>
                 <h3 className="text-lg font-semibold mb-2">Endpoint</h3>
                 <div className="bg-muted p-4 rounded-lg">
-                  <code className="text-sm">POST /api/embed</code>
+                  <code className="text-sm">POST /api/text-to-embedding</code>
                 </div>
               </div>
 
@@ -199,7 +199,7 @@ export default function EmbeddingPage() {
               <div>
                 <h3 className="text-lg font-semibold mb-2">cURL Example</h3>
                 <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`curl -X POST ${apiBaseUrl}/api/embed \\
+{`curl -X POST ${apiBaseUrl}/api/text-to-embedding \\
   -H "Content-Type: application/json" \\
   -d '{
     "texts": ["Hello world", "Semantic search"]
