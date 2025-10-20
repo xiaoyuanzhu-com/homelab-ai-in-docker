@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from sentence_transformers import SentenceTransformer
 
-from ..models.embedding import EmbeddingRequest, EmbeddingResponse
+from ..models.text_to_embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
 from ...config import get_data_dir
 

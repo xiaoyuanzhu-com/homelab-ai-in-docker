@@ -12,7 +12,7 @@ from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration
 import torch
 
-from ..models.caption import CaptionRequest, CaptionResponse
+from ..models.image_to_text import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
 from ...config import get_model_cache_dir
 
