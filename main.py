@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -37,21 +38,14 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
-# Create FastAPI app
-app = FastAPI(
-    title="Homelab AI Services API",
-    description="REST API wrapping common AI capabilities for homelab developers",
-    version="0.1.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
-)
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database and load models manifest on startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan events (startup and shutdown)."""
     logger = logging.getLogger(__name__)
+
+    # Startup
+    logger.info("Starting up application...")
 
     # Initialize database schema (models, history, and download_logs tables in haid.db)
     logger.info("Initializing database...")
@@ -94,11 +88,11 @@ async def startup_event():
     else:
         logger.warning(f"Models manifest not found at {manifest_path}")
 
+    logger.info("Startup complete")
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up resources on shutdown."""
-    logger = logging.getLogger(__name__)
+    yield  # Application runs here
+
+    # Shutdown
     logger.info("Shutting down application...")
 
     # Clean up ML model resources
@@ -117,6 +111,18 @@ async def shutdown_event():
         logger.warning(f"Error cleaning up image captioning model: {e}")
 
     logger.info("Shutdown complete")
+
+
+# Create FastAPI app with lifespan handler
+app = FastAPI(
+    title="Homelab AI Services API",
+    description="REST API wrapping common AI capabilities for homelab developers",
+    version="0.1.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan,
+)
 
 
 # Include routers
