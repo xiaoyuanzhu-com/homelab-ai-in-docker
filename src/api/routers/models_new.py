@@ -1,14 +1,21 @@
 """Unified models API router for managing all AI models."""
 
+import asyncio
 import json
 import shutil
+import subprocess
+import time
 from pathlib import Path
-from typing import Optional
+from typing import AsyncGenerator, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
 router = APIRouter(prefix="/api", tags=["models"])
+
+# Active downloads tracking: {model_id: subprocess.Popen}
+active_downloads: Dict[str, subprocess.Popen] = {}
 
 
 class ModelInfo(BaseModel):
@@ -27,6 +34,16 @@ class ModelInfo(BaseModel):
 class ModelsResponse(BaseModel):
     """Response containing list of models."""
     models: list[ModelInfo]
+
+
+class DownloadProgressEvent(BaseModel):
+    """Download progress event for SSE."""
+    type: str  # "progress", "complete", "error"
+    percent: Optional[int] = None
+    current_mb: Optional[int] = None
+    total_mb: Optional[int] = None
+    size_mb: Optional[int] = None
+    message: Optional[str] = None
 
 
 def load_models_manifest() -> dict:
@@ -100,48 +117,171 @@ async def list_all_models() -> ModelsResponse:
     return ModelsResponse(models=models)
 
 
-@router.post("/models/download")
-async def download_model(model_id: str):
+async def download_model_with_progress(
+    model_id: str, expected_size_mb: int, request: Request
+) -> AsyncGenerator[str, None]:
     """
-    Download a model using huggingface-cli.
+    Download a model using huggingface-cli and stream progress via SSE.
 
     Args:
-        model_id: The model identifier (e.g., "BAAI/bge-large-en-v1.5")
+        model_id: The model identifier
+        expected_size_mb: Expected model size from manifest
+        request: FastAPI request object for disconnect detection
+
+    Yields:
+        SSE events with download progress
+    """
+    from ...config import get_data_dir
+    import os
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Get HF cache path
+    hf_model_dir = f"models--{model_id.replace('/', '--')}"
+    cache_dir = get_data_dir() / "models" / "hub" / hf_model_dir
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        env = os.environ.copy()
+        logger.info(f"=== Download Starting for {model_id} ===")
+        logger.info(f"Target directory: {cache_dir}")
+
+        cmd = ["huggingface-cli", "download", model_id, "--local-dir", str(cache_dir)]
+        logger.info(f"Command: {' '.join(cmd)}")
+
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1,
+            env=env,
+        )
+
+        active_downloads[model_id] = process
+        logger.info(f"✓ Download process started (PID: {process.pid})")
+
+        last_progress_time = time.time()
+        last_size = 0
+
+        # Monitor download progress
+        while process.poll() is None:
+            # Check if client disconnected
+            if await request.is_disconnected():
+                process.terminate()
+                process.wait(timeout=5)
+                del active_downloads[model_id]
+                return
+
+            # Get current directory size
+            current_size = 0
+            if cache_dir.exists():
+                current_size = sum(
+                    f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()
+                )
+
+            current_size_mb = current_size // (1024 * 1024)
+
+            # Send progress update every second
+            current_time = time.time()
+            if current_time - last_progress_time >= 1.0 or current_size_mb > last_size + 10:
+                event = DownloadProgressEvent(
+                    type="progress",
+                    current_mb=current_size_mb,
+                    total_mb=expected_size_mb,
+                )
+                yield event.model_dump_json()
+                last_progress_time = current_time
+                last_size = current_size_mb
+
+            await asyncio.sleep(0.5)
+
+        # Download completed - check exit code
+        returncode = process.returncode
+        del active_downloads[model_id]
+
+        logger.info(f"=== Download Process Completed ===")
+        logger.info(f"Exit code: {returncode}")
+
+        if returncode != 0:
+            logger.error(f"✗ Download FAILED for {model_id}")
+            event = DownloadProgressEvent(
+                type="error", message="Download failed"
+            )
+            yield event.model_dump_json()
+            # Clean up partial download
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+            return
+
+        # Calculate final size
+        final_size = 0
+        if cache_dir.exists():
+            final_size = sum(
+                f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()
+            )
+        final_size_mb = final_size // (1024 * 1024)
+
+        logger.info(f"✓ Download SUCCESS for {model_id}")
+        logger.info(f"Downloaded size: {final_size_mb} MB")
+
+        event = DownloadProgressEvent(
+            type="complete", percent=100, size_mb=final_size_mb
+        )
+        yield event.model_dump_json()
+
+    except Exception as e:
+        if model_id in active_downloads:
+            del active_downloads[model_id]
+        event = DownloadProgressEvent(type="error", message=f"Error: {str(e)}")
+        yield event.model_dump_json()
+
+
+@router.get("/models/download")
+async def download_model_stream(model: str, request: Request):
+    """
+    Download a model with SSE progress streaming.
+
+    Args:
+        model: The model identifier (e.g., "BAAI/bge-large-en-v1.5")
+        request: FastAPI request
 
     Returns:
-        Download status
-
-    Note: This is a simple implementation. For production, use SSE streaming
-    from the existing /models/embedding/{model_id}/download endpoint.
+        EventSourceResponse with progress events
     """
     # Validate model exists in manifest
     manifest = load_models_manifest()
-    all_models = []
+    all_models = {}
     for type_models in manifest.values():
-        all_models.extend([m["id"] for m in type_models])
+        for m in type_models:
+            all_models[m["id"]] = m
 
-    if model_id not in all_models:
+    if model not in all_models:
         raise HTTPException(
             status_code=400,
-            detail=f"Model '{model_id}' not found in catalog",
+            detail=f"Model '{model}' not found in catalog",
         )
 
     # Check if already downloaded
-    is_downloaded, size_mb = check_model_downloaded_hf(model_id)
+    is_downloaded, _ = check_model_downloaded_hf(model)
     if is_downloaded:
-        return {
-            "model_id": model_id,
-            "status": "already_downloaded",
-            "message": f"Model already downloaded ({size_mb} MB)",
-        }
+        raise HTTPException(
+            status_code=400,
+            detail=f"Model '{model}' is already downloaded",
+        )
 
-    # For now, return a message to use the streaming endpoint
-    # In production, you'd implement download here or redirect to SSE endpoint
-    return {
-        "model_id": model_id,
-        "status": "use_streaming_endpoint",
-        "message": "Please use /api/models/embedding/{model_id}/download for streaming progress",
-    }
+    # Check if already downloading
+    if model in active_downloads:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Model '{model}' is already being downloaded",
+        )
+
+    model_info = all_models[model]
+    return EventSourceResponse(
+        download_model_with_progress(model, model_info["size_mb"], request)
+    )
 
 
 @router.delete("/models/{model_id:path}")

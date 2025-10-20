@@ -53,68 +53,48 @@ export default function ModelsPage() {
     });
 
     try {
-      // Use streaming endpoint for embedding models
-      const modelType = models.find(m => m.id === modelId)?.type;
+      // Use SSE streaming endpoint for real-time progress
+      const encodedId = encodeURIComponent(modelId);
+      const eventSource = new EventSource(`/api/models/download?model=${encodedId}`);
 
-      if (modelType === "embedding") {
-        // Use SSE streaming endpoint for real-time progress
-        const encodedId = encodeURIComponent(modelId);
-        const eventSource = new EventSource(`/api/models/embedding/${encodedId}/download`);
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
 
-        eventSource.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-
-          if (data.type === "progress") {
-            // Update progress in toast
-            const message = data.current_mb
-              ? `Downloaded ${data.current_mb} MB...`
-              : "Downloading...";
-            toast.info(message);
-          } else if (data.type === "complete") {
-            eventSource.close();
-            toast.success("Model downloaded successfully!");
-            fetchModels();
-            setDownloadingModels(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(modelId);
-              return newSet;
-            });
-          } else if (data.type === "error") {
-            eventSource.close();
-            toast.error("Download failed", { description: data.message });
-            setDownloadingModels(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(modelId);
-              return newSet;
-            });
-          }
-        };
-
-        eventSource.onerror = () => {
+        if (data.type === "progress") {
+          // Update progress in toast
+          const message = data.current_mb
+            ? `Downloaded ${data.current_mb} MB...`
+            : "Downloading...";
+          toast.info(message);
+        } else if (data.type === "complete") {
           eventSource.close();
-          toast.error("Download connection failed");
+          toast.success("Model downloaded successfully!");
+          fetchModels();
           setDownloadingModels(prev => {
             const newSet = new Set(prev);
             newSet.delete(modelId);
             return newSet;
           });
-        };
-      } else {
-        // For other model types, use simple download endpoint
-        const response = await fetch(`/api/models/download?model_id=${encodeURIComponent(modelId)}`, {
-          method: "POST",
-        });
+        } else if (data.type === "error") {
+          eventSource.close();
+          toast.error("Download failed", { description: data.message });
+          setDownloadingModels(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(modelId);
+            return newSet;
+          });
+        }
+      };
 
-        if (!response.ok) throw new Error("Download failed");
-
-        toast.success("Model downloaded successfully!");
-        await fetchModels();
+      eventSource.onerror = () => {
+        eventSource.close();
+        toast.error("Download connection failed");
         setDownloadingModels(prev => {
           const newSet = new Set(prev);
           newSet.delete(modelId);
           return newSet;
         });
-      }
+      };
     } catch (error) {
       console.error("Failed to download model:", error);
       toast.error("Failed to download model");
