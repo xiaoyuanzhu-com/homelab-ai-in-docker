@@ -33,13 +33,21 @@ crawl4ai-setup  # Installs Playwright browsers
 # Quick start with uv (no activation needed)
 uv run python main.py
 
-# Or with auto-reload (recommended - excludes data dir from watch)
+
+### Backend API
+```bash
+# IMPORTANT: Always use --reload-exclude to prevent model downloads from triggering reloads
 uv run uvicorn main:app --reload --reload-exclude 'data/*'
 
 # Or activate venv first
 source .venv/bin/activate
+uvicorn main:app --reload --reload-exclude 'data/*'
+
+# Production (no reload)
 python main.py
 ```
+
+**⚠️ CRITICAL**: Always run with `--reload-exclude 'data/*'` in development. Model downloads will trigger server reloads and interrupt the download process if this flag is missing.
 
 API runs on `http://localhost:8000`
 - All endpoints under `/api` prefix

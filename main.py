@@ -15,12 +15,6 @@ from src.api.routers import crawl, embedding, caption, history, models_new as mo
 HAID_DATA_DIR = Path(os.getenv("HAID_DATA_DIR", "/haid/data"))
 
 # Set crawl4ai base directory
-
-# Set HuggingFace cache directory for all models (transformers, sentence-transformers, etc.)
-# This centralizes all model storage in data/models with HF's standard structure:
-# data/models/hub/models--{org}--{model-name}/
-if "HF_HOME" not in os.environ:
-    os.environ["HF_HOME"] = str(HAID_DATA_DIR / "models")
 if "CRAWL4AI_BASE_DIRECTORY" not in os.environ:
     os.environ["CRAWL4AI_BASE_DIRECTORY"] = str(HAID_DATA_DIR / "crawl4ai")
 

@@ -55,9 +55,9 @@ def load_models_manifest() -> dict:
 
 def check_model_downloaded_hf(model_id: str) -> tuple[bool, Optional[int]]:
     """
-    Check if a model is downloaded in HuggingFace cache structure.
+    Check if a model is downloaded in custom directory structure.
 
-    HF stores models in: HF_HOME/hub/models--{org}--{model}/
+    Models are stored in: data/models/{org}/{model}/
 
     Args:
         model_id: The model identifier (e.g., "BAAI/bge-large-en-v1.5")
@@ -67,10 +67,9 @@ def check_model_downloaded_hf(model_id: str) -> tuple[bool, Optional[int]]:
     """
     from ...config import get_data_dir
 
-    # Convert model_id to HF cache directory name
-    # "BAAI/bge-large-en-v1.5" -> "models--BAAI--bge-large-en-v1.5"
-    hf_model_dir = f"models--{model_id.replace('/', '--')}"
-    cache_path = get_data_dir() / "models" / "hub" / hf_model_dir
+    # Use custom directory structure: data/models/{org}/{model}
+    # "BAAI/bge-large-en-v1.5" -> "data/models/BAAI/bge-large-en-v1.5"
+    cache_path = get_data_dir() / "models" / model_id
 
     if cache_path.exists():
         # Calculate directory size
@@ -137,9 +136,10 @@ async def download_model_with_progress(
 
     logger = logging.getLogger(__name__)
 
-    # Get HF cache path
-    hf_model_dir = f"models--{model_id.replace('/', '--')}"
-    cache_dir = get_data_dir() / "models" / "hub" / hf_model_dir
+    # Use custom directory structure: data/models/{org}/{model}
+    # model_id like "sentence-transformers/all-MiniLM-L6-v2" becomes
+    # "data/models/sentence-transformers/all-MiniLM-L6-v2"
+    cache_dir = get_data_dir() / "models" / model_id
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -310,9 +310,8 @@ async def delete_model(model_id: str):
     try:
         from ...config import get_data_dir
 
-        # Get HF cache path
-        hf_model_dir = f"models--{model_id.replace('/', '--')}"
-        cache_path = get_data_dir() / "models" / "hub" / hf_model_dir
+        # Use custom directory structure: data/models/{org}/{model}
+        cache_path = get_data_dir() / "models" / model_id
 
         if not cache_path.exists():
             return {
