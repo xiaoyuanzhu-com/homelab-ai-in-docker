@@ -1,11 +1,25 @@
 """Main FastAPI application for Homelab AI Services."""
 
 import logging
+import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from src.api.routers import crawl, embedding, caption, history, models, hardware
+
+# Configure data directories for crawl4ai and playwright
+# Use environment variables if set, otherwise default to /haid/data
+HAID_DATA_DIR = Path(os.getenv("HAID_DATA_DIR", "/haid/data"))
+
+# Set crawl4ai base directory
+if "CRAWL4AI_BASE_DIRECTORY" not in os.environ:
+    os.environ["CRAWL4AI_BASE_DIRECTORY"] = str(HAID_DATA_DIR / "crawl4ai")
+
+# Set playwright browsers path
+if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(HAID_DATA_DIR / "playwright")
 
 # Configure logging
 logging.basicConfig(

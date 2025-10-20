@@ -30,8 +30,8 @@ RUN uv pip install --system playwright && \
 COPY main.py ./
 COPY src/ ./src/
 
-# Create data directory for model cache
-RUN mkdir -p /haid/data/embedding /haid/data/image-caption
+# Create data directories for model cache, crawl4ai, and playwright
+RUN mkdir -p /haid/data/embedding /haid/data/image-caption /haid/data/crawl4ai /haid/data/playwright
 
 # Expose port
 EXPOSE 8000
