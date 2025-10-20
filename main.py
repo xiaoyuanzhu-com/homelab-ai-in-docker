@@ -182,17 +182,28 @@ async def ready():
 async def serve_ui(full_path: str):
     """Serve the Next.js static UI for all non-API routes."""
     if UI_DIST_DIR.exists():
-        # Check if the requested file exists
+        # Check if the requested file exists (for static assets like .js, .css, .svg, etc.)
         file_path = UI_DIST_DIR / full_path
         if file_path.is_file():
             return FileResponse(file_path)
 
-        # Check for .html extension
+        # Check for directory with index.html (Next.js static export with trailingSlash: true)
+        if file_path.is_dir():
+            index_in_dir = file_path / "index.html"
+            if index_in_dir.is_file():
+                return FileResponse(index_in_dir)
+
+        # Check for .html extension (for paths without trailing slash)
         html_path = UI_DIST_DIR / f"{full_path}.html"
         if html_path.is_file():
             return FileResponse(html_path)
 
-        # Default to index.html for SPA routing
+        # Check for path/index.html pattern (for paths without trailing slash)
+        path_index = UI_DIST_DIR / full_path / "index.html"
+        if path_index.is_file():
+            return FileResponse(path_index)
+
+        # Default to root index.html for SPA routing (fallback for unmatched routes)
         index_path = UI_DIST_DIR / "index.html"
         if index_path.is_file():
             return FileResponse(index_path)
