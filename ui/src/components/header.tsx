@@ -40,35 +40,13 @@ export function Header() {
             </NavigationMenuItem>
             <NavigationMenuItem>
               <Link
-                href="/embedding"
+                href="/stats"
                 className={cn(
                   navigationMenuTriggerStyle(),
-                  isActive("/embedding") && "bg-accent text-accent-foreground"
+                  isActive("/stats") && "bg-accent text-accent-foreground"
                 )}
               >
-                Embedding
-              </Link>
-            </NavigationMenuItem>
-            <NavigationMenuItem>
-              <Link
-                href="/image-caption"
-                className={cn(
-                  navigationMenuTriggerStyle(),
-                  isActive("/image-caption") && "bg-accent text-accent-foreground"
-                )}
-              >
-                Image Caption
-              </Link>
-            </NavigationMenuItem>
-            <NavigationMenuItem>
-              <Link
-                href="/crawl"
-                className={cn(
-                  navigationMenuTriggerStyle(),
-                  isActive("/crawl") && "bg-accent text-accent-foreground"
-                )}
-              >
-                Crawl
+                Stats
               </Link>
             </NavigationMenuItem>
           </NavigationMenuList>

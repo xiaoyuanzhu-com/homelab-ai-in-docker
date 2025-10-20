@@ -1,236 +1,360 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import Link from "next/link";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Globe,
+  Image as ImageIcon,
+  Type,
+  FileText,
+  MessageSquare,
+  Languages,
+  Camera,
+  Video,
+  Volume2,
+  Target,
+  Brain,
+  TrendingUp,
+  Table2,
+  Search,
+  GitBranch,
+  Layers,
+  FileImage,
+  Boxes,
+  Zap
+} from "lucide-react";
 
-interface HardwareStats {
-  cpu: {
-    usage_percent: number;
-    cores: number;
-    frequency_mhz: number | null;
-  };
-  memory: {
-    total_gb: number;
-    available_gb: number;
-    used_gb: number;
-    usage_percent: number;
-  };
-  gpu: {
-    available: boolean;
-    count: number;
-    devices: Array<{
-      id: number;
-      name: string;
-      compute_capability: string;
-      total_memory_gb: number;
-      allocated_memory_gb: number;
-      reserved_memory_gb: number;
-      free_memory_gb: number;
-      memory_usage_percent: number;
-      utilization_percent?: number;
-      temperature_c?: number;
-    }>;
-  };
-  inference: {
-    device: string;
-    description: string;
-  };
+interface Task {
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  href?: string;
+  available: boolean;
 }
 
-interface TaskStats {
-  running: number;
-  today: number;
-  total: number;
+interface TaskCategory {
+  id: string;
+  title: string;
+  tasks: Task[];
 }
+
+const TASK_CATEGORIES: TaskCategory[] = [
+  {
+    id: "natural-language-processing",
+    title: "Natural Language Processing",
+    tasks: [
+      {
+        id: "text-classification",
+        title: "Text Classification",
+        description: "Assign categories to text data",
+        icon: <FileText className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "token-classification",
+        title: "Token Classification",
+        description: "Assign labels to individual tokens",
+        icon: <Target className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "table-question-answering",
+        title: "Table Question Answering",
+        description: "Answer questions about tabular data",
+        icon: <Table2 className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "question-answering",
+        title: "Question Answering",
+        description: "Answer questions from a context",
+        icon: <MessageSquare className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "zero-shot-classification",
+        title: "Zero-Shot Classification",
+        description: "Classify text without training data",
+        icon: <Zap className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "translation",
+        title: "Translation",
+        description: "Translate text between languages",
+        icon: <Languages className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "summarization",
+        title: "Summarization",
+        description: "Create summaries of long documents",
+        icon: <FileText className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "feature-extraction",
+        title: "Feature Extraction",
+        description: "Extract embeddings from text",
+        icon: <Type className="h-5 w-5" />,
+        href: "/embedding",
+        available: true
+      },
+      {
+        id: "text-generation",
+        title: "Text Generation",
+        description: "Generate text from a prompt",
+        icon: <FileText className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "fill-mask",
+        title: "Fill-Mask",
+        description: "Predict masked words in text",
+        icon: <Brain className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "sentence-similarity",
+        title: "Sentence Similarity",
+        description: "Compare sentence similarity",
+        icon: <GitBranch className="h-5 w-5" />,
+        available: false
+      }
+    ]
+  },
+  {
+    id: "computer-vision",
+    title: "Computer Vision",
+    tasks: [
+      {
+        id: "image-classification",
+        title: "Image Classification",
+        description: "Assign labels to images",
+        icon: <ImageIcon className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "object-detection",
+        title: "Object Detection",
+        description: "Detect objects in images",
+        icon: <Target className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "image-segmentation",
+        title: "Image Segmentation",
+        description: "Segment images into regions",
+        icon: <Layers className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "image-to-text",
+        title: "Image-to-Text",
+        description: "Generate text descriptions from images",
+        icon: <ImageIcon className="h-5 w-5" />,
+        href: "/image-caption",
+        available: true
+      },
+      {
+        id: "text-to-image",
+        title: "Text-to-Image",
+        description: "Generate images from text",
+        icon: <FileImage className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "image-to-image",
+        title: "Image-to-Image",
+        description: "Transform images",
+        icon: <Camera className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "unconditional-image-generation",
+        title: "Unconditional Image Generation",
+        description: "Generate images without conditioning",
+        icon: <Boxes className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "video-classification",
+        title: "Video Classification",
+        description: "Classify videos",
+        icon: <Video className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "zero-shot-image-classification",
+        title: "Zero-Shot Image Classification",
+        description: "Classify images without training",
+        icon: <Zap className="h-5 w-5" />,
+        available: false
+      }
+    ]
+  },
+  {
+    id: "audio",
+    title: "Audio",
+    tasks: [
+      {
+        id: "audio-classification",
+        title: "Audio Classification",
+        description: "Classify audio recordings",
+        icon: <Volume2 className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "automatic-speech-recognition",
+        title: "Automatic Speech Recognition",
+        description: "Transcribe speech to text",
+        icon: <Volume2 className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "text-to-speech",
+        title: "Text-to-Speech",
+        description: "Synthesize speech from text",
+        icon: <Volume2 className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "audio-to-audio",
+        title: "Audio-to-Audio",
+        description: "Transform audio",
+        icon: <Volume2 className="h-5 w-5" />,
+        available: false
+      }
+    ]
+  },
+  {
+    id: "tabular",
+    title: "Tabular",
+    tasks: [
+      {
+        id: "tabular-classification",
+        title: "Tabular Classification",
+        description: "Classify tabular data",
+        icon: <Table2 className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "tabular-regression",
+        title: "Tabular Regression",
+        description: "Predict continuous values",
+        icon: <TrendingUp className="h-5 w-5" />,
+        available: false
+      }
+    ]
+  },
+  {
+    id: "multimodal",
+    title: "Multimodal",
+    tasks: [
+      {
+        id: "document-question-answering",
+        title: "Document Question Answering",
+        description: "Answer questions about documents",
+        icon: <FileText className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "visual-question-answering",
+        title: "Visual Question Answering",
+        description: "Answer questions about images",
+        icon: <MessageSquare className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "image-text-to-text",
+        title: "Image Text-to-Text",
+        description: "Generate text from image and text",
+        icon: <FileImage className="h-5 w-5" />,
+        available: false
+      }
+    ]
+  },
+  {
+    id: "other",
+    title: "Other",
+    tasks: [
+      {
+        id: "web-crawling",
+        title: "Web Crawling",
+        description: "Extract content from websites",
+        icon: <Globe className="h-5 w-5" />,
+        href: "/crawl",
+        available: true
+      },
+      {
+        id: "reinforcement-learning",
+        title: "Reinforcement Learning",
+        description: "Train agents through interaction",
+        icon: <Brain className="h-5 w-5" />,
+        available: false
+      }
+    ]
+  }
+];
 
 export default function Home() {
-  const [hardwareStats, setHardwareStats] = useState<HardwareStats | null>(null);
-  const [taskStats, setTaskStats] = useState<TaskStats | null>(null);
-
-  useEffect(() => {
-    // Fetch hardware stats
-    fetch("/api/hardware")
-      .then((res) => res.json())
-      .then((data) => {
-        if (!data.error) {
-          setHardwareStats(data);
-        }
-      })
-      .catch((err) => {
-        console.error("Failed to fetch hardware stats:", err);
-      });
-
-    // Fetch task stats
-    fetch("/api/history/stats")
-      .then((res) => res.json())
-      .then((data) => {
-        setTaskStats(data);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch task stats:", err);
-      });
-
-    // Refresh stats every 5 seconds
-    const interval = setInterval(() => {
-      fetch("/api/hardware")
-        .then((res) => res.json())
-        .then((data) => {
-          if (!data.error) {
-            setHardwareStats(data);
-          }
-        })
-        .catch((err) => {
-          console.error("Failed to fetch hardware stats:", err);
-        });
-
-      fetch("/api/history/stats")
-        .then((res) => res.json())
-        .then((data) => {
-          setTaskStats(data);
-        })
-        .catch((err) => {
-          console.error("Failed to fetch task stats:", err);
-        });
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
-
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Task Stats Card */}
-      {taskStats && (
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Tasks</CardTitle>
-            <CardDescription>AI processing tasks overview</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-8">
-              <div className="text-center">
-                <div className="text-3xl font-bold text-blue-600">{taskStats.running}</div>
-                <div className="text-sm text-muted-foreground mt-1">Running</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-green-600">{taskStats.today}</div>
-                <div className="text-sm text-muted-foreground mt-1">Today</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-purple-600">{taskStats.total}</div>
-                <div className="text-sm text-muted-foreground mt-1">Total</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Hardware Stats Card */}
-      {hardwareStats && (
-        <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Hardware Resources</CardTitle>
-              <CardDescription>
-                {hardwareStats.inference.description}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid md:grid-cols-2 gap-6">
-                {/* CPU & Memory */}
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">CPU Usage</span>
-                      <span className="text-sm text-muted-foreground">
-                        {hardwareStats.cpu.usage_percent.toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+    <div className="container mx-auto px-4 py-8 max-w-7xl">
+      {TASK_CATEGORIES.map((category) => (
+        <div key={category.id} className="mb-12">
+          <h2 className="text-2xl font-bold mb-6">{category.title}</h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {category.tasks.map((task) => {
+              const CardContent = (
+                <Card
+                  className={`h-full transition-all ${
+                    task.available
+                      ? "hover:shadow-lg cursor-pointer group border-border"
+                      : "opacity-60 cursor-not-allowed bg-muted/30"
+                  }`}
+                >
+                  <CardHeader className="p-4">
+                    <div className="flex items-start justify-between mb-2">
                       <div
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${hardwareStats.cpu.usage_percent}%` }}
-                      ></div>
+                        className={`p-2 rounded-lg ${
+                          task.available
+                            ? "bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground"
+                            : "bg-muted text-muted-foreground"
+                        } transition-colors`}
+                      >
+                        {task.icon}
+                      </div>
+                      {!task.available && (
+                        <Badge variant="secondary" className="text-xs">
+                          Coming Soon
+                        </Badge>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {hardwareStats.cpu.cores} cores
-                      {hardwareStats.cpu.frequency_mhz &&
-                        ` @ ${hardwareStats.cpu.frequency_mhz} MHz`
-                      }
-                    </p>
-                  </div>
+                    <CardTitle
+                      className={`text-base mb-1 ${
+                        task.available ? "group-hover:text-primary" : "text-muted-foreground"
+                      } transition-colors`}
+                    >
+                      {task.title}
+                    </CardTitle>
+                    <CardDescription className="text-xs">{task.description}</CardDescription>
+                  </CardHeader>
+                </Card>
+              );
 
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">Memory Usage</span>
-                      <span className="text-sm text-muted-foreground">
-                        {hardwareStats.memory.used_gb.toFixed(1)} / {hardwareStats.memory.total_gb.toFixed(1)} GB
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                      <div
-                        className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${hardwareStats.memory.usage_percent}%` }}
-                      ></div>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {hardwareStats.memory.usage_percent.toFixed(1)}% used
-                    </p>
-                  </div>
-                </div>
-
-                {/* GPU */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium">GPU</span>
-                    <Badge variant={hardwareStats.gpu.available ? "default" : "secondary"}>
-                      {hardwareStats.gpu.available ? "Available" : "Not Available"}
-                    </Badge>
-                  </div>
-                  {hardwareStats.gpu.available && hardwareStats.gpu.devices.length > 0 ? (
-                    <div className="space-y-3">
-                      {hardwareStats.gpu.devices.map((gpu) => (
-                        <div key={gpu.id} className="p-3 bg-muted/50 rounded-lg space-y-2">
-                          <div>
-                            <p className="text-sm font-medium">{gpu.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Compute {gpu.compute_capability}
-                            </p>
-                          </div>
-                          <div>
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs">VRAM</span>
-                              <span className="text-xs text-muted-foreground">
-                                {gpu.reserved_memory_gb.toFixed(1)} / {gpu.total_memory_gb.toFixed(1)} GB
-                              </span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
-                              <div
-                                className="bg-purple-600 h-1.5 rounded-full transition-all duration-300"
-                                style={{ width: `${gpu.memory_usage_percent}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                          {gpu.utilization_percent !== undefined && (
-                            <p className="text-xs text-muted-foreground">
-                              Utilization: {gpu.utilization_percent}%
-                              {gpu.temperature_c !== undefined &&
-                                ` • Temp: ${gpu.temperature_c}°C`
-                              }
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No GPU detected. AI models will run on CPU.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+              return task.available && task.href ? (
+                <Link key={task.id} href={task.href}>
+                  {CardContent}
+                </Link>
+              ) : (
+                <div key={task.id}>{CardContent}</div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
