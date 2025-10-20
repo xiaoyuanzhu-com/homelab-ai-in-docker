@@ -42,9 +42,17 @@ interface TaskCategory {
 
 const TASK_CATEGORIES: TaskCategory[] = [
   {
-    id: "natural-language-processing",
-    title: "Natural Language Processing",
+    id: "text",
+    title: "Text",
     tasks: [
+      {
+        id: "feature-extraction",
+        title: "Feature Extraction",
+        description: "Extract embeddings from text",
+        icon: <Type className="h-5 w-5" />,
+        href: "/embedding",
+        available: true
+      },
       {
         id: "text-classification",
         title: "Text Classification",
@@ -60,13 +68,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: false
       },
       {
-        id: "table-question-answering",
-        title: "Table Question Answering",
-        description: "Answer questions about tabular data",
-        icon: <Table2 className="h-5 w-5" />,
-        available: false
-      },
-      {
         id: "question-answering",
         title: "Question Answering",
         description: "Answer questions from a context",
@@ -75,7 +76,7 @@ const TASK_CATEGORIES: TaskCategory[] = [
       },
       {
         id: "zero-shot-classification",
-        title: "Zero-Shot Classification",
+        title: "Zero Shot Classification",
         description: "Classify text without training data",
         icon: <Zap className="h-5 w-5" />,
         available: false
@@ -95,14 +96,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: false
       },
       {
-        id: "feature-extraction",
-        title: "Feature Extraction",
-        description: "Extract embeddings from text",
-        icon: <Type className="h-5 w-5" />,
-        href: "/embedding",
-        available: true
-      },
-      {
         id: "text-generation",
         title: "Text Generation",
         description: "Generate text from a prompt",
@@ -111,7 +104,7 @@ const TASK_CATEGORIES: TaskCategory[] = [
       },
       {
         id: "fill-mask",
-        title: "Fill-Mask",
+        title: "Fill Mask",
         description: "Predict masked words in text",
         icon: <Brain className="h-5 w-5" />,
         available: false
@@ -126,9 +119,17 @@ const TASK_CATEGORIES: TaskCategory[] = [
     ]
   },
   {
-    id: "computer-vision",
-    title: "Computer Vision",
+    id: "image",
+    title: "Image",
     tasks: [
+      {
+        id: "image-to-text",
+        title: "Image to Text",
+        description: "Generate text descriptions from images",
+        icon: <ImageIcon className="h-5 w-5" />,
+        href: "/image-to-text",
+        available: true
+      },
       {
         id: "image-classification",
         title: "Image Classification",
@@ -151,23 +152,15 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: false
       },
       {
-        id: "image-to-text",
-        title: "Image-to-Text",
-        description: "Generate text descriptions from images",
-        icon: <ImageIcon className="h-5 w-5" />,
-        href: "/image-caption",
-        available: true
-      },
-      {
         id: "text-to-image",
-        title: "Text-to-Image",
+        title: "Text to Image",
         description: "Generate images from text",
         icon: <FileImage className="h-5 w-5" />,
         available: false
       },
       {
         id: "image-to-image",
-        title: "Image-to-Image",
+        title: "Image to Image",
         description: "Transform images",
         icon: <Camera className="h-5 w-5" />,
         available: false
@@ -180,15 +173,8 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: false
       },
       {
-        id: "video-classification",
-        title: "Video Classification",
-        description: "Classify videos",
-        icon: <Video className="h-5 w-5" />,
-        available: false
-      },
-      {
         id: "zero-shot-image-classification",
-        title: "Zero-Shot Image Classification",
+        title: "Zero Shot Image Classification",
         description: "Classify images without training",
         icon: <Zap className="h-5 w-5" />,
         available: false
@@ -215,14 +201,14 @@ const TASK_CATEGORIES: TaskCategory[] = [
       },
       {
         id: "text-to-speech",
-        title: "Text-to-Speech",
+        title: "Text to Speech",
         description: "Synthesize speech from text",
         icon: <Volume2 className="h-5 w-5" />,
         available: false
       },
       {
         id: "audio-to-audio",
-        title: "Audio-to-Audio",
+        title: "Audio to Audio",
         description: "Transform audio",
         icon: <Volume2 className="h-5 w-5" />,
         available: false
@@ -230,21 +216,28 @@ const TASK_CATEGORIES: TaskCategory[] = [
     ]
   },
   {
-    id: "tabular",
-    title: "Tabular",
+    id: "video",
+    title: "Video",
     tasks: [
       {
-        id: "tabular-classification",
-        title: "Tabular Classification",
-        description: "Classify tabular data",
-        icon: <Table2 className="h-5 w-5" />,
+        id: "video-classification",
+        title: "Video Classification",
+        description: "Classify videos",
+        icon: <Video className="h-5 w-5" />,
         available: false
       },
       {
-        id: "tabular-regression",
-        title: "Tabular Regression",
-        description: "Predict continuous values",
-        icon: <TrendingUp className="h-5 w-5" />,
+        id: "video-object-tracking",
+        title: "Video Object Tracking",
+        description: "Track objects across video frames",
+        icon: <Target className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "video-to-text",
+        title: "Video to Text",
+        description: "Generate descriptions from videos",
+        icon: <FileText className="h-5 w-5" />,
         available: false
       }
     ]
@@ -269,9 +262,16 @@ const TASK_CATEGORIES: TaskCategory[] = [
       },
       {
         id: "image-text-to-text",
-        title: "Image Text-to-Text",
+        title: "Image Text to Text",
         description: "Generate text from image and text",
         icon: <FileImage className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "table-question-answering",
+        title: "Table Question Answering",
+        description: "Answer questions about tabular data",
+        icon: <Table2 className="h-5 w-5" />,
         available: false
       }
     ]
@@ -287,6 +287,20 @@ const TASK_CATEGORIES: TaskCategory[] = [
         icon: <Globe className="h-5 w-5" />,
         href: "/crawl",
         available: true
+      },
+      {
+        id: "tabular-classification",
+        title: "Tabular Classification",
+        description: "Classify tabular data",
+        icon: <Table2 className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "tabular-regression",
+        title: "Tabular Regression",
+        description: "Predict continuous values",
+        icon: <TrendingUp className="h-5 w-5" />,
+        available: false
       },
       {
         id: "reinforcement-learning",

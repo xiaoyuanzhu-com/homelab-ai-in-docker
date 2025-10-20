@@ -87,7 +87,7 @@ export default function ImageCaptionPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">Image Caption</h1>
+        <h1 className="text-3xl font-bold mb-2">Image to Text</h1>
         <p className="text-muted-foreground">
           Generate descriptive captions for images using AI
         </p>
