@@ -156,7 +156,6 @@ export default function ModelsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[40px]">Status</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Team</TableHead>
               <TableHead>Task</TableHead>
@@ -167,30 +166,19 @@ export default function ModelsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                   Loading models...
                 </TableCell>
               </TableRow>
             ) : models.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                   No models available
                 </TableCell>
               </TableRow>
             ) : (
               models.map((model) => (
                 <TableRow key={model.id}>
-                  <TableCell>
-                    {model.is_downloaded ? (
-                      <Badge variant="default" className="text-xs">
-                        ✓
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-xs text-muted-foreground">
-                        −
-                      </Badge>
-                    )}
-                  </TableCell>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       {model.name}
