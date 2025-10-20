@@ -27,9 +27,11 @@ data/
 .history/
 *.log
 
-# UI (Next.js frontend - not needed in backend container)
-ui/
-node_modules/
+# UI build artifacts and dependencies (we'll install fresh in the container)
+ui/node_modules/
+ui/.next/
+ui/dist/
+ui/.turbo/
 
 # Testing and development
 .pytest_cache/

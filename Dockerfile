@@ -1,5 +1,20 @@
 # Dockerfile for Homelab AI Services
-FROM python:3.13-slim
+
+# Stage 1: Build the UI
+FROM node:lts AS ui-builder
+
+WORKDIR /ui
+
+# Copy package files and install dependencies
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+
+# Copy UI source and build
+COPY ui/ ./
+RUN npm run build
+
+# Stage 2: Final image
+FROM python:3.13
 
 # Set working directory
 WORKDIR /haid
@@ -29,6 +44,9 @@ RUN uv pip install --system playwright && \
 # Copy application code
 COPY main.py ./
 COPY src/ ./src/
+
+# Copy built UI from builder stage
+COPY --from=ui-builder /ui/dist ./ui/dist
 
 # Create data directories for model cache, crawl4ai, and playwright
 RUN mkdir -p /haid/data/embedding /haid/data/image-caption /haid/data/crawl4ai /haid/data/playwright
