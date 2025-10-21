@@ -406,30 +406,57 @@ class OCRInferenceEngine:
                         self.model_id, use_fast=True, trust_remote_code=True
                     )
 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
-                    image.save(tmp_file.name)
-                    tmp_path = tmp_file.name
-                try:
+                # Use a dedicated temp directory so we can reliably read saved outputs
+                import tempfile as _tf
+                with _tf.TemporaryDirectory() as td:
+                    tmp_img = os.path.join(td, "in.png")
+                    image.save(tmp_img)
+
                     # Reasonable defaults per README: base_size=1024, image_size=640, crop_mode=True
                     res = self.model.infer(
                         self._deepseek_tokenizer,
                         prompt=prompt,
-                        image_file=tmp_path,
-                        output_path=os.path.dirname(tmp_path),
+                        image_file=tmp_img,
+                        output_path=td,
                         base_size=1024,
                         image_size=640,
                         crop_mode=True,
-                        save_results=False,
+                        save_results=True,  # save to tmp dir so we can read if return is empty
                         test_compress=True,
                     )
-                finally:
-                    try:
-                        os.unlink(tmp_path)
-                    except Exception:
-                        pass
 
-                # The remote infer() typically returns a string; fallback to str()
-                return res if isinstance(res, str) else str(res)
+                    # Prefer return value when it's a non-empty string
+                    if isinstance(res, str) and res.strip():
+                        return res.strip()
+
+                    # If not a usable string, look for a saved .md/.txt in the temp dir
+                    latest_path = None
+                    latest_mtime = -1.0
+                    for root, _dirs, files in os.walk(td):
+                        for f in files:
+                            if f.lower().endswith((".md", ".txt")):
+                                p = os.path.join(root, f)
+                                try:
+                                    mtime = os.path.getmtime(p)
+                                except Exception:
+                                    mtime = 0
+                                if mtime > latest_mtime:
+                                    latest_mtime = mtime
+                                    latest_path = p
+                    if latest_path:
+                        try:
+                            with open(latest_path, "r", encoding="utf-8", errors="ignore") as fh:
+                                content = fh.read().strip()
+                                if content:
+                                    return content
+                        except Exception:
+                            pass
+
+                    # As a last resort, stringify res if present
+                    if res is not None:
+                        s = str(res).strip()
+                        if s:
+                            return s
 
             # Preferred path: multimodal processor handles both text + images
             inputs = self.processor(text=prompt, images=[image], return_tensors="pt")
