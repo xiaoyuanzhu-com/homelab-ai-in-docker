@@ -147,6 +147,8 @@ async def download_model_with_progress(
 
         env = os.environ.copy()
         hf_endpoint = get_hf_endpoint()
+        # Disable Python's output buffering to get real-time logs
+        env["PYTHONUNBUFFERED"] = "1"
 
         logger.info(f"=== Download Starting for {model_id} ===")
         logger.info(f"HuggingFace Endpoint: {hf_endpoint}")
@@ -154,7 +156,8 @@ async def download_model_with_progress(
 
         # Use hfd (huggingface downloader with aria2) for better mirror support and resume capability
         # hfd properly respects HF_ENDPOINT and uses aria2c for faster multi-threaded downloads
-        cmd_str = f"HF_ENDPOINT={hf_endpoint} hfd {model_id} --local-dir {cache_dir}"
+        # stdbuf -oL forces line-buffered output to get logs immediately
+        cmd_str = f"HF_ENDPOINT={hf_endpoint} stdbuf -oL hfd {model_id} --local-dir {cache_dir}"
         logger.info(f"Command: {cmd_str}")
 
         process = subprocess.Popen(
@@ -162,7 +165,7 @@ async def download_model_with_progress(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
-            bufsize=1,
+            bufsize=1,  # Line buffered
             shell=True,
             env=env,
         )
