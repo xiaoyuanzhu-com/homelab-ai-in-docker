@@ -175,7 +175,7 @@ def get_model(model_name: str):
         try:
             # Load processor using Auto class (works for all architectures)
             _processor_cache = AutoProcessor.from_pretrained(
-                _current_model_name, cache_dir=str(cache_dir)
+                _current_model_name, cache_dir=str(cache_dir), use_fast=True
             )
 
             # Load model based on architecture
