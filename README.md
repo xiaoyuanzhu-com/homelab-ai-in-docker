@@ -72,6 +72,52 @@ The API will be available at `http://localhost:8000`
 
 > **Note:** The docker-compose.yml configuration includes GPU support by default. If you don't have a GPU or NVIDIA Container Toolkit installed, remove the `deploy` section from docker-compose.yml to run in CPU-only mode.
 
+## Install Scenarios (Linux)
+
+These are streamlined install paths for common Linux setups.
+
+### 1) Linux with NVIDIA + CUDA (Docker)
+
+- Requirements:
+  - Install NVIDIA drivers and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+  - Ensure `docker run --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` works.
+- Run with GPU acceleration:
+  - `docker run -d -p 8000:8000 -v $(pwd)/data:/haid/data --gpus all --name homelab-ai ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest`
+  - Or `docker-compose up -d` (compose includes GPU config by default).
+- Auto‑acceleration:
+  - If a GPU is detected and the base torch is CPU‑only, you can opt‑in to auto‑upgrade to a CUDA PyTorch wheel at runtime by setting `HAID_AUTO_TORCH_CUDA=on`. Example:
+    - `docker run -d -p 8000:8000 -v $(pwd)/data:/haid/data --gpus all -e HAID_AUTO_TORCH_CUDA=on --name homelab-ai ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest`
+    - Optional: choose channel (default `cu121`): `-e HAID_TORCH_CUDA_CHANNEL=cu118|cu121`
+  - Flash‑Attention: entrypoint attempts a best‑effort `flash-attn==2.7.3` install when CUDA is available; otherwise it skips. The app uses `flash_attention_2` automatically when present.
+
+### 2) Linux without NVIDIA/CUDA (Docker)
+
+- No GPU required; CPU‑only mode works out of the box.
+- Run without `--gpus`:
+  - `docker run -d -p 8000:8000 -v $(pwd)/data:/haid/data --name homelab-ai ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest`
+  - For docker‑compose, remove the `deploy.resources.reservations.devices` section if present.
+- Performance notes:
+  - DeepSeek‑OCR falls back to eager attention on CPU.
+  - Granite‑Docling uses SDPA on CPU.
+  - PaddleOCR runs on CPU if no GPU is available.
+  - The same image works in CPU‑only mode; no flags needed.
+
+### 3) Linux from Source with uv (No Docker)
+
+- Setup:
+  - `uv venv && source .venv/bin/activate`
+  - `uv pip install -e .`
+  - Optional (crawler): `crawl4ai-setup`
+- Run:
+  - `uv run python main.py` (or `python main.py` if activated)
+- GPU optional:
+  - Install a CUDA build of PyTorch matching your system if you want GPU: see PyTorch installation guides for the correct `--index-url` and versions.
+  - Flash‑Attention is optional and requires a local CUDA toolkit (nvcc) to build. If you need it, install manually: `uv pip install --no-build-isolation flash-attn==2.7.3`. If it fails, the app continues to work without it.
+
+Data & caches
+- Models and history store under `./data` in Docker (mounted to `/haid/data`).
+- For local runs, `HF_HOME` defaults to `{project_root}/data/models` automatically (see `main.py`).
+
 ### Local Development
 
 ### Installation
