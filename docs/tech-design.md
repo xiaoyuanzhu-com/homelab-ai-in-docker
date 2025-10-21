@@ -96,6 +96,50 @@ GET  /metrics             # Prometheus metrics
 
 ## Model Management
 
+### Model Storage
+
+**Storage Location**: All models use HuggingFace's standard `HF_HOME` convention.
+
+- **Path**: `data/models/hub/models--{org}--{model}/`
+- **Configuration**: Set via `HF_HOME` environment variable in `main.py`
+- **Benefits**:
+  - Standard HuggingFace convention - all HF libraries automatically respect `HF_HOME`
+  - Automatic organization with consistent structure across all model types
+  - No custom cache management code needed
+  - Easy to inspect and manage downloaded models
+  - Future-proof for any HuggingFace model library
+
+**Example structure**:
+```
+data/
+  models/
+    hub/
+      models--BAAI--bge-large-en-v1.5/
+      models--Alibaba-NLP--gte-large-en-v1.5/
+      models--Salesforce--blip-image-captioning-base/
+      models--sentence-transformers--all-MiniLM-L6-v2/
+```
+
+**Detection**: To check if a model is downloaded, convert model ID to HF cache format:
+- Model ID: `BAAI/bge-large-en-v1.5`
+- Cache path: `data/models/hub/models--BAAI--bge-large-en-v1.5/`
+
+### Unified Models Manifest
+
+All available models are defined in `src/api/models/models_manifest.json`, grouped by task type (embedding, caption, ocr, etc.). Each model entry includes:
+- `id`: HuggingFace model identifier (e.g., `BAAI/bge-large-en-v1.5`)
+- `name`: Human-readable display name
+- `team`: Model author/organization
+- `size_mb`: Approximate download size
+- Task-specific metadata (dimensions for embeddings, etc.)
+
+### Model Management API
+
+- `GET /api/models` - List all models across all task types with download status
+- `GET /api/models/{type}` - Filter models by task type
+- `POST /api/models/download` - Download any model via HuggingFace CLI
+- `DELETE /api/models/{model_id}` - Remove model by deleting HF cache directory
+
 ### Lazy Loading Strategy
 - Models NOT loaded at startup (saves memory)
 - Load on first request to specific endpoint

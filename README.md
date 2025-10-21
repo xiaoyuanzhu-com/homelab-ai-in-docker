@@ -152,12 +152,14 @@ All endpoints are under the `/api` prefix:
 ```
 /haid (or . in dev)
 ├── data/              # Model cache and history database (git-ignored)
-│   ├── embedding/     # sentence-transformers models
-│   ├── image-caption/ # BLIP models
+│   ├── models/        # All models stored using HF_HOME convention
+│   │   └── hub/       # HuggingFace cache: models--{org}--{model}/
 │   └── history.db     # SQLite database for request history
 ├── src/               # Application source
 └── main.py            # Application entry point
 ```
+
+**Model Storage**: All AI models use HuggingFace's standard `HF_HOME` convention, automatically organizing models in `data/models/hub/` with a consistent structure. This enables centralized model management across all task types (embedding, caption, OCR, etc.) through a unified models manifest and API.
 
 ## Documentation
 
