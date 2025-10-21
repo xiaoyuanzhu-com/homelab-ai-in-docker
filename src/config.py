@@ -19,7 +19,18 @@ def get_app_root() -> Path:
 
 
 def get_data_dir() -> Path:
-    """Get the data directory for model storage."""
+    """
+    Get the data directory for model storage.
+
+    Checks HAID_DATA_DIR environment variable first, then falls back to:
+    - /haid/data in production (Docker)
+    - {project_root}/data in development
+    """
+    # Check environment variable first
+    if env_data_dir := os.getenv("HAID_DATA_DIR"):
+        return Path(env_data_dir)
+
+    # Fall back to default behavior
     return get_app_root() / "data"
 
 
