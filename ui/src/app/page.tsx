@@ -45,6 +45,14 @@ const TASK_CATEGORIES: TaskCategory[] = [
     title: "Text",
     tasks: [
       {
+        id: "text-generation",
+        title: "Text Generation",
+        description: "Generate text from a prompt",
+        icon: <FileText className="h-5 w-5" />,
+        href: "/text-generation",
+        available: true
+      },
+      {
         id: "feature-extraction",
         title: "Feature Extraction",
         description: "Extract embeddings from text",
@@ -91,13 +99,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         id: "summarization",
         title: "Summarization",
         description: "Create summaries of long documents",
-        icon: <FileText className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "text-generation",
-        title: "Text Generation",
-        description: "Generate text from a prompt",
         icon: <FileText className="h-5 w-5" />,
         available: false
       },

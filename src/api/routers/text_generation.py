@@ -27,6 +27,7 @@ _current_model_name: str = ""
 _current_model_config: Optional[Dict[str, Any]] = None
 _last_access_time: Optional[float] = None
 _idle_cleanup_task: Optional[asyncio.Task] = None
+_model_in_use: bool = False  # Flag to indicate model is actively being used
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -103,7 +104,7 @@ def check_and_cleanup_idle_model():
 
     # Get idle timeout from settings
     from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
+    idle_timeout = get_setting_int("model_idle_timeout_seconds", 60)
 
     # Check if model has been idle too long
     idle_duration = time.time() - _last_access_time
@@ -127,7 +128,7 @@ def schedule_idle_cleanup() -> None:
         return
 
     from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
+    idle_timeout = get_setting_int("model_idle_timeout_seconds", 60)
 
     if _idle_cleanup_task and not _idle_cleanup_task.done():
         _idle_cleanup_task.cancel()
@@ -136,6 +137,9 @@ def schedule_idle_cleanup() -> None:
         try:
             await asyncio.sleep(timeout_s)
             if _last_access_time is None:
+                return
+            # Don't cleanup if model is actively in use
+            if _model_in_use:
                 return
             idle_duration = time.time() - _last_access_time
             if idle_duration >= timeout_s and _model_cache is not None:
@@ -220,7 +224,7 @@ def get_model(model_name: str):
             # Common loading kwargs
             load_kwargs = {
                 "low_cpu_mem_usage": True,
-                "torch_dtype": torch.float16,  # Use fp16 for efficiency
+                "dtype": torch.float16,  # Use fp16 for efficiency
                 **extra_kwargs,
             }
 
@@ -307,34 +311,45 @@ async def generate_text(request: TextGenerationRequest) -> TextGenerationRespons
         # Load model and get config off the event loop
         tokenizer, model, model_config = await asyncio.to_thread(get_model, request.model)
 
-        # Run the full tokenization + generation pipeline in a worker thread
-        def _run_inference():
-            # Tokenize input
-            inputs = tokenizer(request.prompt, return_tensors="pt")
+        # Mark model as in use BEFORE starting inference to prevent cleanup
+        global _model_in_use, _last_access_time
+        _model_in_use = True
 
-            # Move inputs to same device as model
-            device = next(model.parameters()).device
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+        try:
+            # Run the full tokenization + generation pipeline in a worker thread
+            def _run_inference():
+                # Tokenize input
+                inputs = tokenizer(request.prompt, return_tensors="pt")
 
-            # Generate text
-            with torch.no_grad():
-                output_ids = model.generate(
-                    **inputs,
-                    max_new_tokens=request.max_new_tokens,
-                    temperature=request.temperature,
-                    top_p=request.top_p,
-                    do_sample=request.do_sample,
-                    pad_token_id=tokenizer.eos_token_id,  # Avoid warnings
-                )
+                # Move inputs to same device as model
+                device = next(model.parameters()).device
+                inputs = {k: v.to(device) for k, v in inputs.items()}
 
-            # Decode output (skip the input tokens)
-            input_length = inputs["input_ids"].shape[1]
-            generated_tokens = output_ids[0][input_length:]
-            generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                # Generate text
+                with torch.no_grad():
+                    output_ids = model.generate(
+                        **inputs,
+                        max_new_tokens=request.max_new_tokens,
+                        temperature=request.temperature,
+                        top_p=request.top_p,
+                        do_sample=request.do_sample,
+                        pad_token_id=tokenizer.eos_token_id,  # Avoid warnings
+                    )
 
-            return generated_text, len(generated_tokens)
+                # Decode output (skip the input tokens)
+                input_length = inputs["input_ids"].shape[1]
+                generated_tokens = output_ids[0][input_length:]
+                generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
 
-        generated_text, tokens_generated = await asyncio.to_thread(_run_inference)
+                return generated_text, len(generated_tokens)
+
+            generated_text, tokens_generated = await asyncio.to_thread(_run_inference)
+
+            # Update access time after successful inference to prevent immediate cleanup
+            _last_access_time = time.time()
+        finally:
+            # Always clear the in-use flag when done (success or error)
+            _model_in_use = False
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 

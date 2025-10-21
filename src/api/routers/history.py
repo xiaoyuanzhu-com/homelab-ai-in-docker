@@ -41,14 +41,14 @@ async def get_history(
     Get request history for a service.
 
     Args:
-        service: Service name (crawl, embed, caption)
+        service: Service name (crawl, embed, caption, text-generation, ocr)
         limit: Maximum number of entries (max 100)
         offset: Number of entries to skip
 
     Returns:
         List of history entries
     """
-    if service not in ["crawl", "embed", "caption"]:
+    if service not in ["crawl", "embed", "caption", "text-generation", "ocr"]:
         raise HTTPException(status_code=400, detail="Invalid service name")
 
     history = history_storage.get_history(service, limit=limit, offset=offset)
@@ -70,7 +70,7 @@ async def get_request(service: str, request_id: str):
     Raises:
         HTTPException: If request not found
     """
-    if service not in ["crawl", "embed", "caption"]:
+    if service not in ["crawl", "embed", "caption", "text-generation", "ocr"]:
         raise HTTPException(status_code=400, detail="Invalid service name")
 
     entry = history_storage.get_request(service, request_id)
@@ -91,7 +91,7 @@ async def clear_history(service: str):
     Returns:
         Success message
     """
-    if service not in ["crawl", "embed", "caption"]:
+    if service not in ["crawl", "embed", "caption", "text-generation", "ocr"]:
         raise HTTPException(status_code=400, detail="Invalid service name")
 
     history_storage.clear_history(service)
