@@ -4,7 +4,7 @@
  */
 
 export const TASK_DISPLAY_NAMES: Record<string, string> = {
-  "embedding": "Feature Extraction",
+  "feature-extraction": "Feature Extraction",
   "image-captioning": "Image Captioning",
   "image-ocr": "Image OCR",
 };

@@ -46,7 +46,7 @@ export default function EmbeddingPage() {
     // Load available models
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/models?task=embedding");
+        const response = await fetch("/api/models?task=feature-extraction");
         if (!response.ok) throw new Error("Failed to fetch models");
         const data = await response.json();
         // Filter for downloaded models only (task filter already applied)

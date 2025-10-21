@@ -45,11 +45,11 @@ const TASK_CATEGORIES: TaskCategory[] = [
     title: "Text",
     tasks: [
       {
-        id: "embedding",
+        id: "feature-extraction",
         title: "Feature Extraction",
         description: "Extract embeddings from text",
         icon: <Type className="h-5 w-5" />,
-        href: "/embedding",
+        href: "/feature-extraction",
         available: true
       },
       {

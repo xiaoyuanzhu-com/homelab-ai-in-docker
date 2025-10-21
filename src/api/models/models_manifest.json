@@ -1,10 +1,10 @@
 {
-  "embedding": [
+  "feature-extraction": [
     {
       "id": "BAAI/bge-large-en-v1.5",
       "name": "bge-large-en-v1.5",
       "team": "BAAI",
-      "task": "embedding",
+      "task": "feature-extraction",
       "size_mb": 1340,
       "parameters_m": 335,
       "gpu_memory_mb": 2048,
@@ -14,7 +14,7 @@
       "id": "Alibaba-NLP/gte-large-en-v1.5",
       "name": "gte-large-en-v1.5",
       "team": "Alibaba-NLP",
-      "task": "embedding",
+      "task": "feature-extraction",
       "size_mb": 1340,
       "parameters_m": 335,
       "gpu_memory_mb": 2048,
@@ -24,7 +24,7 @@
       "id": "intfloat/e5-large-v2",
       "name": "E5-large-v2",
       "team": "intfloat",
-      "task": "embedding",
+      "task": "feature-extraction",
       "size_mb": 1340,
       "parameters_m": 335,
       "gpu_memory_mb": 2048,
@@ -34,7 +34,7 @@
       "id": "sentence-transformers/all-MiniLM-L6-v2",
       "name": "all-MiniLM-L6-v2",
       "team": "sentence-transformers",
-      "task": "embedding",
+      "task": "feature-extraction",
       "size_mb": 90,
       "parameters_m": 22,
       "gpu_memory_mb": 256,
