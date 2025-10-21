@@ -179,5 +179,31 @@
       "link": "https://huggingface.co/ibm-granite/granite-docling-258M",
       "platform_requirements": "Requires transformers >= 4.45.0, docling_core. Optional: flash-attn for GPU acceleration"
     }
+  ],
+  "text-generation": [
+    {
+      "id": "Qwen/Qwen3-0.6B",
+      "name": "Qwen3-0.6B",
+      "team": "Qwen",
+      "task": "text-generation",
+      "architecture": "qwen2",
+      "default_prompt": null,
+      "size_mb": 1200,
+      "parameters_m": 600,
+      "gpu_memory_mb": 1536,
+      "link": "https://huggingface.co/Qwen/Qwen3-0.6B"
+    },
+    {
+      "id": "google/gemma-3-1b-it",
+      "name": "gemma-3-1b-it",
+      "team": "google",
+      "task": "text-generation",
+      "architecture": "gemma2",
+      "default_prompt": null,
+      "size_mb": 2100,
+      "parameters_m": 1000,
+      "gpu_memory_mb": 2560,
+      "link": "https://huggingface.co/google/gemma-3-1b-it"
+    }
   ]
 }

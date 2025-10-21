@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from src.api.routers import (
     crawl,
     text_to_embedding,
+    text_generation,
     image_captioning,
     image_ocr,
     history,
@@ -79,6 +80,12 @@ async def periodic_model_cleanup():
                 text_to_embedding.check_and_cleanup_idle_model()
             except Exception as e:
                 logger.debug(f"Error checking idle text-to-embedding model: {e}")
+
+            # Check text generation models
+            try:
+                text_generation.check_and_cleanup_idle_model()
+            except Exception as e:
+                logger.debug(f"Error checking idle text generation model: {e}")
 
         except asyncio.CancelledError:
             logger.info("Periodic model cleanup task cancelled")
@@ -162,13 +169,19 @@ async def lifespan(app: FastAPI):
         pass
 
     # Clean up ML model resources
-    from src.api.routers import text_to_embedding, image_captioning, image_ocr
+    from src.api.routers import text_to_embedding, text_generation, image_captioning, image_ocr
 
     try:
         logger.info("Releasing text embedding model resources...")
         text_to_embedding.cleanup()
     except Exception as e:
         logger.warning(f"Error cleaning up text embedding model: {e}")
+
+    try:
+        logger.info("Releasing text generation model resources...")
+        text_generation.cleanup()
+    except Exception as e:
+        logger.warning(f"Error cleaning up text generation model: {e}")
 
     try:
         logger.info("Releasing image captioning model resources...")
@@ -222,6 +235,7 @@ app = FastAPI(
 # Include routers
 app.include_router(crawl.router)
 app.include_router(text_to_embedding.router)
+app.include_router(text_generation.router)
 app.include_router(image_captioning.router)
 app.include_router(image_ocr.router)
 app.include_router(history.router)
@@ -252,6 +266,7 @@ async def root():
         "endpoints": {
             "crawl": "/api/crawl",
             "embed": "/api/text-to-embedding",
+            "text_generation": "/api/text-generation",
             "image_captioning": "/api/image-captioning",
             "image_ocr": "/api/image-ocr",
             "hardware": "/api/hardware",
@@ -276,6 +291,7 @@ async def ready():
         "services": {
             "crawl": "available",
             "embedding": "available",
+            "text_generation": "available",
             "image_captioning": "available",
             "image_ocr": "available",
         },

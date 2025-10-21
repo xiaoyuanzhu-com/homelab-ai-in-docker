@@ -45,6 +45,7 @@ _processor_cache: Optional[Any] = None
 _current_model_name: str = ""
 _current_model_config: Optional[Dict[str, Any]] = None
 _last_access_time: Optional[float] = None
+_idle_cleanup_task: Optional[asyncio.Task] = None
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -134,6 +135,50 @@ def check_and_cleanup_idle_model():
         unloaded_name = _current_model_name
         cleanup()
         logger.info(f"Image captioning model '{unloaded_name}' unloaded from GPU")
+
+
+def schedule_idle_cleanup() -> None:
+    """Schedule background cleanup after idle timeout.
+
+    Ensures model unload even if no further captioning requests arrive.
+    """
+    global _idle_cleanup_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    from ...db.settings import get_setting_int
+    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
+
+    if _idle_cleanup_task and not _idle_cleanup_task.done():
+        _idle_cleanup_task.cancel()
+
+    async def _watchdog(timeout_s: int):
+        try:
+            await asyncio.sleep(timeout_s)
+            if _last_access_time is None:
+                return
+            idle_duration = time.time() - _last_access_time
+            if idle_duration >= timeout_s and _model_cache is not None:
+                logger.info(
+                    f"Image captioning model '{_current_model_name}' idle for {idle_duration:.1f}s "
+                    f"(timeout: {timeout_s}s), unloading from GPU..."
+                )
+                cleanup()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Clear task reference if it's the current task
+            global _idle_cleanup_task
+            try:
+                current = asyncio.current_task()
+            except Exception:
+                current = None
+            if current is not None and _idle_cleanup_task is current:
+                _idle_cleanup_task = None
+
+    _idle_cleanup_task = loop.create_task(_watchdog(idle_timeout))
 
 
 def get_model(model_name: str):
@@ -406,6 +451,8 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
             status="success",
         )
 
+        # Schedule background idle cleanup after request completes
+        schedule_idle_cleanup()
         return response
 
     except ValueError as e:

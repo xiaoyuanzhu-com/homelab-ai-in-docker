@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api", tags=["text-to-embedding"])
 _model_cache: Optional[SentenceTransformer] = None
 _current_model_name: str = "all-MiniLM-L6-v2"
 _last_access_time: Optional[float] = None
+_idle_cleanup_task: Optional[asyncio.Task] = None
 
 
 def check_and_cleanup_idle_model():
@@ -45,6 +46,47 @@ def check_and_cleanup_idle_model():
         )
         cleanup()
         logger.info(f"Embedding model '{_current_model_name}' unloaded from GPU")
+
+
+def schedule_idle_cleanup() -> None:
+    """Schedule background cleanup after idle timeout."""
+    global _idle_cleanup_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    from ...db.settings import get_setting_int
+    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
+
+    if _idle_cleanup_task and not _idle_cleanup_task.done():
+        _idle_cleanup_task.cancel()
+
+    async def _watchdog(timeout_s: int):
+        try:
+            await asyncio.sleep(timeout_s)
+            if _last_access_time is None:
+                return
+            idle_duration = time.time() - _last_access_time
+            if idle_duration >= timeout_s and _model_cache is not None:
+                logger.info(
+                    f"Embedding model '{_current_model_name}' idle for {idle_duration:.1f}s "
+                    f"(timeout: {timeout_s}s), unloading from GPU..."
+                )
+                cleanup()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Clear task reference if it's the current task
+            global _idle_cleanup_task
+            try:
+                current = asyncio.current_task()
+            except Exception:
+                current = None
+            if current is not None and _idle_cleanup_task is current:
+                _idle_cleanup_task = None
+
+    _idle_cleanup_task = loop.create_task(_watchdog(idle_timeout))
 
 
 def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
@@ -186,6 +228,8 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
             status="success",
         )
 
+        # Schedule background idle cleanup after request completes
+        schedule_idle_cleanup()
         return response
 
     except Exception as e:

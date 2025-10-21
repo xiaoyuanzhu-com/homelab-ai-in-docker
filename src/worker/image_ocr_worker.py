@@ -132,6 +132,21 @@ async def infer(req: InferRequest) -> InferResponse:
         image = await asyncio.to_thread(_decode_image, req.image)
         text = await asyncio.to_thread(ENGINE.predict, image)  # type: ignore[union-attr]
     except Exception as e:
+        # Explicitly handle CUDA OOM: free caches then exit the process to release context
+        msg = str(e)
+        is_oom = "out of memory" in msg.lower()
+        if is_oom:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    try:
+                        torch.cuda.empty_cache()
+                        torch.cuda.ipc_collect()
+                        torch.cuda.synchronize()
+                    except Exception:
+                        pass
+            finally:
+                os._exit(1)
         raise HTTPException(status_code=500, detail=f"Inference error: {e}")
 
     proc_ms = int((time.time() - start) * 1000)
@@ -200,4 +215,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
