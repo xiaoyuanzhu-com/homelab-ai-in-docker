@@ -155,10 +155,20 @@ class OCRInferenceEngine:
             logger.info(f"DeepSeek-OCR model loaded successfully with {attn_implementation}")
 
         except ImportError as e:
-            missing_pkg = str(e).split("'")[1] if "'" in str(e) else "unknown"
+            # Extract missing package names from the error message
+            error_msg = str(e)
+            if "packages that were not found in your environment:" in error_msg:
+                # Format: "This modeling file requires the following packages that were not found in your environment: pkg1, pkg2"
+                missing_pkgs = error_msg.split("packages that were not found in your environment:")[1].split(".")[0].strip()
+            elif "No module named" in error_msg:
+                # Format: "No module named 'package'"
+                missing_pkgs = error_msg.split("'")[1] if "'" in error_msg else "unknown"
+            else:
+                missing_pkgs = "unknown"
+
             raise RuntimeError(
-                f"DeepSeek-OCR dependencies not installed. Missing: {missing_pkg}. "
-                "Please install: pip install transformers>=4.46.3 torch"
+                f"DeepSeek-OCR dependencies not installed. Missing: {missing_pkgs}. "
+                f"Full error: {error_msg}"
             )
 
     def _load_granite_docling(self) -> None:
