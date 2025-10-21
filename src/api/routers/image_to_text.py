@@ -190,12 +190,11 @@ def get_model(model_name: str):
                 "low_cpu_mem_usage": True,     # Reduce CPU memory usage
             }
 
-            # Check if this is a quantized model
-            is_quantized = "bnb" in _current_model_name.lower() or "4bit" in _current_model_name.lower()
-
-            if is_quantized:
-                # Pre-quantized models - load with device_map="auto"
+            # Check if this model requires quantization (from manifest)
+            if model_config.get("requires_quantization"):
+                # Pre-quantized models - load in 4-bit mode with device_map="auto"
                 # Don't set dtype - quantized models have their own precision (4-bit)
+                load_kwargs["load_in_4bit"] = True
                 load_kwargs["device_map"] = "auto"
             else:
                 # Non-quantized models - use fp16 for efficiency
