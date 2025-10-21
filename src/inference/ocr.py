@@ -95,7 +95,7 @@ class OCRInferenceEngine:
             logger.info(f"Loading MinerU2.5 model '{self.model_id}'...")
 
             # Check if model is already downloaded locally via hfd
-            from ...config import get_data_dir
+            from src.config import get_data_dir
             local_model_dir = get_data_dir() / "models" / self.model_id
 
             # Determine which path to use for loading
@@ -144,7 +144,7 @@ class OCRInferenceEngine:
             logger.info(f"Loading DeepSeek-OCR model '{self.model_id}'...")
 
             # Check if model is already downloaded locally via hfd
-            from ...config import get_data_dir
+            from src.config import get_data_dir
             local_model_dir = get_data_dir() / "models" / self.model_id
 
             # Determine which path to use for loading
@@ -215,7 +215,7 @@ class OCRInferenceEngine:
             logger.info(f"Loading Granite Docling model '{self.model_id}'...")
 
             # Check if model is already downloaded locally via hfd
-            from ...config import get_data_dir
+            from src.config import get_data_dir
             local_model_dir = get_data_dir() / "models" / self.model_id
 
             # Determine which path to use for loading
