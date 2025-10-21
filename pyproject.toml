@@ -32,9 +32,11 @@ dependencies = [
 
 [project.optional-dependencies]
 # Optional GPU acceleration for DeepSeek-OCR and Granite Docling
-# Requires CUDA toolkit and nvcc to build
+# Note:
+# - flash-attn requires a CUDA-enabled PyTorch and typically a build toolchain
+# - We keep this in an optional extra and also attempt a best-effort install in Docker entrypoint
 gpu = [
-    "flash-attn>=2.7.3",
+    "flash-attn==2.7.3; platform_system=='Linux'",
 ]
 
 [tool.setuptools]
@@ -42,3 +44,7 @@ packages = ["src"]
 
 [tool.setuptools.package-data]
 "src.api.models" = ["*.json"]
+
+# Ensure uv provides torch in the build environment for flash-attn when building from sdist
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch"]
