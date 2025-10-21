@@ -3,6 +3,8 @@
 from typing import Optional
 from pydantic import BaseModel, Field, HttpUrl
 
+from .base import BaseResponse
+
 
 class CrawlRequest(BaseModel):
     """Request model for crawling a URL."""
@@ -19,10 +21,9 @@ class CrawlRequest(BaseModel):
     )
 
 
-class CrawlResponse(BaseModel):
+class CrawlResponse(BaseResponse):
     """Response model for crawl results."""
 
-    request_id: str = Field(..., description="Unique request identifier")
     url: str = Field(..., description="Crawled URL")
     title: Optional[str] = Field(None, description="Page title")
     markdown: str = Field(..., description="Extracted content in Markdown format")
@@ -30,7 +31,6 @@ class CrawlResponse(BaseModel):
     screenshot_base64: Optional[str] = Field(
         None, description="Base64-encoded screenshot"
     )
-    fetch_time_ms: int = Field(..., description="Time taken to fetch and process")
     success: bool = Field(..., description="Whether the crawl was successful")
 
 

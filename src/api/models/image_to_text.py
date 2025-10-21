@@ -3,25 +3,25 @@
 from typing import Optional
 from pydantic import BaseModel, Field
 
+from .base import BaseResponse
+
 
 class CaptionRequest(BaseModel):
     """Request model for image captioning."""
 
     image: str = Field(..., description="Base64-encoded image or image URL")
-    model: str = Field(..., description="Model to use for captioning (required)")
+    model: str = Field(..., description="Model to use for captioning")
     prompt: Optional[str] = Field(
         default=None,
         description="Optional prompt/question for the model. If not provided, uses model's default prompt.",
     )
 
 
-class CaptionResponse(BaseModel):
+class CaptionResponse(BaseResponse):
     """Response model for caption results."""
 
-    request_id: str = Field(..., description="Unique request identifier")
     caption: str = Field(..., description="Generated caption")
-    model_used: str = Field(..., description="Model that generated the caption")
-    processing_time_ms: int = Field(..., description="Time taken to process")
+    model: str = Field(..., description="Model that generated the caption")
 
 
 class ModelInfo(BaseModel):

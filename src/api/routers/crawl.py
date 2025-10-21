@@ -133,7 +133,7 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             chrome_cdp_url=request.chrome_cdp_url,
         )
 
-        fetch_time_ms = int((time.time() - start_time) * 1000)
+        processing_time_ms = int((time.time() - start_time) * 1000)
 
         # Convert screenshot to base64 if present
         screenshot_base64 = None
@@ -147,7 +147,7 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             markdown=result["markdown"] or "",
             html=result.get("html"),
             screenshot_base64=screenshot_base64,
-            fetch_time_ms=fetch_time_ms,
+            processing_time_ms=processing_time_ms,
             success=result["success"],
         )
 

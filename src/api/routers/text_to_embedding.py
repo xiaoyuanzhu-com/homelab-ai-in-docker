@@ -162,7 +162,7 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
             request_id=request_id,
             embeddings=embeddings_list,
             dimensions=len(embeddings_list[0]) if embeddings_list else 0,
-            model_used=_current_model_name,
+            model=_current_model_name,
             processing_time_ms=processing_time_ms,
         )
 
@@ -174,7 +174,7 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
             response_data={
                 "request_id": response.request_id,
                 "dimensions": response.dimensions,
-                "model_used": response.model_used,
+                "model": response.model,
                 "processing_time_ms": response.processing_time_ms,
                 "num_embeddings": len(response.embeddings),
             },

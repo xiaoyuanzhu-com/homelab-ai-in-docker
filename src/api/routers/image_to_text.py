@@ -373,7 +373,7 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
         response = CaptionResponse(
             request_id=request_id,
             caption=caption,
-            model_used=request.model,
+            model=request.model,
             processing_time_ms=processing_time_ms,
         )
 
