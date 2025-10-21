@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,28 @@ export default function SettingsPage() {
   const [enableGpu, setEnableGpu] = useState(true);
   const [cacheResults, setCacheResults] = useState(true);
   const [logLevel, setLogLevel] = useState("info");
+  const [modelIdleTimeout, setModelIdleTimeout] = useState("5");
+  const [loading, setLoading] = useState(true);
+
+  // Load settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const response = await fetch("/api/settings");
+        if (response.ok) {
+          const data = await response.json();
+          if (data.settings.model_idle_timeout_seconds) {
+            setModelIdleTimeout(data.settings.model_idle_timeout_seconds);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load settings:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadSettings();
+  }, []);
 
   const handleSaveGeneral = () => {
     // In a real implementation, this would call the API to save settings
@@ -25,8 +47,23 @@ export default function SettingsPage() {
     toast.success("Crawler settings saved successfully!");
   };
 
-  const handleSavePerformance = () => {
-    toast.success("Performance settings saved successfully!");
+  const handleSavePerformance = async () => {
+    try {
+      const response = await fetch("/api/settings/model_idle_timeout_seconds", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: modelIdleTimeout }),
+      });
+
+      if (response.ok) {
+        toast.success("Performance settings saved successfully!");
+      } else {
+        toast.error("Failed to save settings");
+      }
+    } catch (error) {
+      console.error("Error saving settings:", error);
+      toast.error("Failed to save settings");
+    }
   };
 
   const handleClearCache = () => {
@@ -155,6 +192,24 @@ export default function SettingsPage() {
               <CardDescription>Optimize resource usage and speed</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="model-idle-timeout">GPU Model Idle Timeout (seconds)</Label>
+                <Input
+                  id="model-idle-timeout"
+                  type="number"
+                  min="1"
+                  max="300"
+                  value={modelIdleTimeout}
+                  onChange={(e) => setModelIdleTimeout(e.target.value)}
+                  disabled={loading}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Time in seconds before unloading idle models from GPU memory. Lower values free GPU
+                  faster for other services. Higher values improve performance for frequent requests.
+                  Default: 5 seconds.
+                </p>
+              </div>
+
               <div className="space-y-4">
                 <div className="p-4 border rounded-lg">
                   <h3 className="font-semibold mb-2">Model Loading</h3>
