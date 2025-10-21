@@ -14,7 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from src.api.routers import (
     crawl,
     text_to_embedding,
-    image_to_text,
+    image_captioning,
+    image_ocr,
     history,
     models,
     hardware,
@@ -57,11 +58,17 @@ async def periodic_model_cleanup():
             # Check every second for idle models
             await asyncio.sleep(1)
 
-            # Check image-to-text models
+            # Check image captioning models
             try:
-                image_to_text.check_and_cleanup_idle_model()
+                image_captioning.check_and_cleanup_idle_model()
             except Exception as e:
-                logger.debug(f"Error checking idle image-to-text model: {e}")
+                logger.debug(f"Error checking idle image captioning model: {e}")
+
+            # Check image OCR models
+            try:
+                image_ocr.check_and_cleanup_idle_model()
+            except Exception as e:
+                logger.debug(f"Error checking idle image OCR model: {e}")
 
             # Check text-to-embedding models
             try:
@@ -161,9 +168,15 @@ async def lifespan(app: FastAPI):
 
     try:
         logger.info("Releasing image captioning model resources...")
-        image_to_text.cleanup()
+        image_captioning.cleanup()
     except Exception as e:
         logger.warning(f"Error cleaning up image captioning model: {e}")
+
+    try:
+        logger.info("Releasing image OCR model resources...")
+        image_ocr.cleanup()
+    except Exception as e:
+        logger.warning(f"Error cleaning up image OCR model: {e}")
 
     # Best-effort shutdown of any joblib/loky process executors to avoid
     # leaked semaphore warnings from Python's resource_tracker on exit.
@@ -205,7 +218,8 @@ app = FastAPI(
 # Include routers
 app.include_router(crawl.router)
 app.include_router(text_to_embedding.router)
-app.include_router(image_to_text.router)
+app.include_router(image_captioning.router)
+app.include_router(image_ocr.router)
 app.include_router(history.router)
 app.include_router(models.router)
 app.include_router(hardware.router)
@@ -233,8 +247,9 @@ async def root():
         "status": "running",
         "endpoints": {
             "crawl": "/api/crawl",
-            "embed": "/api/embed",
-            "caption": "/api/caption",
+            "embed": "/api/text-to-embedding",
+            "image_captioning": "/api/image-captioning",
+            "image_ocr": "/api/image-ocr",
             "hardware": "/api/hardware",
             "docs": "/api/docs",
             "health": "/api/health",
@@ -252,7 +267,15 @@ async def health():
 @app.get("/api/ready")
 async def ready():
     """Readiness check endpoint."""
-    return {"status": "ready", "services": {"crawl": "available", "embedding": "available", "caption": "available"}}
+    return {
+        "status": "ready",
+        "services": {
+            "crawl": "available",
+            "embedding": "available",
+            "image_captioning": "available",
+            "image_ocr": "available",
+        },
+    }
 
 
 # Catch-all route to serve the UI (must be last)

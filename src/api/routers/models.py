@@ -55,7 +55,7 @@ async def list_all_models(task: Optional[str] = None) -> ModelsResponse:
     List all available AI models across all types from database.
 
     Args:
-        task: Optional task filter (e.g., "embedding", "caption", "image-to-text")
+        task: Optional task ID filter (e.g., "image-captioning", "image-ocr", "embedding")
 
     Returns:
         List of all models with download status, filtered by task if specified
@@ -66,7 +66,7 @@ async def list_all_models(task: Optional[str] = None) -> ModelsResponse:
     models = []
 
     for db_model in db_models:
-        # Filter by task if specified
+        # Filter by task ID if specified (case-insensitive)
         if task and db_model["task"].lower() != task.lower():
             continue
 

@@ -10,7 +10,7 @@ import { ImageCaptionHistory } from "@/components/image-caption-history";
 interface CaptionResult {
   request_id: string;
   caption: string;
-  model_used: string;
+  model: string;
   processing_time_ms: number;
 }
 
@@ -56,7 +56,7 @@ export default function ImageCaptionPage() {
     // Fetch available models
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/models?task=Image to Text");
+        const response = await fetch("/api/models?task=image-captioning");
         if (!response.ok) {
           throw new Error("Failed to fetch models");
         }
@@ -125,7 +125,7 @@ export default function ImageCaptionPage() {
       // Extract base64 from data URL
       const base64Data = imagePreview.split(",")[1];
 
-      const response = await fetch("/api/image-to-text", {
+      const response = await fetch("/api/image-captioning", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -202,7 +202,7 @@ export default function ImageCaptionPage() {
               <div>
                 <h3 className="text-lg font-semibold mb-2">Endpoint</h3>
                 <div className="bg-muted p-4 rounded-lg">
-                  <code className="text-sm">POST /api/image-to-text</code>
+                  <code className="text-sm">POST /api/image-captioning</code>
                 </div>
               </div>
 
@@ -232,7 +232,7 @@ export default function ImageCaptionPage() {
 {`{
   "request_id": "uuid",
   "caption": "a dog sitting on a bench",
-  "model_used": "Salesforce/blip-image-captioning-base",
+  "model": "Salesforce/blip-image-captioning-base",
   "processing_time_ms": 234
 }`}
                 </pre>
@@ -250,7 +250,7 @@ with open("image.jpg", "rb") as f:
 
 # Send request
 response = requests.post(
-    "${apiBaseUrl}/api/image-to-text",
+    "${apiBaseUrl}/api/image-captioning",
     json={
         "image": image_data,
         "model": "Salesforce/blip-image-captioning-base",

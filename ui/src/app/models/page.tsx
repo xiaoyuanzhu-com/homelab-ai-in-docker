@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Download, Trash2, ExternalLink, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
+import { getTaskDisplayName } from "@/lib/tasks";
 
 interface Model {
   id: string;
@@ -250,7 +251,7 @@ export default function ModelsPage() {
                   <TableCell className="text-muted-foreground">{model.team}</TableCell>
                   <TableCell>
                     <Badge variant="secondary" className="text-xs">
-                      {model.task}
+                      {getTaskDisplayName(model.task)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">

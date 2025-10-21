@@ -1,4 +1,4 @@
-"""Image to text API router for generating image descriptions."""
+"""Image captioning API router for generating image descriptions."""
 
 import base64
 import io
@@ -21,7 +21,7 @@ from transformers import (
 )
 import torch
 
-from ..models.image_to_text import CaptionRequest, CaptionResponse
+from ..models.image_captioning import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
 from ...config import get_model_cache_dir
 from ...db.models import get_model as get_model_from_db, get_all_models
@@ -36,7 +36,7 @@ except ImportError:
     HAS_BITSANDBYTES = False
 
 
-router = APIRouter(prefix="/api", tags=["image-to-text"])
+router = APIRouter(prefix="/api", tags=["image-captioning"])
 
 # Global model cache
 _model_cache: Optional[Any] = None
@@ -89,8 +89,8 @@ def get_available_models() -> list[str]:
         List of model IDs that can be used
     """
     all_models = get_all_models()
-    # Filter for caption/image-to-text models only
-    return [model["id"] for model in all_models if model["task"] == "Image to Text"]
+    # Filter for image captioning models only
+    return [model["id"] for model in all_models if model["task"] == "image-captioning"]
 
 
 def validate_model(model_name: str) -> None:
@@ -304,7 +304,7 @@ def decode_image(image_data: str) -> Image.Image:
         raise ValueError(f"Failed to decode image: {str(e)}")
 
 
-@router.post("/image-to-text", response_model=CaptionResponse)
+@router.post("/image-captioning", response_model=CaptionResponse)
 async def caption_image(request: CaptionRequest) -> CaptionResponse:
     """
     Generate a caption for an image.
@@ -379,7 +379,7 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
 
         # Save to history (exclude image data to save space)
         history_storage.add_request(
-            service="image-to-text",
+            service="image-captioning",
             request_id=request_id,
             request_data={"model": request.model, "prompt": request.prompt},  # Exclude image
             response_data=response.model_dump(),
