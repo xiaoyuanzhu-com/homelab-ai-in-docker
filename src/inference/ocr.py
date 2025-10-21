@@ -123,12 +123,24 @@ class OCRInferenceEngine:
 
             logger.info(f"Loading DeepSeek-OCR model '{self.model_id}'...")
 
-            # Load model with flash attention and bfloat16
+            # Try to use flash attention if available, fallback to sdpa
+            attn_implementation = "sdpa"  # Default safe option
+            try:
+                import flash_attn
+                if torch.cuda.is_available():
+                    attn_implementation = "flash_attention_2"
+                    logger.info("Using flash_attention_2 for DeepSeek-OCR")
+                else:
+                    logger.info("GPU not available, using sdpa attention for DeepSeek-OCR")
+            except ImportError:
+                logger.info("flash-attn not installed, using sdpa attention for DeepSeek-OCR")
+
+            # Load model with best available attention implementation
             self.model = AutoModel.from_pretrained(
                 self.model_id,
-                torch_dtype=torch.bfloat16,
+                torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
                 device_map="auto",
-                attn_implementation="flash_attention_2",
+                attn_implementation=attn_implementation,
                 trust_remote_code=True,
             )
 
@@ -137,13 +149,13 @@ class OCRInferenceEngine:
                 trust_remote_code=True,
             )
 
-            logger.info(f"DeepSeek-OCR model loaded successfully")
+            logger.info(f"DeepSeek-OCR model loaded successfully with {attn_implementation}")
 
         except ImportError as e:
             missing_pkg = str(e).split("'")[1] if "'" in str(e) else "unknown"
             raise RuntimeError(
                 f"DeepSeek-OCR dependencies not installed. Missing: {missing_pkg}. "
-                "Please install: pip install transformers>=4.46.3 flash-attn>=2.7.3 torch"
+                "Please install: pip install transformers>=4.46.3 torch"
             )
 
     def _load_granite_docling(self) -> None:
@@ -156,7 +168,18 @@ class OCRInferenceEngine:
 
             # Determine device and attention implementation
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            attn_impl = "flash_attention_2" if device == "cuda" else "sdpa"
+
+            # Try flash attention if available on GPU, fallback to sdpa
+            attn_impl = "sdpa"  # Default safe option
+            if device == "cuda":
+                try:
+                    import flash_attn
+                    attn_impl = "flash_attention_2"
+                    logger.info("Using flash_attention_2 for Granite Docling")
+                except ImportError:
+                    logger.info("flash-attn not installed, using sdpa attention for Granite Docling")
+            else:
+                logger.info("Using sdpa attention for Granite Docling on CPU")
 
             # Load processor
             self.processor = AutoProcessor.from_pretrained(self.model_id)
@@ -173,7 +196,7 @@ class OCRInferenceEngine:
             if device == "cpu":
                 self.model = self.model.to(device)
 
-            logger.info(f"Granite Docling model loaded successfully on {device}")
+            logger.info(f"Granite Docling model loaded successfully on {device} with {attn_impl}")
 
         except ImportError as e:
             missing_pkg = str(e).split("'")[1] if "'" in str(e) else "unknown"

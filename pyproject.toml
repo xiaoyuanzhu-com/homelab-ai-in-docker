@@ -22,14 +22,16 @@ dependencies = [
     "paddlepaddle>=3.0.0",
     "paddleocr>=3.0.0",
     "mineru-vl-utils>=0.1.0",
-    "flash-attn>=2.7.3; platform_system=='Linux'",
     "einops>=0.7.0",
     "docling-core>=2.0.0",
 ]
 
-[tool.uv]
-# Build dependencies for packages that need torch during build
-extra-build-dependencies = { flash-attn = ["torch>=2.0.0", "packaging", "ninja"] }
+[project.optional-dependencies]
+# Optional GPU acceleration for DeepSeek-OCR and Granite Docling
+# Requires CUDA toolkit and nvcc to build
+gpu = [
+    "flash-attn>=2.7.3",
+]
 
 [tool.setuptools]
 packages = ["src"]
