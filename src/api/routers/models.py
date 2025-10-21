@@ -1,22 +1,16 @@
-"""Models API router for managing embedding models."""
+"""Unified models API router for managing all AI models."""
 
 import asyncio
 import json
+import shutil
 import subprocess
 import time
 from pathlib import Path
 from typing import AsyncGenerator, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
-
-from ..models.models import (
-    DownloadProgressEvent,
-    EmbeddingModelInfo,
-    ModelDownloadRequest,
-    ModelDownloadResponse,
-    ModelListResponse,
-)
 
 router = APIRouter(prefix="/api", tags=["models"])
 
@@ -24,79 +18,93 @@ router = APIRouter(prefix="/api", tags=["models"])
 active_downloads: Dict[str, subprocess.Popen] = {}
 
 
-def load_model_catalog() -> list[dict]:
-    """Load model catalog from JSON file."""
-    manifest_path = Path(__file__).parent.parent / "models" / "embedding_models.json"
-    with open(manifest_path, "r") as f:
-        data = json.load(f)
-    return data["models"]
+class ModelInfo(BaseModel):
+    """Model information."""
+    id: str
+    name: str
+    team: str
+    type: str
+    task: str
+    size_mb: int
+    parameters_m: int
+    gpu_memory_mb: int
+    link: str
+    status: str  # init, downloading, failed, downloaded
+    downloaded_size_mb: Optional[int] = None
+    error_message: Optional[str] = None
 
 
-def check_model_downloaded(model_id: str) -> tuple[bool, Optional[int]]:
+class ModelsResponse(BaseModel):
+    """Response containing list of models."""
+    models: list[ModelInfo]
+
+
+class DownloadProgressEvent(BaseModel):
+    """Download progress event for SSE."""
+    type: str  # "progress", "complete", "error"
+    percent: Optional[int] = None
+    current_mb: Optional[int] = None
+    total_mb: Optional[int] = None
+    size_mb: Optional[int] = None
+    message: Optional[str] = None
+
+
+@router.get("/models", response_model=ModelsResponse)
+async def list_all_models(task: Optional[str] = None) -> ModelsResponse:
     """
-    Check if a model is already downloaded.
+    List all available AI models across all types from database.
 
     Args:
-        model_id: The model identifier
+        task: Optional task filter (e.g., "embedding", "caption", "image-to-text")
 
     Returns:
-        Tuple of (is_downloaded, size_in_mb)
+        List of all models with download status, filtered by task if specified
     """
-    # Don't use get_model_cache_dir() as it creates the directory
-    # Instead, construct path without creating it
-    from ...config import get_data_dir
+    from ...db.models import get_all_models
 
-    # Preserve the original HuggingFace path structure
-    cache_dir = get_data_dir() / "embedding" / "models" / model_id
-
-    # Check if the model directory exists and has content
-    if cache_dir.exists():
-        # Calculate directory size
-        files = list(cache_dir.rglob("*"))
-        # Only consider downloaded if there are actual files
-        if files:
-            total_size = sum(
-                f.stat().st_size for f in files if f.is_file()
-            )
-            size_mb = total_size // (1024 * 1024)
-            # Only mark as downloaded if size > 0
-            if size_mb > 0:
-                return True, size_mb
-
-    return False, None
-
-
-@router.get("/models/embedding", response_model=ModelListResponse)
-async def list_embedding_models() -> ModelListResponse:
-    """
-    List all available embedding models.
-
-    Returns:
-        List of embedding models with download status
-    """
-    catalog = load_model_catalog()
+    db_models = get_all_models()
     models = []
 
-    for model_info in catalog:
-        is_downloaded, downloaded_size_mb = check_model_downloaded(model_info["id"])
+    for db_model in db_models:
+        # Filter by task if specified
+        if task and db_model["task"].lower() != task.lower():
+            continue
 
         models.append(
-            EmbeddingModelInfo(
-                id=model_info["id"],
-                name=model_info["name"],
-                team=model_info["team"],
-                license=model_info["license"],
-                dimensions=model_info["dimensions"],
-                languages=model_info["languages"],
-                description=model_info["description"],
-                size_mb=model_info["size_mb"],
-                link=model_info["link"],
-                is_downloaded=is_downloaded,
-                downloaded_size_mb=downloaded_size_mb,
+            ModelInfo(
+                id=db_model["id"],
+                name=db_model["name"],
+                team=db_model["team"],
+                type=db_model["type"],
+                task=db_model["task"],
+                size_mb=db_model["size_mb"],
+                parameters_m=db_model["parameters_m"],
+                gpu_memory_mb=db_model["gpu_memory_mb"],
+                link=db_model["link"],
+                status=db_model["status"],
+                downloaded_size_mb=db_model["downloaded_size_mb"],
+                error_message=db_model["error_message"],
             )
         )
 
-    return ModelListResponse(models=models)
+    return ModelsResponse(models=models)
+
+
+@router.get("/models/{model_id:path}/logs")
+async def get_model_download_logs(model_id: str):
+    """
+    Get download logs for a specific model.
+
+    Args:
+        model_id: The model identifier (can contain slashes)
+
+    Returns:
+        List of log entries with timestamps
+    """
+    from ...db.download_logs import get_logs
+
+    logs = get_logs(model_id)
+    return {"model_id": model_id, "logs": logs}
 
 
 async def download_model_with_progress(
@@ -114,88 +122,77 @@ async def download_model_with_progress(
         SSE events with download progress
     """
     from ...config import get_data_dir
+    from ...db.models import update_model_status, ModelStatus
+    import os
+    import logging
 
-    # Preserve the original HuggingFace path structure (e.g., BAAI/bge-large-en-v1.5)
-    cache_dir = get_data_dir() / "embedding" / "models" / model_id
+    logger = logging.getLogger(__name__)
+
+    # Use custom directory structure: data/models/{org}/{model}
+    # model_id like "sentence-transformers/all-MiniLM-L6-v2" becomes
+    # "data/models/sentence-transformers/all-MiniLM-L6-v2"
+    cache_dir = get_data_dir() / "models" / model_id
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    # Update status to downloading
+    update_model_status(model_id, ModelStatus.DOWNLOADING)
+
+    # Clear old logs for this model
+    from ...db.download_logs import clear_logs, add_log_line
+    clear_logs(model_id)
+
+    process = None
     try:
-        # Start huggingface-cli download subprocess
-        # Pass environment variables including HF_ENDPOINT if set
-        import os
-        import logging
-
-        logger = logging.getLogger(__name__)
         env = os.environ.copy()
+        hf_endpoint = env.get("HF_ENDPOINT", "https://huggingface.co")
 
-        # Log all HF-related environment variables for transparency
         logger.info(f"=== Download Starting for {model_id} ===")
+        logger.info(f"HuggingFace Endpoint: {hf_endpoint}")
         logger.info(f"Target directory: {cache_dir}")
 
-        hf_vars = {k: v for k, v in env.items() if k.startswith('HF_')}
-        logger.info(f"Current HF environment variables: {hf_vars}")
-
-        # Check for HF_ENDPOINT and ensure both env vars are set
-        hf_endpoint = env.get("HF_ENDPOINT")
-        if hf_endpoint:
-            # Set both HF_ENDPOINT and HF_HUB_ENDPOINT for compatibility
-            env["HF_ENDPOINT"] = hf_endpoint
-            env["HF_HUB_ENDPOINT"] = hf_endpoint
-            logger.info(f"✓ Mirror configured: {hf_endpoint}")
-            logger.info(f"✓ Set HF_ENDPOINT={hf_endpoint}")
-            logger.info(f"✓ Set HF_HUB_ENDPOINT={hf_endpoint}")
-        else:
-            logger.warning("⚠ No HF_ENDPOINT set - using default huggingface.co")
-
-        cmd = ["huggingface-cli", "download", model_id, "--local-dir", str(cache_dir)]
-        logger.info(f"Command: {' '.join(cmd)}")
+        # Use hfd (huggingface downloader with aria2) for better mirror support and resume capability
+        # hfd properly respects HF_ENDPOINT and uses aria2c for faster multi-threaded downloads
+        cmd_str = f"HF_ENDPOINT={hf_endpoint} hfd {model_id} --local-dir {cache_dir}"
+        logger.info(f"Command: {cmd_str}")
 
         process = subprocess.Popen(
-            cmd,
+            cmd_str,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # Redirect stderr to stdout for unified logging
+            stderr=subprocess.STDOUT,
             universal_newlines=True,
             bufsize=1,
-            env=env,  # Pass all environment variables including HF_ENDPOINT
+            shell=True,
+            env=env,
         )
 
-        # Track active download
         active_downloads[model_id] = process
-
-        # Log subprocess details
         logger.info(f"✓ Download process started (PID: {process.pid})")
-        logger.info(f"=== Monitoring download progress ===")
 
         last_progress_time = time.time()
         last_size = 0
-        last_log_time = time.time()
+        output_lines = []
 
         # Monitor download progress
         while process.poll() is None:
-            # Read and log subprocess output (non-blocking)
-            if process.stdout:
-                try:
-                    import select
-                    # Check if there's output available (with short timeout)
-                    if select.select([process.stdout], [], [], 0.1)[0]:
-                        line = process.stdout.readline()
-                        if line:
-                            line_stripped = line.strip()
-                            # Always log lines containing URLs or important info
-                            if any(keyword in line_stripped for keyword in ['http', 'Downloading', 'Fetching', 'hf.co', 'hf-mirror']):
-                                logger.info(f"CLI: {line_stripped}")
-                            # Log other output every 5 seconds to avoid spam
-                            elif time.time() - last_log_time >= 5.0:
-                                logger.info(f"CLI: {line_stripped}")
-                                last_log_time = time.time()
-                except Exception as e:
-                    pass  # Ignore read errors
             # Check if client disconnected
             if await request.is_disconnected():
                 process.terminate()
                 process.wait(timeout=5)
                 del active_downloads[model_id]
                 return
+
+            # Read any available output
+            if process.stdout:
+                line = process.stdout.readline()
+                if line:
+                    stripped_line = line.strip()
+                    output_lines.append(stripped_line)
+                    logger.info(f"Download output: {stripped_line}")
+                    # Persist log to database
+                    try:
+                        add_log_line(model_id, stripped_line)
+                    except Exception as log_err:
+                        logger.warning(f"Failed to persist log: {log_err}")
 
             # Get current directory size
             current_size = 0
@@ -206,47 +203,69 @@ async def download_model_with_progress(
 
             current_size_mb = current_size // (1024 * 1024)
 
-            # Send progress update every second or if significant size change
-            # Don't calculate percent since manifest sizes are unreliable
+            # Send progress update every second
             current_time = time.time()
             if current_time - last_progress_time >= 1.0 or current_size_mb > last_size + 10:
                 event = DownloadProgressEvent(
                     type="progress",
-                    percent=None,  # Don't show percentage - manifest sizes are unreliable
                     current_mb=current_size_mb,
-                    total_mb=expected_size_mb,  # Show as reference only
+                    total_mb=expected_size_mb,
                 )
                 yield event.model_dump_json()
                 last_progress_time = current_time
                 last_size = current_size_mb
 
-            # Small delay to prevent CPU spinning
             await asyncio.sleep(0.5)
+
+        # Read any remaining output
+        if process.stdout:
+            remaining = process.stdout.read()
+            if remaining:
+                for line in remaining.splitlines():
+                    stripped_line = line.strip()
+                    if stripped_line:
+                        output_lines.append(stripped_line)
+                        logger.info(f"Download output: {stripped_line}")
+                        # Persist log to database
+                        try:
+                            add_log_line(model_id, stripped_line)
+                        except Exception as log_err:
+                            logger.warning(f"Failed to persist log: {log_err}")
 
         # Download completed - check exit code
         returncode = process.returncode
-        del active_downloads[model_id]
+        if model_id in active_downloads:
+            del active_downloads[model_id]
 
         logger.info(f"=== Download Process Completed ===")
         logger.info(f"Exit code: {returncode}")
 
         if returncode != 0:
-            # Download failed - read remaining output
-            stdout_output = process.stdout.read() if process.stdout else "Unknown error"
             logger.error(f"✗ Download FAILED for {model_id}")
-            logger.error(f"Error output: {stdout_output[:500]}")
+            # Log last few lines of output for debugging
+            if output_lines:
+                logger.error(f"Last output lines: {output_lines[-10:]}")
+
+            error_msg = "Download failed"
+            if output_lines:
+                # Try to extract meaningful error from output
+                error_lines = [l for l in output_lines[-5:] if "error" in l.lower() or "failed" in l.lower()]
+                if error_lines:
+                    error_msg = error_lines[-1][:200]  # Limit message length
+
+            # Update status to failed in database
+            update_model_status(model_id, ModelStatus.FAILED, error_message=error_msg)
+
             event = DownloadProgressEvent(
-                type="error", message=f"Download failed: {stdout_output[:200]}"
+                type="error", message=error_msg
             )
             yield event.model_dump_json()
             # Clean up partial download
-            import shutil
-
             if cache_dir.exists():
                 shutil.rmtree(cache_dir)
             return
 
-        # Calculate final size for reporting
+        # Calculate final size
         final_size = 0
         if cache_dir.exists():
             final_size = sum(
@@ -256,227 +275,118 @@ async def download_model_with_progress(
 
         logger.info(f"✓ Download SUCCESS for {model_id}")
         logger.info(f"Downloaded size: {final_size_mb} MB")
-        logger.info(f"Location: {cache_dir}")
-        logger.info(f"=== Download Complete ===")
 
-        # Success! (no size verification - sizes vary too much)
+        # Update status to downloaded in database
+        update_model_status(model_id, ModelStatus.DOWNLOADED, downloaded_size_mb=final_size_mb)
+
         event = DownloadProgressEvent(
             type="complete", percent=100, size_mb=final_size_mb
         )
         yield event.model_dump_json()
 
     except Exception as e:
-        # Unexpected error
         if model_id in active_downloads:
             del active_downloads[model_id]
-        event = DownloadProgressEvent(type="error", message=f"Unexpected error: {str(e)}")
+
+        error_msg = f"Error: {str(e)}"
+        # Update status to failed in database
+        update_model_status(model_id, ModelStatus.FAILED, error_message=error_msg)
+
+        event = DownloadProgressEvent(type="error", message=error_msg)
         yield event.model_dump_json()
+    finally:
+        # Ensure process is cleaned up and not left in downloading state
+        if process and model_id in active_downloads:
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=5)
+            except:
+                pass
+            del active_downloads[model_id]
 
 
-@router.get("/models/embedding/{model_id:path}/download")
-async def download_embedding_model_stream(model_id: str, request: Request):
+@router.get("/models/download")
+async def download_model_stream(model: str, request: Request):
     """
-    Download an embedding model with SSE progress streaming.
+    Download a model with SSE progress streaming.
 
     Args:
-        model_id: The model identifier (can contain slashes, e.g., BAAI/bge-large-en-v1.5)
+        model: The model identifier (e.g., "BAAI/bge-large-en-v1.5")
         request: FastAPI request
 
     Returns:
         EventSourceResponse with progress events
-
-    Raises:
-        HTTPException: If model not found or already downloaded
     """
-    # Validate model exists in catalog
-    catalog = load_model_catalog()
-    model_info = next((m for m in catalog if m["id"] == model_id), None)
+    from ...db.models import get_model, ModelStatus
 
-    if not model_info:
+    # Validate model exists in database
+    db_model = get_model(model)
+    if not db_model:
         raise HTTPException(
             status_code=400,
-            detail={
-                "code": "INVALID_MODEL",
-                "message": f"Model '{model_id}' not found in catalog",
-            },
+            detail=f"Model '{model}' not found in catalog",
         )
 
     # Check if already downloaded
-    is_downloaded, _ = check_model_downloaded(model_id)
-    if is_downloaded:
+    if db_model["status"] == ModelStatus.DOWNLOADED.value:
         raise HTTPException(
             status_code=400,
-            detail={
-                "code": "ALREADY_DOWNLOADED",
-                "message": f"Model '{model_id}' is already downloaded",
-            },
+            detail=f"Model '{model}' is already downloaded",
         )
 
-    # Check if already downloading
-    if model_id in active_downloads:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "DOWNLOAD_IN_PROGRESS",
-                "message": f"Model '{model_id}' is already being downloaded",
-            },
-        )
+    # Check if there's an actual active download process running
+    # Only block if there's a real process, not just a stale "downloading" status in DB
+    if model in active_downloads:
+        # Verify the process is actually still running
+        process = active_downloads[model]
+        if process.poll() is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Model '{model}' is already being downloaded",
+            )
+        else:
+            # Process died but wasn't cleaned up - remove it
+            del active_downloads[model]
+            # Reset status to failed if it was stuck in downloading
+            if db_model["status"] == ModelStatus.DOWNLOADING.value:
+                from ...db.models import update_model_status
+                update_model_status(model, ModelStatus.FAILED, error_message="Download process died unexpectedly")
 
     return EventSourceResponse(
-        download_model_with_progress(model_id, model_info["size_mb"], request)
+        download_model_with_progress(model, db_model["size_mb"], request)
     )
 
 
-@router.post("/models/embedding/download", response_model=ModelDownloadResponse)
-async def download_embedding_model(
-    request: ModelDownloadRequest,
-) -> ModelDownloadResponse:
+@router.delete("/models/{model_id:path}")
+async def delete_model(model_id: str):
     """
-    Download an embedding model.
-
-    Args:
-        request: Model download request
-
-    Returns:
-        Download status
-
-    Raises:
-        HTTPException: If download fails
-    """
-    # Validate model exists in catalog
-    catalog = load_model_catalog()
-    valid_model_ids = [m["id"] for m in catalog]
-    if request.model_id not in valid_model_ids:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "INVALID_MODEL",
-                "message": f"Model '{request.model_id}' not found in catalog",
-            },
-        )
-
-    try:
-        # Check if already downloaded
-        is_downloaded, size_mb = check_model_downloaded(request.model_id)
-        if is_downloaded:
-            return ModelDownloadResponse(
-                model_id=request.model_id,
-                status="already_downloaded",
-                message=f"Model already downloaded ({size_mb} MB)",
-            )
-
-        # Download the model by loading it
-        # Create cache directory only when downloading
-        from ...config import get_data_dir
-
-        safe_model_name = request.model_id.replace("/", "--")
-        cache_dir = get_data_dir() / "embedding" / safe_model_name
-        cache_dir.mkdir(parents=True, exist_ok=True)
-
-        model = SentenceTransformer(request.model_id, cache_folder=str(cache_dir))
-
-        # Get final size
-        _, size_mb = check_model_downloaded(request.model_id)
-
-        return ModelDownloadResponse(
-            model_id=request.model_id,
-            status="downloaded",
-            message=f"Model downloaded successfully ({size_mb} MB)",
-        )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "DOWNLOAD_FAILED",
-                "message": f"Failed to download model: {str(e)}",
-            },
-        )
-
-
-@router.delete("/models/embedding/{model_id:path}/download")
-async def cancel_download(model_id: str):
-    """
-    Cancel an in-progress model download.
-
-    Args:
-        model_id: The model identifier (can contain slashes)
-
-    Returns:
-        Cancellation status
-    """
-    if model_id not in active_downloads:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "NOT_DOWNLOADING",
-                "message": f"Model '{model_id}' is not currently being downloaded",
-            },
-        )
-
-    try:
-        process = active_downloads[model_id]
-        process.terminate()
-        process.wait(timeout=5)
-        del active_downloads[model_id]
-
-        # Clean up partial download
-        from ...config import get_data_dir
-        import shutil
-
-        cache_dir = get_data_dir() / "embedding" / "models" / model_id
-
-        if cache_dir.exists():
-            shutil.rmtree(cache_dir)
-
-        return {
-            "model_id": model_id,
-            "status": "cancelled",
-            "message": "Download cancelled and partial files removed",
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "CANCEL_FAILED",
-                "message": f"Failed to cancel download: {str(e)}",
-            },
-        )
-
-
-@router.delete("/models/embedding/{model_id:path}")
-async def delete_embedding_model(model_id: str):
-    """
-    Delete a downloaded embedding model.
+    Delete a downloaded model from HuggingFace cache.
 
     Args:
         model_id: The model identifier (can contain slashes)
 
     Returns:
         Deletion status
-
-    Raises:
-        HTTPException: If deletion fails
     """
-    # Validate model exists in catalog
-    catalog = load_model_catalog()
-    valid_model_ids = [m["id"] for m in catalog]
-    if model_id not in valid_model_ids:
+    from ...config import get_data_dir
+    from ...db.models import get_model, update_model_status, ModelStatus
+
+    # Validate model exists in database
+    db_model = get_model(model_id)
+    if not db_model:
         raise HTTPException(
             status_code=400,
-            detail={
-                "code": "INVALID_MODEL",
-                "message": f"Model '{model_id}' not found in catalog",
-            },
+            detail=f"Model '{model_id}' not found in catalog",
         )
 
     try:
-        from ...config import get_data_dir
+        # Use custom directory structure: data/models/{org}/{model}
+        cache_path = get_data_dir() / "models" / model_id
 
-        cache_dir = get_data_dir() / "embedding" / "models" / model_id
-
-        if not cache_dir.exists():
+        if not cache_path.exists():
+            # Reset status to init if directory doesn't exist
+            update_model_status(model_id, ModelStatus.INIT, downloaded_size_mb=None, error_message=None)
             return {
                 "model_id": model_id,
                 "status": "not_found",
@@ -484,8 +394,10 @@ async def delete_embedding_model(model_id: str):
             }
 
         # Delete the model directory
-        import shutil
-        shutil.rmtree(cache_dir)
+        shutil.rmtree(cache_path)
+
+        # Reset status to init after deletion
+        update_model_status(model_id, ModelStatus.INIT, downloaded_size_mb=None, error_message=None)
 
         return {
             "model_id": model_id,
@@ -496,8 +408,5 @@ async def delete_embedding_model(model_id: str):
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail={
-                "code": "DELETE_FAILED",
-                "message": f"Failed to delete model: {str(e)}",
-            },
+            detail=f"Failed to delete model: {str(e)}",
         )

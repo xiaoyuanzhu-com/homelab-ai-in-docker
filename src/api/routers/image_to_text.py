@@ -2,13 +2,11 @@
 
 import base64
 import io
-import json
 import logging
 import os
 import platform
 import time
 import uuid
-from pathlib import Path
 from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException
@@ -26,6 +24,7 @@ import torch
 from ..models.image_to_text import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
 from ...config import get_model_cache_dir
+from ...db.models import get_model as get_model_from_db, get_all_models
 
 logger = logging.getLogger(__name__)
 
@@ -45,34 +44,10 @@ _processor_cache: Optional[Any] = None
 _current_model_name: str = ""
 _current_model_config: Optional[Dict[str, Any]] = None
 
-# Load available models from manifest
-_available_models: Optional[list[str]] = None
-_models_manifest: Optional[Dict[str, list[Dict[str, Any]]]] = None
-
-
-def load_models_manifest() -> Dict[str, list[Dict[str, Any]]]:
-    """
-    Load models manifest from JSON file.
-
-    Returns:
-        Dictionary with model type as key and list of model configs as value
-    """
-    global _models_manifest
-
-    if _models_manifest is None:
-        manifest_path = Path(__file__).parent.parent / "models" / "models_manifest.json"
-        try:
-            with open(manifest_path) as f:
-                _models_manifest = json.load(f)
-        except Exception as e:
-            raise RuntimeError(f"Failed to load models manifest: {e}")
-
-    return _models_manifest
-
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
     """
-    Get model configuration from manifest.
+    Get model configuration from database.
 
     Args:
         model_id: Model identifier
@@ -81,31 +56,40 @@ def get_model_config(model_id: str) -> Dict[str, Any]:
         Model configuration dictionary
 
     Raises:
-        ValueError: If model not found in manifest
+        ValueError: If model not found in database
     """
-    manifest = load_models_manifest()
+    db_model = get_model_from_db(model_id)
 
-    for model_config in manifest.get("caption", []):
-        if model_config["id"] == model_id:
-            return model_config
+    if db_model is None:
+        raise ValueError(f"Model '{model_id}' not found in database")
 
-    raise ValueError(f"Model '{model_id}' not found in manifest")
+    # Convert sqlite3.Row to dict
+    return {
+        "id": db_model["id"],
+        "name": db_model["name"],
+        "team": db_model["team"],
+        "task": db_model["task"],
+        "architecture": db_model["architecture"],
+        "default_prompt": db_model["default_prompt"],
+        "platform_requirements": db_model["platform_requirements"],
+        "requires_quantization": bool(db_model["requires_quantization"]),
+        "size_mb": db_model["size_mb"],
+        "parameters_m": db_model["parameters_m"],
+        "gpu_memory_mb": db_model["gpu_memory_mb"],
+        "link": db_model["link"],
+    }
 
 
 def get_available_models() -> list[str]:
     """
-    Load available caption models from the manifest.
+    Load available caption models from the database.
 
     Returns:
         List of model IDs that can be used
     """
-    global _available_models
-
-    if _available_models is None:
-        manifest = load_models_manifest()
-        _available_models = [model["id"] for model in manifest.get("caption", [])]
-
-    return _available_models
+    all_models = get_all_models()
+    # Filter for caption/image-to-text models only
+    return [model["id"] for model in all_models if model["task"] == "Image to Text"]
 
 
 def validate_model(model_name: str) -> None:

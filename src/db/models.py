@@ -29,6 +29,10 @@ def init_db():
                 parameters_m INTEGER NOT NULL,
                 gpu_memory_mb INTEGER NOT NULL,
                 link TEXT NOT NULL,
+                architecture TEXT,
+                default_prompt TEXT,
+                platform_requirements TEXT,
+                requires_quantization INTEGER DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'init',
                 downloaded_size_mb INTEGER,
                 error_message TEXT,
@@ -54,6 +58,10 @@ def upsert_model(
     parameters_m: int,
     gpu_memory_mb: int,
     link: str,
+    architecture: Optional[str] = None,
+    default_prompt: Optional[str] = None,
+    platform_requirements: Optional[str] = None,
+    requires_quantization: bool = False,
 ) -> None:
     """
     Insert or update model metadata from manifest.
@@ -63,8 +71,9 @@ def upsert_model(
         conn.execute("""
             INSERT INTO models (
                 id, name, team, type, task, size_mb,
-                parameters_m, gpu_memory_mb, link
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                parameters_m, gpu_memory_mb, link, architecture,
+                default_prompt, platform_requirements, requires_quantization
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 team = excluded.team,
@@ -74,8 +83,13 @@ def upsert_model(
                 parameters_m = excluded.parameters_m,
                 gpu_memory_mb = excluded.gpu_memory_mb,
                 link = excluded.link,
+                architecture = excluded.architecture,
+                default_prompt = excluded.default_prompt,
+                platform_requirements = excluded.platform_requirements,
+                requires_quantization = excluded.requires_quantization,
                 updated_at = CURRENT_TIMESTAMP
-        """, (model_id, name, team, model_type, task, size_mb, parameters_m, gpu_memory_mb, link))
+        """, (model_id, name, team, model_type, task, size_mb, parameters_m, gpu_memory_mb, link,
+              architecture, default_prompt, platform_requirements, 1 if requires_quantization else 0))
 
 
 def get_all_models():

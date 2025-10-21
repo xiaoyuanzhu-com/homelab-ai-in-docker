@@ -15,7 +15,7 @@ from src.api.routers import (
     text_to_embedding,
     image_to_text,
     history,
-    models_new as models,
+    models,
     hardware,
 )
 from src.db.models import init_db, upsert_model
@@ -81,6 +81,10 @@ async def lifespan(app: FastAPI):
                     parameters_m=model_info["parameters_m"],
                     gpu_memory_mb=model_info["gpu_memory_mb"],
                     link=model_info["link"],
+                    architecture=model_info.get("architecture"),
+                    default_prompt=model_info.get("default_prompt"),
+                    platform_requirements=model_info.get("platform_requirements"),
+                    requires_quantization=model_info.get("requires_quantization", False),
                 )
                 model_count += 1
 
