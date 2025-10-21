@@ -30,12 +30,14 @@ logger = logging.getLogger("ocr_worker")
 
 class InferRequest(BaseModel):
     image: str = Field(..., description="Base64-encoded image or data URL")
+    output_format: str = Field(default="text", description="Output format: 'text' or 'markdown'")
 
 
 class InferResponse(BaseModel):
     text: str
     model: str
     processing_time_ms: int
+    output_format: str
 
 
 app = FastAPI()
@@ -120,9 +122,13 @@ async def healthz():
 
 @app.post("/infer", response_model=InferResponse)
 async def infer(req: InferRequest) -> InferResponse:
-    global LAST_ACCESS
+    global LAST_ACCESS, ENGINE
     start = time.time()
     try:
+        # Update engine's output format for this request
+        if ENGINE:  # type: ignore[truthy-bool]
+            ENGINE.output_format = req.output_format  # type: ignore[union-attr]
+
         image = await asyncio.to_thread(_decode_image, req.image)
         text = await asyncio.to_thread(ENGINE.predict, image)  # type: ignore[union-attr]
     except Exception as e:
@@ -131,7 +137,12 @@ async def infer(req: InferRequest) -> InferResponse:
     proc_ms = int((time.time() - start) * 1000)
     LAST_ACCESS = time.time()
     _schedule_idle_shutdown()
-    return InferResponse(text=text, model=MODEL_ID, processing_time_ms=proc_ms)
+    return InferResponse(
+        text=text,
+        model=MODEL_ID,
+        processing_time_ms=proc_ms,
+        output_format=req.output_format
+    )
 
 
 @app.post("/shutdown")

@@ -22,20 +22,23 @@ class OCRInferenceEngine:
         architecture: str,
         model_config: Dict[str, Any],
         language: Optional[str] = None,
+        output_format: str = "text",
     ):
         """
         Initialize OCR inference engine.
 
         Args:
             model_id: Hugging Face model identifier
-            architecture: Model architecture (paddleocr, mineru, deepseek)
+            architecture: Model architecture (paddleocr, mineru, deepseek, granite-docling)
             model_config: Model configuration from database
             language: Optional language hint for OCR
+            output_format: Output format ('text' or 'markdown')
         """
         self.model_id = model_id
         self.architecture = architecture
         self.model_config = model_config
         self.language = language
+        self.output_format = output_format
         self.model = None
         self.processor = None
 
@@ -277,8 +280,22 @@ class OCRInferenceEngine:
 
     def _predict_deepseek(self, image: Image.Image) -> str:
         """Run DeepSeek-OCR prediction."""
+        # DeepSeek-OCR requires special prompt for markdown
+        if self.output_format == "markdown":
+            # Use grounding prompt for structured markdown output
+            prompt = "<|grounding|>Convert the document to markdown."
+            logger.info("Using markdown grounding prompt for DeepSeek-OCR")
+        else:
+            # Standard text extraction
+            prompt = None
+
         # DeepSeek-OCR inference
-        inputs = self.processor(images=image, return_tensors="pt")
+        if prompt:
+            # Process with text prompt
+            inputs = self.processor(text=prompt, images=image, return_tensors="pt")
+        else:
+            # Process image only
+            inputs = self.processor(images=image, return_tensors="pt")
 
         # Move inputs to same device as model
         if hasattr(self.model, "device"):
@@ -296,8 +313,13 @@ class OCRInferenceEngine:
         """Run IBM Granite Docling prediction."""
         import torch
 
-        # Get the prompt from model config or use default
-        prompt_text = self.model_config.get("default_prompt", "Convert this page to markdown.")
+        # Choose prompt based on output format
+        if self.output_format == "markdown":
+            prompt_text = "Convert this page to markdown."
+            logger.info("Using markdown prompt for Granite Docling")
+        else:
+            prompt_text = "Extract all text from this document."
+            logger.info("Using text extraction prompt for Granite Docling")
 
         # Create input messages in chat format
         messages = [

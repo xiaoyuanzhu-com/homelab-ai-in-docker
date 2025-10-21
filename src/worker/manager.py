@@ -151,12 +151,18 @@ class OCRWorkerManager:
         # Remove from registry
         self._workers.pop(worker.model_key, None)
 
-    async def infer(self, model_id: str, language: Optional[str], image_b64: str) -> Dict:
+    async def infer(
+        self,
+        model_id: str,
+        language: Optional[str],
+        image_b64: str,
+        output_format: str = "text"
+    ) -> Dict:
         w = await self._ensure_worker(model_id, language)
         # Send inference request (sync HTTP in thread)
         url = f"http://127.0.0.1:{w.port}/infer"
         import json as _json
-        payload = _json.dumps({"image": image_b64}).encode()
+        payload = _json.dumps({"image": image_b64, "output_format": output_format}).encode()
 
         def _do_request():
             req = urlrequest.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")

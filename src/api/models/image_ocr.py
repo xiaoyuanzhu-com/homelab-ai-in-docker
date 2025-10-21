@@ -1,6 +1,6 @@
 """Pydantic models for image OCR API endpoints."""
 
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel, Field
 
 from .base import BaseResponse
@@ -15,6 +15,10 @@ class OCRRequest(BaseModel):
         default=None,
         description="Optional language hint for OCR (e.g., 'en', 'zh', 'auto')",
     )
+    output_format: Optional[Literal["text", "markdown"]] = Field(
+        default="text",
+        description="Output format: 'text' for plain text, 'markdown' for structured markdown (supported by Granite Docling, MinerU, DeepSeek)",
+    )
 
 
 class OCRResponse(BaseResponse):
@@ -22,3 +26,4 @@ class OCRResponse(BaseResponse):
 
     text: str = Field(..., description="Extracted text from the image")
     model: str = Field(..., description="Model that performed the OCR")
+    output_format: str = Field(..., description="Format of the output text")

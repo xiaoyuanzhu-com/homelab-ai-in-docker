@@ -8,13 +8,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { FileText, Loader2, Upload } from "lucide-react";
+import { FileText, Loader2, Upload, Copy } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 interface OCRResult {
   request_id: string;
   text: string;
   model: string;
   processing_time_ms: number;
+  output_format: string;
 }
 
 interface ModelInfo {
@@ -45,6 +47,8 @@ export default function ImageOCRPage() {
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const [outputFormat, setOutputFormat] = useState<"text" | "markdown">("text");
+  const [viewMode, setViewMode] = useState<"raw" | "rendered">("rendered");
 
   useEffect(() => {
     // Infer API base URL from current window location
@@ -86,6 +90,25 @@ export default function ImageOCRPage() {
     setActiveTab(tab);
   };
 
+  // Check if selected model supports markdown
+  const supportsMarkdown = () => {
+    if (!selectedModel) return false;
+    const model = availableModels.find((m) => m.id === selectedModel);
+    if (!model) return false;
+    // Granite Docling, MinerU, and DeepSeek support markdown
+    return ["granite-docling", "mineru", "deepseek"].includes(model.architecture);
+  };
+
+  const copyToClipboard = async () => {
+    if (!result?.text) return;
+    try {
+      await navigator.clipboard.writeText(result.text);
+      toast.success("Copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -115,6 +138,7 @@ export default function ImageOCRPage() {
         body: JSON.stringify({
           image: base64Data,
           model: selectedModel,
+          output_format: outputFormat,
         }),
       });
 
@@ -193,6 +217,34 @@ export default function ImageOCRPage() {
                   )}
                 </div>
 
+                {/* Output Format */}
+                <div className="space-y-2">
+                  <Label htmlFor="format">Output Format</Label>
+                  <Select
+                    value={outputFormat}
+                    onValueChange={(value) => setOutputFormat(value as "text" | "markdown")}
+                    disabled={!supportsMarkdown()}
+                  >
+                    <SelectTrigger id="format">
+                      <SelectValue placeholder="Select format" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="text">Plain Text</SelectItem>
+                      <SelectItem value="markdown">Markdown</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {!supportsMarkdown() && selectedModel && (
+                    <p className="text-xs text-muted-foreground">
+                      ⚠️ This model only supports plain text output
+                    </p>
+                  )}
+                  {supportsMarkdown() && (
+                    <p className="text-xs text-muted-foreground">
+                      ✓ Markdown format supported by this model
+                    </p>
+                  )}
+                </div>
+
                 {/* Image Upload */}
                 <div className="space-y-2">
                   <Label htmlFor="image">Image</Label>
@@ -250,8 +302,30 @@ export default function ImageOCRPage() {
             {/* Output Card */}
             <Card>
               <CardHeader>
-                <CardTitle>Output</CardTitle>
-                <CardDescription>Extracted text from the image</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Output</CardTitle>
+                    <CardDescription>Extracted text from the image</CardDescription>
+                  </div>
+                  {result && result.output_format === "markdown" && (
+                    <div className="flex gap-2">
+                      <Button
+                        variant={viewMode === "rendered" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setViewMode("rendered")}
+                      >
+                        Rendered
+                      </Button>
+                      <Button
+                        variant={viewMode === "raw" ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setViewMode("raw")}
+                      >
+                        Raw
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 {error && (
@@ -263,18 +337,37 @@ export default function ImageOCRPage() {
                 {result && (
                   <>
                     <div className="space-y-2">
-                      <Label>Extracted Text</Label>
-                      <Textarea
-                        value={result.text}
-                        readOnly
-                        className="min-h-[300px] font-mono text-sm"
-                        placeholder="Extracted text will appear here..."
-                      />
+                      <div className="flex items-center justify-between">
+                        <Label>Extracted Text</Label>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={copyToClipboard}
+                          className="h-8"
+                        >
+                          <Copy className="h-4 w-4 mr-2" />
+                          Copy
+                        </Button>
+                      </div>
+
+                      {result.output_format === "markdown" && viewMode === "rendered" ? (
+                        <div className="border rounded-lg p-4 min-h-[300px] prose prose-sm max-w-none dark:prose-invert">
+                          <ReactMarkdown>{result.text}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <Textarea
+                          value={result.text}
+                          readOnly
+                          className="min-h-[300px] font-mono text-sm"
+                          placeholder="Extracted text will appear here..."
+                        />
+                      )}
                     </div>
 
                     <div className="text-xs text-muted-foreground space-y-1">
                       <div>Request ID: {result.request_id}</div>
                       <div>Model: {result.model}</div>
+                      <div>Output Format: {result.output_format}</div>
                       <div>Processing Time: {result.processing_time_ms}ms</div>
                     </div>
                   </>
@@ -311,7 +404,8 @@ export default function ImageOCRPage() {
                 <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
 {`{
   "image": "base64_encoded_image_data",
-  "model": "PaddlePaddle/PaddleOCR-VL"
+  "model": "ibm-granite/granite-docling-258M",
+  "output_format": "markdown"
 }`}
                 </pre>
               </div>
@@ -321,6 +415,8 @@ export default function ImageOCRPage() {
                 <ul className="space-y-2 text-sm">
                   <li><code className="bg-muted px-2 py-1 rounded">image</code> (string, required) - Base64-encoded image data</li>
                   <li><code className="bg-muted px-2 py-1 rounded">model</code> (string, required) - Model ID to use for OCR</li>
+                  <li><code className="bg-muted px-2 py-1 rounded">output_format</code> (string, optional) - Output format: "text" (default) or "markdown" (supported by Granite Docling, MinerU, DeepSeek)</li>
+                  <li><code className="bg-muted px-2 py-1 rounded">language</code> (string, optional) - Language hint for OCR (e.g., "en", "zh", "auto")</li>
                 </ul>
               </div>
 
@@ -329,8 +425,9 @@ export default function ImageOCRPage() {
                 <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
 {`{
   "request_id": "uuid",
-  "text": "Extracted text from the image\\nwith line breaks preserved",
-  "model": "PaddlePaddle/PaddleOCR-VL",
+  "text": "# Document Title\\n\\nExtracted text from the image...",
+  "model": "ibm-granite/granite-docling-258M",
+  "output_format": "markdown",
   "processing_time_ms": 456
 }`}
                 </pre>
@@ -346,17 +443,23 @@ import requests
 with open("document.jpg", "rb") as f:
     image_data = base64.b64encode(f.read()).decode()
 
-# Send request
+# Send request with markdown output
 response = requests.post(
     "${apiBaseUrl}/api/image-ocr",
     json={
         "image": image_data,
-        "model": "PaddlePaddle/PaddleOCR-VL"
+        "model": "ibm-granite/granite-docling-258M",
+        "output_format": "markdown"  # or "text" for plain text
     }
 )
 
 result = response.json()
-print(result["text"])`}
+print(result["text"])
+
+# Save markdown to file
+if result["output_format"] == "markdown":
+    with open("output.md", "w") as f:
+        f.write(result["text"])`}
                 </pre>
               </div>
             </CardContent>

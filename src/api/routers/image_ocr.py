@@ -253,11 +253,13 @@ def get_model(model_name: str, language: Optional[str] = None):
             logger.info(f"Loading OCR model '{model_name}' with language='{lang}'...")
 
             # Create inference engine
+            # Note: output_format will be set per request in get_model
             _model_cache = OCRInferenceEngine(
                 model_id=model_name,
                 architecture=model_config.get("architecture", "paddleocr"),
                 model_config=model_config,
                 language=lang,
+                output_format="text",  # Default, will be updated per request
             )
 
             # Load the model
@@ -345,8 +347,14 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
         # Validate model exists
         validate_model(request.model)
         # Use isolated worker manager; pass raw image string (base64 or data URL)
-        infer_data = await ocr_manager.infer(request.model, request.language, request.image)
+        infer_data = await ocr_manager.infer(
+            request.model,
+            request.language,
+            request.image,
+            request.output_format or "text"
+        )
         final_text = infer_data.get("text", "")
+        output_format = infer_data.get("output_format", request.output_format or "text")
 
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
@@ -357,6 +365,7 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
             processing_time_ms=processing_time_ms,
             text=final_text,
             model=request.model,
+            output_format=output_format,
         )
 
         # Log to history
