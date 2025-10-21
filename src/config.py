@@ -58,7 +58,7 @@ def get_model_cache_dir(service: str, model_name: str) -> Path:
 
 # Environment variable names for HuggingFace cache
 HF_HOME_ENV = "HF_HOME"
-TRANSFORMERS_CACHE_ENV = "TRANSFORMERS_CACHE"
+TRANSFORMERS_CACHE_ENV = "TRANSFORMERS_CACHE"  # Deprecated: Use HF_HOME instead
 SENTENCE_TRANSFORMERS_HOME_ENV = "SENTENCE_TRANSFORMERS_HOME"
 
 

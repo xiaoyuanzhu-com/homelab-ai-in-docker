@@ -185,8 +185,8 @@ def get_model(model_name: str):
         # Get custom cache directory
         cache_dir = get_model_cache_dir("image-caption", _current_model_name)
 
-        # Set HuggingFace cache environment variable
-        os.environ["TRANSFORMERS_CACHE"] = str(cache_dir)
+        # Note: HF_HOME is set globally in main.py, no need to set per-model cache
+        # The models will be cached under HF_HOME/hub/models--{org}--{model}/
 
         # Set HuggingFace endpoint for model loading
         from ...config import get_hf_endpoint

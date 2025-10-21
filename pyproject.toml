@@ -24,6 +24,8 @@ dependencies = [
     "mineru-vl-utils>=0.1.0",
     "einops>=0.7.0",
     "docling-core>=2.0.0",
+    "addict>=2.4.0",
+    "matplotlib>=3.7.0",
 ]
 
 [project.optional-dependencies]

@@ -27,6 +27,10 @@ from src.db.models import init_db, upsert_model
 # Use environment variables if set, otherwise default to /haid/data
 HAID_DATA_DIR = Path(os.getenv("HAID_DATA_DIR", "/haid/data"))
 
+# Set HuggingFace home directory for model caching (replaces deprecated TRANSFORMERS_CACHE)
+if "HF_HOME" not in os.environ:
+    os.environ["HF_HOME"] = str(HAID_DATA_DIR / "models")
+
 # Set crawl4ai base directory
 if "CRAWL4AI_BASE_DIRECTORY" not in os.environ:
     os.environ["CRAWL4AI_BASE_DIRECTORY"] = str(HAID_DATA_DIR / "crawl4ai")
