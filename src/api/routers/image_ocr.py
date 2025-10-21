@@ -153,19 +153,26 @@ def get_model(model_name: str):
             logger.info(f"Loading OCR model '{model_name}'...")
 
             # Determine language from model config or use default
-            lang = model_config.get("language", "en")
+            # 'ch' supports both Chinese and English (multilingual)
+            lang = model_config.get("language", "ch")
 
             # Initialize PaddleOCR
             # PaddleOCR 3.x uses 'device' parameter instead of 'use_gpu'
-            import torch
-            device = "gpu:0" if torch.cuda.is_available() else "cpu"
+            # Check if PaddlePaddle has GPU support
+            try:
+                import paddle
+                has_gpu = paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0
+                device = "gpu:0" if has_gpu else "cpu"
+            except Exception:
+                # Fallback to CPU if paddle check fails
+                device = "cpu"
 
             _model_cache = PaddleOCR(
                 lang=lang,
                 device=device
             )
 
-            logger.info(f"PaddleOCR initialized with device: {device}")
+            logger.info(f"PaddleOCR initialized with lang={lang}, device={device}")
 
             logger.info(f"OCR model '{model_name}' loaded successfully")
 
