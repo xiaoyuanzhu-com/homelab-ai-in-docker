@@ -158,17 +158,18 @@ class OCRInferenceEngine:
                 logger.info(f"Model not found locally, will download from HuggingFace: {self.model_id}")
                 extra_kwargs = {}
 
-            # Try to use flash attention if available, fallback to sdpa
-            attn_implementation = "sdpa"  # Default safe option
+            # Try to use flash attention if available, fallback to eager
+            # Note: DeepSeek-OCR doesn't support sdpa, so we use eager as fallback
+            attn_implementation = "eager"  # Default fallback for DeepSeek-OCR
             try:
                 import flash_attn
                 if torch.cuda.is_available():
                     attn_implementation = "flash_attention_2"
                     logger.info("Using flash_attention_2 for DeepSeek-OCR")
                 else:
-                    logger.info("GPU not available, using sdpa attention for DeepSeek-OCR")
+                    logger.info("GPU not available, using eager attention for DeepSeek-OCR")
             except ImportError:
-                logger.info("flash-attn not installed, using sdpa attention for DeepSeek-OCR")
+                logger.info("flash-attn not installed, using eager attention for DeepSeek-OCR")
 
             # Load model with best available attention implementation
             self.model = AutoModel.from_pretrained(
