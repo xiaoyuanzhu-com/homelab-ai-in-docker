@@ -68,5 +68,10 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Run the application
+# Add entrypoint for best-effort GPU accel setup (flash-attn)
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Run the application via entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["python", "main.py"]
