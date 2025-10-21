@@ -341,6 +341,8 @@ class OCRInferenceEngine:
 
     def _predict_deepseek(self, image: Image.Image) -> str:
         """Run DeepSeek-OCR prediction."""
+        import torch
+
         # DeepSeek-OCR requires special prompt for markdown
         if self.output_format == "markdown":
             # Use grounding prompt for structured markdown output
@@ -350,25 +352,29 @@ class OCRInferenceEngine:
             # Standard text extraction
             prompt = None
 
-        # DeepSeek-OCR inference
-        if prompt:
-            # Process with text prompt
-            inputs = self.processor(text=prompt, images=image, return_tensors="pt")
-        else:
-            # Process image only
-            inputs = self.processor(images=image, return_tensors="pt")
+        try:
+            # DeepSeek-OCR inference
+            if prompt:
+                # Process with text prompt
+                inputs = self.processor(text=prompt, images=image, return_tensors="pt")
+            else:
+                # Process image only
+                inputs = self.processor(images=image, return_tensors="pt")
 
-        # Move inputs to same device as model
-        if hasattr(self.model, "device"):
-            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+            # Move inputs to same device as model
+            device = next(self.model.parameters()).device
+            inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
 
-        # Generate
-        outputs = self.model.generate(**inputs, max_new_tokens=2048)
+            # Generate
+            outputs = self.model.generate(**inputs, max_new_tokens=2048)
 
-        # Decode
-        text = self.processor.batch_decode(outputs, skip_special_tokens=True)[0]
+            # Decode
+            text = self.processor.batch_decode(outputs, skip_special_tokens=True)[0]
 
-        return text
+            return text
+        except Exception as e:
+            logger.error(f"DeepSeek-OCR prediction failed: {e}", exc_info=True)
+            raise
 
     def _predict_granite_docling(self, image: Image.Image) -> str:
         """Run IBM Granite Docling prediction."""
