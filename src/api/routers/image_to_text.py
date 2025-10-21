@@ -184,7 +184,7 @@ def get_model(model_name: str):
             # Common loading kwargs
             load_kwargs = {
                 "cache_dir": str(cache_dir),
-                "torch_dtype": torch.float16,  # Use fp16 for efficiency
+                "dtype": torch.float16,  # Use fp16 for efficiency
                 "low_cpu_mem_usage": True,     # Reduce CPU memory usage
             }
 
