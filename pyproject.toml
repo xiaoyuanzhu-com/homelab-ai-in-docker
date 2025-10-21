@@ -17,10 +17,6 @@ dependencies = [
     "psutil>=6.0.0",
     "gputil>=1.4.0",
     "accelerate>=0.20.0",
-]
-
-[project.optional-dependencies]
-quantization = [
     "bitsandbytes>=0.41.0; platform_system=='Linux'",
 ]
 

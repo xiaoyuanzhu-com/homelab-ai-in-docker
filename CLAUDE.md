@@ -28,12 +28,9 @@ uv venv
 source .venv/bin/activate
 uv pip install -e .
 crawl4ai-setup  # Installs Playwright browsers
-
-# Optional: For quantized models (Linux only)
-uv pip install -e ".[quantization]"
 ```
 
-**Note**: Quantized models (4-bit/8-bit) require `bitsandbytes`, which only works on Linux. On macOS/Windows, these models will show an error message indicating platform incompatibility.
+**Note**: Quantized models (4-bit/8-bit) require `bitsandbytes`, which installs automatically on Linux. On macOS/Windows, the package is skipped and quantized models will show a platform incompatibility message.
 
 ## Running the Application
 
