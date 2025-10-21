@@ -151,7 +151,7 @@
       "parameters_m": 1200,
       "gpu_memory_mb": 3072,
       "link": "https://huggingface.co/opendatalab/MinerU2.5-2509-1.2B",
-      "platform_requirements": "Requires transformers >= 4.56.0"
+      "platform_requirements": "Works with transformers >= 4.46.3 (use torch_dtype for versions < 4.56.0)"
     },
     {
       "id": "deepseek-ai/DeepSeek-OCR",
@@ -164,7 +164,7 @@
       "parameters_m": 3000,
       "gpu_memory_mb": 8192,
       "link": "https://huggingface.co/deepseek-ai/DeepSeek-OCR",
-      "platform_requirements": "Requires transformers >= 4.46.3. Optional: flash-attn for GPU acceleration"
+      "platform_requirements": "Requires transformers==4.46.3, tokenizers==0.20.3. Optional: flash-attn==2.7.3 for GPU acceleration"
     },
     {
       "id": "ibm-granite/granite-docling-258M",
