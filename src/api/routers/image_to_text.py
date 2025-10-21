@@ -299,8 +299,17 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
         # Decode output
         caption = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
 
-        # Clean up caption (remove prompt if it was echoed back)
-        if prompt and caption.startswith(prompt):
+        # Clean up caption (remove prompt/conversation formatting if echoed back)
+        # LLaVA models are trained with conversation format: "USER: ... ASSISTANT: ..."
+        # This is part of LLaVA's training data format, not our invention
+        # The model outputs the full conversation, so we extract only the ASSISTANT's response
+        if "ASSISTANT:" in caption:
+            # Extract everything after the last "ASSISTANT:" marker
+            # Example: "USER: <image>\nDescribe...\nASSISTANT: The image shows..."
+            #       -> "The image shows..."
+            caption = caption.split("ASSISTANT:")[-1].strip()
+        elif prompt and caption.startswith(prompt):
+            # For non-conversational models (BLIP, BLIP2), remove echoed prompt
             caption = caption[len(prompt):].strip()
 
         processing_time_ms = int((time.time() - start_time) * 1000)
