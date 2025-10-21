@@ -122,8 +122,8 @@ const TASK_CATEGORIES: TaskCategory[] = [
     title: "Image",
     tasks: [
       {
-        id: "image-to-text",
-        title: "Image to Text",
+        id: "image-captioning",
+        title: "Image Captioning",
         description: "Generate text descriptions from images",
         icon: <ImageIcon className="h-5 w-5" />,
         href: "/image-to-text",
