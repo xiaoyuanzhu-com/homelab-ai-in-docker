@@ -130,8 +130,10 @@ def check_and_cleanup_idle_model():
             f"Image captioning model '{_current_model_name}' idle for {idle_duration:.1f}s "
             f"(timeout: {idle_timeout}s), unloading from GPU..."
         )
+        # Preserve name for accurate post-cleanup logging
+        unloaded_name = _current_model_name
         cleanup()
-        logger.info(f"Image captioning model '{_current_model_name}' unloaded from GPU")
+        logger.info(f"Image captioning model '{unloaded_name}' unloaded from GPU")
 
 
 def get_model(model_name: str):
@@ -347,8 +349,15 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
             else:
                 inputs = processor(images=image, return_tensors="pt")
 
-            device = next(model.parameters()).device
-            inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+            # When a model is dispatched with Accelerate (device_map="auto"),
+            # different submodules can live on different devices (CPU/GPU).
+            # In that case, inputs should generally remain on CPU and the
+            # dispatch hooks will move them to the correct device internally.
+            # Only move inputs to a single device when the model is on one.
+            hf_device_map = getattr(model, "hf_device_map", None) or getattr(model, "device_map", None)
+            if not hf_device_map:
+                model_device = next(model.parameters()).device
+                inputs = {k: v.to(model_device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
 
             with torch.no_grad():
                 output_ids = model.generate(**inputs, max_new_tokens=150)
