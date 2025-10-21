@@ -130,6 +130,14 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
+        id: "image-ocr",
+        title: "Image OCR",
+        description: "Extract text from images",
+        icon: <FileText className="h-5 w-5" />,
+        href: "/image-ocr",
+        available: true
+      },
+      {
         id: "image-classification",
         title: "Image Classification",
         description: "Assign labels to images",
