@@ -90,17 +90,33 @@ class OCRInferenceEngine:
             from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
             from mineru_vl_utils import MinerUClient
             import torch
+            from pathlib import Path
 
             logger.info(f"Loading MinerU2.5 model '{self.model_id}'...")
 
+            # Check if model is already downloaded locally via hfd
+            from ...config import get_data_dir
+            local_model_dir = get_data_dir() / "models" / self.model_id
+
+            # Determine which path to use for loading
+            if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+                model_path = str(local_model_dir)
+                logger.info(f"Using locally downloaded model from {model_path}")
+                extra_kwargs = {"local_files_only": True}
+            else:
+                model_path = self.model_id
+                logger.info(f"Model not found locally, will download from HuggingFace: {self.model_id}")
+                extra_kwargs = {}
+
             # Load model with auto device mapping
             model = Qwen2VLForConditionalGeneration.from_pretrained(
-                self.model_id,
+                model_path,
                 torch_dtype=torch.bfloat16,
                 device_map="auto",
+                **extra_kwargs,
             )
 
-            processor = AutoProcessor.from_pretrained(self.model_id, use_fast=True)
+            processor = AutoProcessor.from_pretrained(model_path, use_fast=True, **extra_kwargs)
 
             # Initialize MinerU client
             self.model = MinerUClient(
@@ -123,8 +139,24 @@ class OCRInferenceEngine:
         try:
             from transformers import AutoModel, AutoProcessor
             import torch
+            from pathlib import Path
 
             logger.info(f"Loading DeepSeek-OCR model '{self.model_id}'...")
+
+            # Check if model is already downloaded locally via hfd
+            from ...config import get_data_dir
+            local_model_dir = get_data_dir() / "models" / self.model_id
+
+            # Determine which path to use for loading
+            if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+                model_path = str(local_model_dir)
+                logger.info(f"Using locally downloaded model from {model_path}")
+                # Use local_files_only to prevent re-downloading
+                extra_kwargs = {"local_files_only": True}
+            else:
+                model_path = self.model_id
+                logger.info(f"Model not found locally, will download from HuggingFace: {self.model_id}")
+                extra_kwargs = {}
 
             # Try to use flash attention if available, fallback to sdpa
             attn_implementation = "sdpa"  # Default safe option
@@ -140,16 +172,18 @@ class OCRInferenceEngine:
 
             # Load model with best available attention implementation
             self.model = AutoModel.from_pretrained(
-                self.model_id,
+                model_path,
                 torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
                 device_map="auto",
                 attn_implementation=attn_implementation,
                 trust_remote_code=True,
+                **extra_kwargs,
             )
 
             self.processor = AutoProcessor.from_pretrained(
-                self.model_id,
+                model_path,
                 trust_remote_code=True,
+                **extra_kwargs,
             )
 
             logger.info(f"DeepSeek-OCR model loaded successfully with {attn_implementation}")
@@ -176,8 +210,23 @@ class OCRInferenceEngine:
         try:
             from transformers import AutoProcessor, AutoModelForVision2Seq
             import torch
+            from pathlib import Path
 
             logger.info(f"Loading Granite Docling model '{self.model_id}'...")
+
+            # Check if model is already downloaded locally via hfd
+            from ...config import get_data_dir
+            local_model_dir = get_data_dir() / "models" / self.model_id
+
+            # Determine which path to use for loading
+            if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+                model_path = str(local_model_dir)
+                logger.info(f"Using locally downloaded model from {model_path}")
+                extra_kwargs = {"local_files_only": True}
+            else:
+                model_path = self.model_id
+                logger.info(f"Model not found locally, will download from HuggingFace: {self.model_id}")
+                extra_kwargs = {}
 
             # Determine device and attention implementation
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -195,14 +244,15 @@ class OCRInferenceEngine:
                 logger.info("Using sdpa attention for Granite Docling on CPU")
 
             # Load processor
-            self.processor = AutoProcessor.from_pretrained(self.model_id)
+            self.processor = AutoProcessor.from_pretrained(model_path, **extra_kwargs)
 
             # Load model with appropriate settings
             self.model = AutoModelForVision2Seq.from_pretrained(
-                self.model_id,
+                model_path,
                 torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
                 _attn_implementation=attn_impl,
                 device_map="auto" if device == "cuda" else None,
+                **extra_kwargs,
             )
 
             # Move to device if CPU
