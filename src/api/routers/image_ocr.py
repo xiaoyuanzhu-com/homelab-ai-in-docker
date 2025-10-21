@@ -300,20 +300,24 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
 
-        # Log to history
-        history_storage.add_request(
-            service="image-ocr",
-            model=request.model,
-            processing_time_ms=processing_time_ms,
-            request_id=request_id,
-        )
-
-        return OCRResponse(
+        # Create response
+        response = OCRResponse(
             request_id=request_id,
             processing_time_ms=processing_time_ms,
             text=final_text,
             model=request.model,
         )
+
+        # Log to history
+        history_storage.add_request(
+            service="image-ocr",
+            request_id=request_id,
+            request_data={"model": request.model},  # Exclude image
+            response_data=response.model_dump(),
+            status="success",
+        )
+
+        return response
 
     except ValueError as e:
         error_msg = str(e)
