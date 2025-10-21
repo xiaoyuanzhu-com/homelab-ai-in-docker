@@ -49,6 +49,16 @@
       "parameters_m": 600,
       "gpu_memory_mb": 1536,
       "link": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B"
+    },
+    {
+      "id": "jinaai/jina-embeddings-v3",
+      "name": "jina-embeddings-v3",
+      "team": "jinaai",
+      "task": "feature-extraction",
+      "size_mb": 1150,
+      "parameters_m": 570,
+      "gpu_memory_mb": 1536,
+      "link": "https://huggingface.co/jinaai/jina-embeddings-v3"
     }
   ],
   "image-captioning": [
