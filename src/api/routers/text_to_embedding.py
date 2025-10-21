@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from sentence_transformers import SentenceTransformer
+import torch
 
 from ..models.text_to_embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
@@ -19,6 +20,25 @@ router = APIRouter(prefix="/api", tags=["text-to-embedding"])
 # Global model cache
 _model_cache: Optional[SentenceTransformer] = None
 _current_model_name: str = "all-MiniLM-L6-v2"
+_last_access_time: Optional[float] = None
+
+
+def check_and_cleanup_idle_model():
+    """Check if model has been idle too long and cleanup if needed."""
+    global _model_cache, _last_access_time
+
+    if _model_cache is None or _last_access_time is None:
+        return
+
+    # Get idle timeout from settings
+    from ...db.settings import get_setting_int
+    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
+
+    # Check if model has been idle too long
+    idle_duration = time.time() - _last_access_time
+    if idle_duration >= idle_timeout:
+        logger.info(f"Embedding model idle for {idle_duration:.1f}s (timeout: {idle_timeout}s), cleaning up...")
+        cleanup()
 
 
 def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
@@ -34,7 +54,10 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
     Raises:
         HTTPException: If model not found or not downloaded
     """
-    global _model_cache, _current_model_name
+    global _model_cache, _current_model_name, _last_access_time
+
+    # Check if current model should be cleaned up due to idle timeout
+    check_and_cleanup_idle_model()
 
     target_model = model_name or _current_model_name
 
@@ -58,16 +81,42 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
         _model_cache = SentenceTransformer(str(model_dir))
         _current_model_name = target_model
 
+    # Update last access time
+    _last_access_time = time.time()
+
     return _model_cache
 
 
 def cleanup():
-    """Release model resources on shutdown."""
-    global _model_cache, _current_model_name
+    """
+    Release model resources immediately.
+    Forces GPU memory cleanup to free resources for other services.
+    """
+    global _model_cache, _current_model_name, _last_access_time
+
     if _model_cache is not None:
+        # Move model to CPU first (helps with cleanup)
+        try:
+            if hasattr(_model_cache, 'cpu'):
+                _model_cache.cpu()
+        except Exception as e:
+            logger.warning(f"Error moving embedding model to CPU during cleanup: {e}")
+
+        # Remove reference
         del _model_cache
         _model_cache = None
+
     _current_model_name = "all-MiniLM-L6-v2"
+    _last_access_time = None
+
+    # Force GPU memory release
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()  # Wait for GPU operations to finish
+            logger.info("GPU memory released for embedding model")
+    except Exception as e:
+        logger.warning(f"Error releasing GPU memory: {e}")
 
 
 @router.post("/text-to-embedding", response_model=EmbeddingResponse)

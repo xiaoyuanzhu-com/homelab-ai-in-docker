@@ -43,6 +43,7 @@ _model_cache: Optional[Any] = None
 _processor_cache: Optional[Any] = None
 _current_model_name: str = ""
 _current_model_config: Optional[Dict[str, Any]] = None
+_last_access_time: Optional[float] = None
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -110,6 +111,24 @@ def validate_model(model_name: str) -> None:
         )
 
 
+def check_and_cleanup_idle_model():
+    """Check if model has been idle too long and cleanup if needed."""
+    global _model_cache, _last_access_time
+
+    if _model_cache is None or _last_access_time is None:
+        return
+
+    # Get idle timeout from settings
+    from ...db.settings import get_setting_int
+    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
+
+    # Check if model has been idle too long
+    idle_duration = time.time() - _last_access_time
+    if idle_duration >= idle_timeout:
+        logger.info(f"Model idle for {idle_duration:.1f}s (timeout: {idle_timeout}s), cleaning up...")
+        cleanup()
+
+
 def get_model(model_name: str):
     """
     Get or load the image captioning model using Auto classes.
@@ -124,7 +143,10 @@ def get_model(model_name: str):
     Raises:
         ValueError: If model is not supported
     """
-    global _model_cache, _processor_cache, _current_model_name, _current_model_config
+    global _model_cache, _processor_cache, _current_model_name, _current_model_config, _last_access_time
+
+    # Check if current model should be cleaned up due to idle timeout
+    check_and_cleanup_idle_model()
 
     # Validate model is supported and get config
     validate_model(model_name)
@@ -209,20 +231,47 @@ def get_model(model_name: str):
             logger.error(error_msg, exc_info=True)
             raise RuntimeError(error_msg)
 
+    # Update last access time
+    _last_access_time = time.time()
+
     return _processor_cache, _model_cache, _current_model_config
 
 
 def cleanup():
-    """Release model and processor resources on shutdown."""
-    global _model_cache, _processor_cache, _current_model_name, _current_model_config
+    """
+    Release model and processor resources immediately.
+    Forces GPU memory cleanup to free resources for other services.
+    """
+    global _model_cache, _processor_cache, _current_model_name, _current_model_config, _last_access_time
+
     if _model_cache is not None:
+        # Move model to CPU first (helps with cleanup)
+        try:
+            if hasattr(_model_cache, 'cpu'):
+                _model_cache.cpu()
+        except Exception as e:
+            logger.warning(f"Error moving model to CPU during cleanup: {e}")
+
+        # Remove reference
         del _model_cache
         _model_cache = None
+
     if _processor_cache is not None:
         del _processor_cache
         _processor_cache = None
+
     _current_model_name = ""
     _current_model_config = None
+    _last_access_time = None
+
+    # Force GPU memory release
+    try:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()  # Wait for GPU operations to finish
+            logger.info("GPU memory released for image captioning model")
+    except Exception as e:
+        logger.warning(f"Error releasing GPU memory: {e}")
 
 
 def decode_image(image_data: str) -> Image.Image:

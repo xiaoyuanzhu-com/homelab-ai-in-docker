@@ -47,13 +47,17 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up application...")
 
-    # Initialize database schema (models, history, and download_logs tables in haid.db)
+    # Initialize database schema (models, history, download_logs, and settings tables in haid.db)
     logger.info("Initializing database...")
     init_db()
 
     # Initialize download logs table
     from src.db.download_logs import init_download_logs_table
     init_download_logs_table()
+
+    # Initialize settings table
+    from src.db.settings import init_settings_table
+    init_settings_table()
 
     # Initialize history storage (creates request_history table)
     from src.storage.history import history_storage
