@@ -45,11 +45,11 @@ const TASK_CATEGORIES: TaskCategory[] = [
     title: "Text",
     tasks: [
       {
-        id: "feature-extraction",
+        id: "embedding",
         title: "Feature Extraction",
         description: "Extract embeddings from text",
         icon: <Type className="h-5 w-5" />,
-        href: "/feature-extraction",
+        href: "/embedding",
         available: true
       },
       {
@@ -126,7 +126,7 @@ const TASK_CATEGORIES: TaskCategory[] = [
         title: "Image Captioning",
         description: "Generate text descriptions from images",
         icon: <ImageIcon className="h-5 w-5" />,
-        href: "/image-to-text",
+        href: "/image-captioning",
         available: true
       },
       {
