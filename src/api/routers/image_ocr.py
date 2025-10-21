@@ -156,18 +156,16 @@ def get_model(model_name: str):
             lang = model_config.get("language", "en")
 
             # Initialize PaddleOCR
-            # Try to use GPU if available, fall back to CPU
+            # PaddleOCR 3.x uses 'device' parameter instead of 'use_gpu'
             import torch
-            use_gpu = torch.cuda.is_available()
+            device = "gpu:0" if torch.cuda.is_available() else "cpu"
 
             _model_cache = PaddleOCR(
-                use_angle_cls=True,
                 lang=lang,
-                use_gpu=use_gpu,
-                show_log=False
+                device=device
             )
 
-            logger.info(f"PaddleOCR initialized with {'GPU' if use_gpu else 'CPU'}")
+            logger.info(f"PaddleOCR initialized with device: {device}")
 
             logger.info(f"OCR model '{model_name}' loaded successfully")
 
@@ -279,16 +277,17 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
 
         try:
             # Perform OCR
-            result = model.ocr(tmp_path, cls=True)
+            # PaddleOCR 3.x: ocr() is an alias for predict(), no cls parameter needed
+            result = model.predict(tmp_path)
 
-            # Parse results - PaddleOCR returns list of detected text regions
-            # Format: [[[[x1,y1],[x2,y2],[x3,y3],[x4,y4]], (text, confidence)], ...]
+            # Parse results - PaddleOCR 3.x returns list of dicts with 'rec_texts' field
+            # Format: [{'rec_texts': ['text1', 'text2', ...], 'rec_scores': [0.95, 0.89, ...], ...}]
             extracted_text = []
-            if result and result[0]:
-                for line in result[0]:
-                    if len(line) >= 2:
-                        text = line[1][0]  # Get text from (text, confidence) tuple
-                        extracted_text.append(text)
+            if result and len(result) > 0:
+                # Get the first result (single image)
+                page_result = result[0]
+                if 'rec_texts' in page_result:
+                    extracted_text = page_result['rec_texts']
 
             # Join all detected text with newlines
             final_text = "\n".join(extracted_text) if extracted_text else ""

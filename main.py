@@ -158,7 +158,7 @@ async def lifespan(app: FastAPI):
         pass
 
     # Clean up ML model resources
-    from src.api.routers import text_to_embedding, image_to_text
+    from src.api.routers import text_to_embedding, image_captioning, image_ocr
 
     try:
         logger.info("Releasing text embedding model resources...")
