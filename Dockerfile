@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y \
     git \
     aria2 \
     wget \
+    ccache \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster Python package management
