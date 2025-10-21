@@ -44,7 +44,3 @@ packages = ["src"]
 
 [tool.setuptools.package-data]
 "src.api.models" = ["*.json"]
-
-# Ensure uv provides torch in the build environment for flash-attn when building from sdist
-[tool.uv.extra-build-dependencies]
-flash-attn = ["torch"]
