@@ -343,23 +343,19 @@ class OCRInferenceEngine:
         """Run DeepSeek-OCR prediction."""
         import torch
 
-        # DeepSeek-OCR requires special prompt for markdown
+        # DeepSeek-OCR requires a text prompt (processor doesn't support images-only)
         if self.output_format == "markdown":
             # Use grounding prompt for structured markdown output
             prompt = "<|grounding|>Convert the document to markdown."
             logger.info("Using markdown grounding prompt for DeepSeek-OCR")
         else:
-            # Standard text extraction
-            prompt = None
+            # Standard text extraction - use empty prompt or simple instruction
+            prompt = "Extract all text from this image."
+            logger.info("Using text extraction prompt for DeepSeek-OCR")
 
         try:
-            # DeepSeek-OCR inference
-            if prompt:
-                # Process with text prompt
-                inputs = self.processor(text=prompt, images=image, return_tensors="pt")
-            else:
-                # Process image only
-                inputs = self.processor(images=image, return_tensors="pt")
+            # DeepSeek-OCR inference - always requires text parameter
+            inputs = self.processor(text=prompt, images=image, return_tensors="pt")
 
             # Move inputs to same device as model
             device = next(self.model.parameters()).device
