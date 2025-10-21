@@ -91,6 +91,20 @@
       "link": "https://huggingface.co/unsloth/llava-1.5-7b-hf-bnb-4bit",
       "platform_requirements": "Linux only (requires bitsandbytes)",
       "requires_quantization": true
+    },
+    {
+      "id": "unsloth/llava-v1.6-mistral-7b-hf-bnb-4bit",
+      "name": "llava-v1.6-mistral-7b-hf-bnb-4bit",
+      "team": "unsloth",
+      "task": "Image to Text",
+      "architecture": "llava",
+      "default_prompt": "USER: <image>\nDescribe this image in detail.\nASSISTANT:",
+      "size_mb": 4500,
+      "parameters_m": 7000,
+      "gpu_memory_mb": 4096,
+      "link": "https://huggingface.co/unsloth/llava-v1.6-mistral-7b-hf-bnb-4bit",
+      "platform_requirements": "Linux only (requires bitsandbytes)",
+      "requires_quantization": true
     }
   ]
 }
