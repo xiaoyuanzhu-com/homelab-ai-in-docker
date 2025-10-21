@@ -9,7 +9,7 @@ services:
       - ./data:/haid/data
     environment:
       - PYTHONUNBUFFERED=1
-      - PADDLEX_HOME=/haid/data/paddlex
+      - PADDLE_PDX_CACHE_HOME=/haid/data/paddlex
       # Optional: Set default remote Chrome URL (e.g., http://172.16.2.2:9223)
       # - CHROME_CDP_URL=http://172.16.2.2:9223
     deploy:
