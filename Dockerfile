@@ -55,8 +55,11 @@ COPY src/ ./src/
 # Copy built UI from builder stage
 COPY --from=ui-builder /ui/dist ./ui/dist
 
-# Create data directories for model cache, crawl4ai, and playwright
-RUN mkdir -p /haid/data/embedding /haid/data/image-caption /haid/data/crawl4ai /haid/data/playwright
+# Create data directories for model cache, crawl4ai, playwright, and paddlex
+RUN mkdir -p /haid/data/embedding /haid/data/image-caption /haid/data/crawl4ai /haid/data/playwright /haid/data/paddlex
+
+# Set PaddleX home directory to persist OCR models
+ENV PADDLEX_HOME=/haid/data/paddlex
 
 # Expose port
 EXPOSE 8000
