@@ -26,6 +26,7 @@ dependencies = [
     "docling-core>=2.0.0",
     "addict>=2.4.0",
     "matplotlib>=3.7.0",
+    "easydict>=1.9",
 ]
 
 [project.optional-dependencies]
