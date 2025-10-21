@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import logging
 import os
 import time
 import uuid
@@ -13,6 +14,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig
 from ..models.crawl import CrawlRequest, CrawlResponse, ErrorResponse
 from ...storage.history import history_storage
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["crawl"])
 
@@ -89,6 +91,8 @@ async def crawl_url(
                 "success": result.success,
             }
     except Exception as e:
+        error_msg = f"Failed to crawl URL {url}: {str(e)}"
+        logger.error(error_msg, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
@@ -161,11 +165,13 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
     except HTTPException:
         raise
     except Exception as e:
+        error_msg = f"Unexpected error during crawl: {str(e)}"
+        logger.error(f"Crawl failed for request {request_id}: {error_msg}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
                 "code": "CRAWL_FAILED",
-                "message": f"Unexpected error during crawl: {str(e)}",
+                "message": error_msg,
                 "request_id": request_id,
             },
         )

@@ -3,6 +3,7 @@
 import base64
 import io
 import json
+import logging
 import os
 import platform
 import time
@@ -25,6 +26,8 @@ import torch
 from ..models.image_to_text import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
 from ...config import get_model_cache_dir
+
+logger = logging.getLogger(__name__)
 
 # Check if bitsandbytes is available (Linux only)
 try:
@@ -215,7 +218,9 @@ def get_model(model_name: str):
                 )
 
         except Exception as e:
-            raise RuntimeError(f"Failed to load model '{model_name}': {str(e)}")
+            error_msg = f"Failed to load model '{model_name}': {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            raise RuntimeError(error_msg)
 
     return _processor_cache, _model_cache, _current_model_config
 
@@ -338,8 +343,10 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
         # Distinguish between image and model errors
         if "Model" in error_msg or "model" in error_msg:
             code = "INVALID_MODEL"
+            logger.warning(f"Model error for request {request_id}: {error_msg}")
         else:
             code = "INVALID_IMAGE"
+            logger.warning(f"Image decode error for request {request_id}: {error_msg}")
 
         raise HTTPException(
             status_code=400,
@@ -350,11 +357,13 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
             },
         )
     except Exception as e:
+        error_msg = f"Failed to generate caption: {str(e)}"
+        logger.error(f"Caption failed for request {request_id}: {error_msg}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
                 "code": "CAPTION_FAILED",
-                "message": f"Failed to generate caption: {str(e)}",
+                "message": error_msg,
                 "request_id": request_id,
             },
         )

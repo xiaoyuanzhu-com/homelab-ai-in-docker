@@ -1,5 +1,6 @@
 """Text to embedding API router for text vectorization."""
 
+import logging
 import time
 import uuid
 from typing import Optional
@@ -11,6 +12,7 @@ from ..models.text_to_embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
 from ...config import get_data_dir
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["text-to-embedding"])
 
@@ -126,11 +128,13 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
         return response
 
     except Exception as e:
+        error_msg = f"Failed to generate embeddings: {str(e)}"
+        logger.error(f"Embedding failed for request {request_id}: {error_msg}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail={
                 "code": "EMBEDDING_FAILED",
-                "message": f"Failed to generate embeddings: {str(e)}",
+                "message": error_msg,
                 "request_id": request_id,
             },
         )
