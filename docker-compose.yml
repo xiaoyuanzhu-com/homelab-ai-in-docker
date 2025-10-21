@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     container_name: homelab-ai-in-docker
     ports:
-      - "8000:8000"
+      - "12310:12310"
     volumes:
       - ./data:/haid/data
     environment:

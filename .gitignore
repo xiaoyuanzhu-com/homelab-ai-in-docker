@@ -11,3 +11,6 @@ wheels/
 
 # Model data cache and history database
 data/
+
+# Local run script
+run.sh

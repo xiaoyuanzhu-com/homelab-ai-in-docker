@@ -62,11 +62,11 @@ RUN mkdir -p /haid/data/embedding /haid/data/image-caption /haid/data/crawl4ai /
 ENV PADDLE_PDX_CACHE_HOME=/haid/data/paddlex
 
 # Expose port
-EXPOSE 8000
+EXPOSE 12310
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+    CMD curl -f http://localhost:12310/api/health || exit 1
 
 # Add entrypoint for best-effort GPU accel setup (flash-attn)
 COPY docker/entrypoint.sh /entrypoint.sh
