@@ -3,6 +3,8 @@
 import base64
 import io
 import logging
+import os
+import signal
 import time
 import uuid
 from typing import Optional, Dict, Any
@@ -25,6 +27,42 @@ _current_model_name: str = ""
 _current_language: str = ""
 _current_model_config: Optional[Dict[str, Any]] = None
 _last_access_time: Optional[float] = None
+
+
+# Ensure Paddle's SIGTERM handler (which logs a FatalError message) doesn't
+# pollute shutdown logs when the dev reloader sends SIGTERM. We forward
+# SIGTERM to SIGINT so Uvicorn performs its normal graceful shutdown.
+_sigterm_forwarder_installed = False
+
+
+def _install_sigterm_forwarder():
+    global _sigterm_forwarder_installed
+    if _sigterm_forwarder_installed:
+        return
+
+    def _on_sigterm(signum, frame):  # type: ignore[override]
+        try:
+            # Restore default for SIGTERM to avoid recursion
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        except Exception:
+            pass
+        try:
+            logger.info("Received SIGTERM; forwarding as SIGINT for clean shutdown")
+        except Exception:
+            pass
+        # Send SIGINT to current process so Uvicorn handles graceful shutdown
+        try:
+            os.kill(os.getpid(), signal.SIGINT)
+        except Exception:
+            # Fallback: exit immediately
+            raise SystemExit(0)
+
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+        _sigterm_forwarder_installed = True
+    except Exception:
+        # Best-effort; continue without failing OCR if we cannot set handler
+        _sigterm_forwarder_installed = False
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -156,6 +194,10 @@ def get_model(model_name: str, language: Optional[str] = None):
         # Load PaddleOCR model
         try:
             from paddleocr import PaddleOCR
+
+            # Forward SIGTERM to SIGINT after Paddle is imported to avoid
+            # Paddle's FatalError log on normal shutdown under reloaders.
+            _install_sigterm_forwarder()
 
             logger.info(f"Loading OCR model '{model_name}' with language='{lang}'...")
 
