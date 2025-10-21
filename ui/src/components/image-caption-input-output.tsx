@@ -15,7 +15,7 @@ import { AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 interface CaptionResult {
   request_id: string;
   caption: string;
-  model_used: string;
+  model: string;
   processing_time_ms: number;
 }
 
@@ -242,7 +242,7 @@ export function ImageCaptionInputOutput({
 
               <div>
                 <Label>Model</Label>
-                <p className="text-sm mt-1 font-mono">{result.model_used}</p>
+                <p className="text-sm mt-1 font-mono">{result.model}</p>
               </div>
 
               <div>

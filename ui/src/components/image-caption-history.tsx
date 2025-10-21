@@ -20,7 +20,7 @@ interface HistoryEntry {
 interface CaptionResult {
   request_id: string;
   caption: string;
-  model_used: string;
+  model: string;
   processing_time_ms: number;
 }
 
@@ -71,9 +71,9 @@ export function ImageCaptionHistory() {
         ? {
             request_id: entry.request_id,
             caption: entry.response.caption as string,
-            model_used:
-              typeof entry.response.model_used === "string"
-                ? entry.response.model_used
+            model:
+              typeof entry.response.model === "string"
+                ? entry.response.model
                 : "",
             processing_time_ms:
               typeof entry.response.processing_time_ms === "number"
