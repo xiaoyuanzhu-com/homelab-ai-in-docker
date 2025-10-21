@@ -19,6 +19,8 @@ dependencies = [
     "gputil>=1.4.0",
     "accelerate>=0.20.0",
     "bitsandbytes>=0.41.0; platform_system=='Linux'",
+    "paddlepaddle>=3.0.0",
+    "paddleocr>=3.0.0",
 ]
 
 [tool.setuptools]

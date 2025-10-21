@@ -146,11 +146,39 @@ def get_model(model_name: str):
         _current_model_config = model_config
 
     if _model_cache is None:
-        # TODO: Implement PaddleOCR model loading
-        raise NotImplementedError(
-            "PaddleOCR model support is coming soon. "
-            "This endpoint is currently under development."
-        )
+        # Load PaddleOCR model
+        try:
+            from paddleocr import PaddleOCR
+
+            logger.info(f"Loading OCR model '{model_name}'...")
+
+            # Determine language from model config or use default
+            lang = model_config.get("language", "en")
+
+            # Initialize PaddleOCR
+            # Try to use GPU if available, fall back to CPU
+            import torch
+            use_gpu = torch.cuda.is_available()
+
+            _model_cache = PaddleOCR(
+                use_angle_cls=True,
+                lang=lang,
+                use_gpu=use_gpu,
+                show_log=False
+            )
+
+            logger.info(f"PaddleOCR initialized with {'GPU' if use_gpu else 'CPU'}")
+
+            logger.info(f"OCR model '{model_name}' loaded successfully")
+
+        except ImportError:
+            raise RuntimeError(
+                "PaddleOCR is not installed. Please install it with: "
+                "pip install paddlepaddle-gpu paddleocr"
+            )
+        except Exception as e:
+            logger.error(f"Failed to load OCR model '{model_name}': {e}", exc_info=True)
+            raise RuntimeError(f"Failed to load OCR model: {str(e)}")
 
     # Update last access time
     _last_access_time = time.time()
@@ -241,11 +269,51 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
         # Load model and get config
         model, model_config = get_model(request.model)
 
-        # TODO: Implement OCR inference with PaddleOCR
-        # For now, return a placeholder response
-        raise NotImplementedError(
-            "OCR functionality is under development. "
-            "PaddleOCR integration coming soon."
+        # Save image temporarily for PaddleOCR (it expects file path)
+        import tempfile
+        import os
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
+            image.save(tmp_file.name)
+            tmp_path = tmp_file.name
+
+        try:
+            # Perform OCR
+            result = model.ocr(tmp_path, cls=True)
+
+            # Parse results - PaddleOCR returns list of detected text regions
+            # Format: [[[[x1,y1],[x2,y2],[x3,y3],[x4,y4]], (text, confidence)], ...]
+            extracted_text = []
+            if result and result[0]:
+                for line in result[0]:
+                    if len(line) >= 2:
+                        text = line[1][0]  # Get text from (text, confidence) tuple
+                        extracted_text.append(text)
+
+            # Join all detected text with newlines
+            final_text = "\n".join(extracted_text) if extracted_text else ""
+
+        finally:
+            # Clean up temp file
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+        # Calculate processing time
+        processing_time_ms = int((time.time() - start_time) * 1000)
+
+        # Log to history
+        history_storage.add_request(
+            service="image-ocr",
+            model=request.model,
+            processing_time_ms=processing_time_ms,
+            request_id=request_id,
+        )
+
+        return OCRResponse(
+            request_id=request_id,
+            processing_time_ms=processing_time_ms,
+            text=final_text,
+            model=request.model,
         )
 
     except ValueError as e:
