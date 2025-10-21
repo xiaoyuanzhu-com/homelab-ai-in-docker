@@ -1,4 +1,5 @@
 import { siGithub, siDiscord } from 'simple-icons';
+import { ThemeSwitcher } from './theme-switcher';
 
 export function Footer() {
   return (
@@ -55,6 +56,8 @@ export function Footer() {
             <path d={siDiscord.path} />
           </svg>
         </a>
+
+        <ThemeSwitcher />
       </div>
     </footer>
   );
