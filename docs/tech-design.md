@@ -238,6 +238,45 @@ services:
 - Particularly useful for embeddings (deterministic)
 
 ### Async Job Queue (Future)
+
+## OCR Inference Isolation
+
+Overview
+- Each OCR model runs in its own worker process. A worker loads a single model and serves requests over a local HTTP endpoint.
+- After a period of inactivity (idle timeout), the worker exits. Process exit fully releases the CUDA context and GPU memory.
+
+Motivation
+- Reliable GPU memory release: terminating a process frees CUDA contexts; in‑process unloads can leave allocator fragments.
+- Fault isolation: a misbehaving model or library cannot crash the main API process.
+- Predictable lifecycle: workers are spawned on demand and self‑terminate when idle.
+
+Runtime Flow
+- Router (manager): the FastAPI router spawns and tracks a per‑model worker using `src/worker/manager.py`.
+  - On each request, the manager ensures a worker is running for the requested model and forwards the image to it.
+  - After the request, it updates `last_active` and schedules a shutdown task that will terminate the worker if no further requests arrive before the timeout.
+- Worker: `src/worker/image_ocr_worker.py` loads the model with `OCRInferenceEngine` and exposes endpoints:
+  - `GET /healthz` – readiness/health check.
+  - `POST /infer` – accepts base64 image and returns extracted text.
+  - `POST /shutdown` – graceful shutdown endpoint (used by the manager).
+  - The worker also has its own idle watchdog; if no requests arrive before the timeout, it cleans up and exits.
+
+Idle Timeout / Short‑Lived Cache
+- Default timeout is 5 seconds (DB setting `model_idle_timeout_seconds`).
+- Effect: the most recently used model remains warm for 5s. Sequential requests (e.g., a batch of 100 images) reuse the same worker and avoid reload cost, provided inter‑request gaps are under the timeout.
+- After the timeout, the worker exits and frees GPU memory.
+- Note: workers receive the timeout at spawn; changing the setting applies to newly spawned workers. The manager also schedules shutdown using the current setting on each request.
+
+Components
+- Router changes: `src/api/routers/image_ocr.py` routes OCR requests via the worker manager exclusively.
+- Manager: `src/worker/manager.py` (spawns, routes, and schedules shutdowns).
+- Worker: `src/worker/image_ocr_worker.py` (serves a single model in a separate process).
+- Shared engine: `src/inference/ocr.py` (unified inference; includes robust cleanup helpers).
+
+Operational Notes
+- Ports: manager assigns a free localhost port per worker. Workers bind to `127.0.0.1` only.
+- Termination: manager first requests `/shutdown`, then sends SIGTERM, and finally SIGKILL if needed.
+- GPU assignment: future enhancement could set `CUDA_VISIBLE_DEVICES` per worker if multiple GPUs are present.
+- Logs: workers inherit parent environment; set `PYTHONUNBUFFERED=1` for timely logs.
 - RQ or Celery for long-running tasks
 - Return job ID immediately, poll for results
 - Useful for large batch operations or browser crawls

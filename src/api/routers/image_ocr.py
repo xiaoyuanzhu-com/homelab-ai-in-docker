@@ -15,20 +15,20 @@ from PIL import Image
 
 from ..models.image_ocr import OCRRequest, OCRResponse
 from ...storage.history import history_storage
-from ...config import get_model_cache_dir
 from ...db.models import get_model as get_model_from_db, get_all_models
-from ...inference.ocr import OCRInferenceEngine
+from ...worker.manager import manager as ocr_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["image-ocr"])
 
-# Global model cache
-_model_cache: Optional[OCRInferenceEngine] = None
+# Global model cache (unused in isolated mode; kept for compatibility)
+_model_cache: Optional[Any] = None
 _current_model_name: str = ""
 _current_language: str = ""
 _current_model_config: Optional[Dict[str, Any]] = None
 _last_access_time: Optional[float] = None
+_idle_cleanup_task: Optional[asyncio.Task] = None
 
 
 # Ensure Paddle's SIGTERM handler (which logs a FatalError message) doesn't
@@ -152,6 +152,58 @@ def check_and_cleanup_idle_model():
         )
         cleanup()
         logger.info(f"OCR model '{_current_model_name}' unloaded from GPU")
+
+
+def schedule_idle_cleanup() -> None:
+    """Schedule a background task that will cleanup the model after idle timeout.
+
+    This ensures cleanup happens even if no further requests arrive.
+    """
+    global _idle_cleanup_task
+
+    # Attempt to get the running loop; if not available, skip scheduling
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    # Fetch timeout each time so changes to settings apply dynamically
+    from ...db.settings import get_setting_int
+    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
+
+    # Cancel any pending watchdog
+    if _idle_cleanup_task and not _idle_cleanup_task.done():
+        _idle_cleanup_task.cancel()
+
+    async def _watchdog(start_time: float, timeout_s: int):
+        try:
+            # Sleep for the configured timeout, then verify we are still idle
+            await asyncio.sleep(timeout_s)
+            # Double-check idle state to avoid races with new activity
+            if _last_access_time is None:
+                return
+            idle_duration = time.time() - _last_access_time
+            if idle_duration >= timeout_s and _model_cache is not None:
+                logger.info(
+                    f"OCR model '{_current_model_name}' idle for {idle_duration:.1f}s "
+                    f"(timeout: {timeout_s}s), unloading from GPU..."
+                )
+                cleanup()
+        except asyncio.CancelledError:
+            # Expected during reschedule; ignore
+            pass
+        finally:
+            # Clear the task reference when finished if still current
+            global _idle_cleanup_task
+            try:
+                current = asyncio.current_task()
+            except Exception:
+                current = None
+            if current is not None and _idle_cleanup_task is current:
+                _idle_cleanup_task = None
+
+    _idle_cleanup_task = loop.create_task(_watchdog(time.time(), idle_timeout))
+
 
 
 def get_model(model_name: str, language: Optional[str] = None):
@@ -290,17 +342,11 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
     start_time = time.time()
 
     try:
-        # Decode image off the event loop (PIL operations can block)
-        image = await asyncio.to_thread(decode_image, request.image)
-
-        # Load model and get config off the event loop
-        model, model_config = await asyncio.to_thread(
-            get_model, request.model, request.language
-        )
-
-        # Perform OCR using unified inference engine
-        # Run prediction in a worker thread to avoid blocking the event loop
-        final_text = await asyncio.to_thread(model.predict, image)
+        # Validate model exists
+        validate_model(request.model)
+        # Use isolated worker manager; pass raw image string (base64 or data URL)
+        infer_data = await ocr_manager.infer(request.model, request.language, request.image)
+        final_text = infer_data.get("text", "")
 
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
@@ -321,6 +367,8 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
             response_data=response.model_dump(),
             status="success",
         )
+
+        # In isolated mode workers self-terminate; no in-process cleanup needed
 
         return response
 

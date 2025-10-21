@@ -7,6 +7,7 @@ REST API service wrapping common AI capabilities for homelab developers. Enables
 - **Smart Web Scraping**: Crawl URLs with JavaScript rendering support, extract clean Markdown content
 - **Text Embedding**: Convert text to vectors for semantic search and similarity matching
 - **Image Captioning**: Generate natural language descriptions from images
+- **Image OCR**: Extract text from images (runs in an isolated per‑model worker with a 5s idle shutdown to reliably free GPU memory)
 
 ## Quick Start
 
@@ -164,6 +165,8 @@ All endpoints are under the `/api` prefix:
 - [Technical Design](docs/tech-design.md) - Implementation details
 - [Deployment Guide](docs/deployment.md) - Docker, GHCR, and production deployment
 - [CLAUDE.md](CLAUDE.md) - AI assistant context
+
+Architecture highlight: OCR inference runs in isolated worker processes with a short‑lived cache (5s linger) to balance batch throughput and fast GPU memory release. See Technical Design for details.
 
 ## Development
 

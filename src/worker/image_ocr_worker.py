@@ -1,0 +1,192 @@
+"""Isolated worker process for OCR inference.
+
+Runs a lightweight FastAPI server to serve OCR for a single model.
+Exits automatically after an idle timeout to free GPU memory.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import base64
+import io
+import logging
+import os
+import signal
+import sys
+import time
+from typing import Optional, Dict, Any
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from PIL import Image
+
+from src.inference.ocr import OCRInferenceEngine
+from src.db.models import get_model as get_model_from_db
+
+
+logger = logging.getLogger("ocr_worker")
+
+
+class InferRequest(BaseModel):
+    image: str = Field(..., description="Base64-encoded image or data URL")
+
+
+class InferResponse(BaseModel):
+    text: str
+    model: str
+    processing_time_ms: int
+
+
+app = FastAPI()
+
+
+# Global state for the worker
+ENGINE: Optional[OCRInferenceEngine] = None
+MODEL_ID: str = ""
+MODEL_CONFIG: Optional[Dict[str, Any]] = None
+LANGUAGE: Optional[str] = None
+IDLE_TIMEOUT: int = 5
+LAST_ACCESS: Optional[float] = None
+_idle_task: Optional[asyncio.Task] = None
+
+
+def _get_model_config(model_id: str) -> Dict[str, Any]:
+    db_model = get_model_from_db(model_id)
+    if db_model is None:
+        raise RuntimeError(f"Model '{model_id}' not found in database")
+    return {
+        "id": db_model["id"],
+        "name": db_model["name"],
+        "team": db_model["team"],
+        "task": db_model["task"],
+        "architecture": db_model["architecture"],
+        "default_prompt": db_model["default_prompt"],
+        "platform_requirements": db_model["platform_requirements"],
+        "requires_quantization": bool(db_model["requires_quantization"]),
+        "size_mb": db_model["size_mb"],
+        "parameters_m": db_model["parameters_m"],
+        "gpu_memory_mb": db_model["gpu_memory_mb"],
+        "link": db_model["link"],
+    }
+
+
+def _decode_image(image_data: str) -> Image.Image:
+    if image_data.startswith("data:image"):
+        image_data = image_data.split(",", 1)[1]
+    image_bytes = base64.b64decode(image_data)
+    img = Image.open(io.BytesIO(image_bytes))
+    return img.convert("RGB")
+
+
+def _schedule_idle_shutdown() -> None:
+    global _idle_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    if _idle_task and not _idle_task.done():
+        _idle_task.cancel()
+
+    async def _watchdog(timeout_s: int):
+        try:
+            await asyncio.sleep(timeout_s)
+            if LAST_ACCESS is None:
+                return
+            idle = time.time() - LAST_ACCESS
+            if idle >= timeout_s:
+                logger.info("Worker idle for %.1fs; shutting down", idle)
+                await _shutdown()
+        except asyncio.CancelledError:
+            pass
+
+    _idle_task = loop.create_task(_watchdog(IDLE_TIMEOUT))
+
+
+async def _shutdown() -> None:
+    global ENGINE
+    try:
+        if ENGINE is not None:
+            ENGINE.cleanup()
+    finally:
+        # Terminate the process to fully release CUDA context
+        os._exit(0)
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok", "model": MODEL_ID}
+
+
+@app.post("/infer", response_model=InferResponse)
+async def infer(req: InferRequest) -> InferResponse:
+    global LAST_ACCESS
+    start = time.time()
+    try:
+        image = await asyncio.to_thread(_decode_image, req.image)
+        text = await asyncio.to_thread(ENGINE.predict, image)  # type: ignore[union-attr]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Inference error: {e}")
+
+    proc_ms = int((time.time() - start) * 1000)
+    LAST_ACCESS = time.time()
+    _schedule_idle_shutdown()
+    return InferResponse(text=text, model=MODEL_ID, processing_time_ms=proc_ms)
+
+
+@app.post("/shutdown")
+async def shutdown_endpoint():
+    await _shutdown()
+    return {"status": "shutting_down"}
+
+
+def _parse_args(argv: list[str]):
+    parser = argparse.ArgumentParser(description="OCR worker")
+    parser.add_argument("--model-id", required=True, help="Model identifier")
+    parser.add_argument("--port", type=int, required=True, help="Port to listen on")
+    parser.add_argument("--idle-timeout", type=int, default=5, help="Idle seconds before exit")
+    parser.add_argument("--language", default=None, help="Language hint (optional)")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str]) -> int:
+    global ENGINE, MODEL_ID, MODEL_CONFIG, LANGUAGE, IDLE_TIMEOUT, LAST_ACCESS
+    args = _parse_args(argv)
+    MODEL_ID = args.model_id
+    LANGUAGE = args.language
+    IDLE_TIMEOUT = args.idle_timeout
+    LAST_ACCESS = time.time()
+
+    # Load model
+    MODEL_CONFIG = _get_model_config(MODEL_ID)
+    ENGINE = OCRInferenceEngine(
+        model_id=MODEL_ID,
+        architecture=MODEL_CONFIG.get("architecture", "paddleocr"),
+        model_config=MODEL_CONFIG,
+        language=LANGUAGE or MODEL_CONFIG.get("language"),
+    )
+    ENGINE.load()
+    logger.info("Worker started for model %s on port %d", MODEL_ID, args.port)
+
+    # Run uvicorn programmatically
+    import uvicorn
+
+    # Install SIGTERM handler to exit fast
+    def _term_handler(signum, frame):
+        try:
+            asyncio.get_event_loop().create_task(_shutdown())
+        except Exception:
+            os._exit(0)
+
+    try:
+        signal.signal(signal.SIGTERM, _term_handler)
+    except Exception:
+        pass
+
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+

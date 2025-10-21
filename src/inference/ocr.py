@@ -340,6 +340,28 @@ class OCRInferenceEngine:
 
     def cleanup(self) -> None:
         """Clean up model resources."""
+        # Try to move model (or wrapped model) to CPU before releasing
+        def _move_to_cpu(obj: Any) -> None:
+            try:
+                if obj is None:
+                    return
+                if hasattr(obj, "cpu") and callable(getattr(obj, "cpu")):
+                    obj.cpu()
+                elif hasattr(obj, "to") and callable(getattr(obj, "to")):
+                    obj.to("cpu")
+                elif hasattr(obj, "model"):
+                    inner = getattr(obj, "model")
+                    if hasattr(inner, "cpu") and callable(getattr(inner, "cpu")):
+                        inner.cpu()
+                    elif hasattr(inner, "to") and callable(getattr(inner, "to")):
+                        inner.to("cpu")
+            except Exception:
+                # Best-effort; ignore failures
+                pass
+
+        _move_to_cpu(self.model)
+
+        # Drop references
         if self.model is not None:
             del self.model
             self.model = None
@@ -348,13 +370,45 @@ class OCRInferenceEngine:
             del self.processor
             self.processor = None
 
-        # Force GPU memory release
+        # Force memory release across backends
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
+
+        # PyTorch cleanup (DeepSeek/Granite/MinerU backends)
         try:
             import torch
-
             if torch.cuda.is_available():
+                # Collect any dangling IPC handles and cached blocks
+                try:
+                    torch.cuda.ipc_collect()
+                except Exception:
+                    pass
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
-                logger.debug("GPU cache cleared for OCR model")
+                logger.debug("GPU cache cleared for OCR (torch)")
         except Exception as e:
-            logger.warning(f"Error releasing GPU memory: {e}")
+            logger.warning(f"Error releasing torch GPU memory: {e}")
+
+        # Paddle cleanup (PaddleOCR backend)
+        try:
+            import paddle
+            try:
+                if paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0:
+                    try:
+                        paddle.device.cuda.empty_cache()
+                    except Exception:
+                        pass
+                    try:
+                        paddle.device.cuda.synchronize()
+                    except Exception:
+                        pass
+                    logger.debug("GPU cache cleared for OCR (paddle)")
+            except Exception:
+                # If device queries fail, skip silently
+                pass
+        except Exception:
+            # paddle not installed; ignore
+            pass
