@@ -174,6 +174,36 @@ async def download_model_with_progress(
         last_size = 0
         output_lines = []
 
+        # Helper to non-blockingly try reading a line from stdout
+        async def try_readline_nonblock() -> Optional[str]:
+            import select
+            if process.stdout is None:
+                return None
+            fd = process.stdout.fileno()
+            # Use select with 0 timeout to avoid blocking the event loop
+            readable, _, _ = await asyncio.to_thread(select.select, [fd], [], [], 0)
+            if readable:
+                # Do the actual blocking IO in a thread
+                return await asyncio.to_thread(process.stdout.readline)
+            return None
+
+        # Helper to compute directory size without blocking event loop
+        async def compute_dir_size_mb() -> int:
+            def _calc() -> int:
+                if not cache_dir.exists():
+                    return 0
+                total = 0
+                for f in cache_dir.rglob("*"):
+                    if f.is_file():
+                        try:
+                            total += f.stat().st_size
+                        except Exception:
+                            # File might disappear during iteration; ignore
+                            pass
+                return total // (1024 * 1024)
+
+            return await asyncio.to_thread(_calc)
+
         # Monitor download progress
         while process.poll() is None:
             # Check if client disconnected
@@ -183,11 +213,16 @@ async def download_model_with_progress(
                 del active_downloads[model_id]
                 return
 
-            # Read any available output
-            if process.stdout:
-                line = process.stdout.readline()
-                if line:
-                    stripped_line = line.strip()
+            # Try to read a line of output without blocking the event loop
+            try:
+                line = await try_readline_nonblock()
+            except Exception as log_read_err:
+                line = None
+                logger.debug(f"Non-blocking read failed: {log_read_err}")
+
+            if line:
+                stripped_line = line.strip()
+                if stripped_line:
                     output_lines.append(stripped_line)
                     logger.info(f"Download output: {stripped_line}")
                     # Persist log to database
@@ -196,18 +231,15 @@ async def download_model_with_progress(
                     except Exception as log_err:
                         logger.warning(f"Failed to persist log: {log_err}")
 
-            # Get current directory size
-            current_size = 0
-            if cache_dir.exists():
-                current_size = sum(
-                    f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()
-                )
-
-            current_size_mb = current_size // (1024 * 1024)
-
-            # Send progress update every second
+            # Send progress update roughly once per second (compute size off-thread)
             current_time = time.time()
-            if current_time - last_progress_time >= 1.0 or current_size_mb > last_size + 10:
+            if current_time - last_progress_time >= 1.0:
+                try:
+                    current_size_mb = await compute_dir_size_mb()
+                except Exception as size_err:
+                    logger.debug(f"Size computation failed: {size_err}")
+                    current_size_mb = last_size
+
                 event = DownloadProgressEvent(
                     type="progress",
                     current_mb=current_size_mb,
@@ -217,11 +249,13 @@ async def download_model_with_progress(
                 last_progress_time = current_time
                 last_size = current_size_mb
 
-            await asyncio.sleep(0.5)
+            # Yield control to let other requests be served
+            await asyncio.sleep(0.2)
 
         # Read any remaining output
         if process.stdout:
-            remaining = process.stdout.read()
+            # Read remaining output in a background thread to avoid blocking
+            remaining = await asyncio.to_thread(process.stdout.read)
             if remaining:
                 for line in remaining.splitlines():
                     stripped_line = line.strip()
@@ -264,16 +298,15 @@ async def download_model_with_progress(
             yield event.model_dump_json()
             # Clean up partial download
             if cache_dir.exists():
-                shutil.rmtree(cache_dir)
+                await asyncio.to_thread(shutil.rmtree, cache_dir)
             return
 
         # Calculate final size
         final_size = 0
         if cache_dir.exists():
-            final_size = sum(
-                f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()
-            )
-        final_size_mb = final_size // (1024 * 1024)
+            final_size_mb = await compute_dir_size_mb()
+        else:
+            final_size_mb = 0
 
         logger.info(f"✓ Download SUCCESS for {model_id}")
         logger.info(f"Downloaded size: {final_size_mb} MB")

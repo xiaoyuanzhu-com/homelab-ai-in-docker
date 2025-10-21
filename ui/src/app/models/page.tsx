@@ -323,7 +323,6 @@ export default function ModelsPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDownload(model.id)}
-                            disabled={downloadingModels.has(model.id)}
                             className="h-8 px-2"
                             title="Retry download"
                           >
@@ -356,7 +355,6 @@ export default function ModelsPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleDownload(model.id)}
-                            disabled={downloadingModels.has(model.id)}
                             className="h-8 px-2"
                             title="Retry download"
                           >
