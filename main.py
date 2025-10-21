@@ -119,6 +119,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Error cleaning up image captioning model: {e}")
 
+    # Best-effort shutdown of any joblib/loky process executors to avoid
+    # leaked semaphore warnings from Python's resource_tracker on exit.
+    try:
+        try:
+            # Prefer the public import path if available
+            from joblib.externals.loky import get_reusable_executor  # type: ignore
+        except Exception:
+            try:
+                # Fallback for older/newer joblib structures
+                from joblib.externals.loky.reusable_executor import get_reusable_executor  # type: ignore
+            except Exception:
+                get_reusable_executor = None  # type: ignore
+
+        if get_reusable_executor is not None:  # type: ignore
+            executor = get_reusable_executor()  # type: ignore
+            if executor is not None:
+                executor.shutdown(wait=True, kill_workers=True)
+                logger.info("Shut down joblib/loky reusable executor")
+    except Exception as e:
+        # Only log at debug to keep shutdown clean in normal scenarios
+        logger.debug(f"No joblib/loky executor to shutdown or cleanup failed: {e}")
+
     logger.info("Shutdown complete")
 
 
