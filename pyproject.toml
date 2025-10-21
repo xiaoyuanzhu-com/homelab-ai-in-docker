@@ -27,6 +27,10 @@ dependencies = [
     "docling-core>=2.0.0",
 ]
 
+[tool.uv]
+# Build dependencies for packages that need torch during build
+extra-build-dependencies = { flash-attn = ["torch>=2.0.0", "packaging", "ninja"] }
+
 [tool.setuptools]
 packages = ["src"]
 
