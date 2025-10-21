@@ -174,11 +174,10 @@ def get_model(model_name: str):
                 "low_cpu_mem_usage": True,     # Reduce CPU memory usage
             }
 
-            # Check if this model requires quantization (from manifest)
+            # Check if this model requires quantization (from database)
             if model_config.get("requires_quantization"):
-                # Pre-quantized models - load in 4-bit mode with device_map="auto"
-                # Don't set dtype - quantized models have their own precision (4-bit)
-                load_kwargs["load_in_4bit"] = True
+                # Pre-quantized models already have quantization config baked in
+                # Only need device_map - the model handles its own quantization
                 load_kwargs["device_map"] = "auto"
             else:
                 # Non-quantized models - use fp16 for efficiency
