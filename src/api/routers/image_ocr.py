@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api", tags=["image-ocr"])
 # Global model cache
 _model_cache: Optional[Any] = None
 _current_model_name: str = ""
+_current_language: str = ""
 _current_model_config: Optional[Dict[str, Any]] = None
 _last_access_time: Optional[float] = None
 
@@ -113,12 +114,13 @@ def check_and_cleanup_idle_model():
         logger.info(f"OCR model '{_current_model_name}' unloaded from GPU")
 
 
-def get_model(model_name: str):
+def get_model(model_name: str, language: Optional[str] = None):
     """
     Get or load the OCR model.
 
     Args:
         model_name: Model identifier to load
+        language: Language code for OCR (e.g., 'ch', 'en', 'fr'). Defaults to 'ch' for multilingual.
 
     Returns:
         Loaded model and configuration
@@ -127,7 +129,7 @@ def get_model(model_name: str):
         ValueError: If model is not supported
         NotImplementedError: PaddleOCR support coming soon
     """
-    global _model_cache, _current_model_name, _current_model_config, _last_access_time
+    global _model_cache, _current_model_name, _current_language, _current_model_config, _last_access_time
 
     # Check if current model should be cleaned up due to idle timeout
     check_and_cleanup_idle_model()
@@ -136,13 +138,18 @@ def get_model(model_name: str):
     validate_model(model_name)
     model_config = get_model_config(model_name)
 
-    # Check if we need to reload the model
-    if model_name != _current_model_name:
+    # Determine language: request param > model config > default 'ch' (multilingual)
+    # 'ch' supports Chinese (Simplified/Traditional) + English + Japanese + Pinyin
+    lang = language or model_config.get("language", "ch")
+
+    # Check if we need to reload the model (model name or language changed)
+    if model_name != _current_model_name or lang != _current_language:
         # Clear existing cache
         if _model_cache is not None:
             del _model_cache
             _model_cache = None
         _current_model_name = model_name
+        _current_language = lang
         _current_model_config = model_config
 
     if _model_cache is None:
@@ -150,11 +157,7 @@ def get_model(model_name: str):
         try:
             from paddleocr import PaddleOCR
 
-            logger.info(f"Loading OCR model '{model_name}'...")
-
-            # Determine language from model config or use default
-            # 'ch' supports both Chinese and English (multilingual)
-            lang = model_config.get("language", "ch")
+            logger.info(f"Loading OCR model '{model_name}' with language='{lang}'...")
 
             # Initialize PaddleOCR
             # PaddleOCR 3.x uses 'device' parameter instead of 'use_gpu'
@@ -196,7 +199,7 @@ def cleanup():
     Release model resources immediately.
     Forces GPU memory cleanup to free resources for other services.
     """
-    global _model_cache, _current_model_name, _current_model_config, _last_access_time
+    global _model_cache, _current_model_name, _current_language, _current_model_config, _last_access_time
 
     model_name = _current_model_name  # Save for logging
 
@@ -211,6 +214,7 @@ def cleanup():
         _model_cache = None
 
     _current_model_name = ""
+    _current_language = ""
     _current_model_config = None
     _last_access_time = None
 
@@ -271,8 +275,8 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
         # Decode image
         image = decode_image(request.image)
 
-        # Load model and get config
-        model, model_config = get_model(request.model)
+        # Load model and get config (with optional language parameter)
+        model, model_config = get_model(request.model, language=request.language)
 
         # Save image temporarily for PaddleOCR (it expects file path)
         import tempfile
