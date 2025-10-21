@@ -39,6 +39,16 @@
       "parameters_m": 22,
       "gpu_memory_mb": 256,
       "link": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
+    },
+    {
+      "id": "Qwen/Qwen3-Embedding-0.6B",
+      "name": "Qwen3-Embedding-0.6B",
+      "team": "Qwen",
+      "task": "feature-extraction",
+      "size_mb": 1200,
+      "parameters_m": 600,
+      "gpu_memory_mb": 1536,
+      "link": "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B"
     }
   ],
   "image-captioning": [
