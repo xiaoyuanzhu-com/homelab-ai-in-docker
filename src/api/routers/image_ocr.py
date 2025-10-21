@@ -17,13 +17,14 @@ from ..models.image_ocr import OCRRequest, OCRResponse
 from ...storage.history import history_storage
 from ...config import get_model_cache_dir
 from ...db.models import get_model as get_model_from_db, get_all_models
+from ...inference.ocr import OCRInferenceEngine
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["image-ocr"])
 
 # Global model cache
-_model_cache: Optional[Any] = None
+_model_cache: Optional[OCRInferenceEngine] = None
 _current_model_name: str = ""
 _current_language: str = ""
 _current_model_config: Optional[Dict[str, Any]] = None
@@ -166,7 +167,7 @@ def get_model(model_name: str, language: Optional[str] = None):
 
     Raises:
         ValueError: If model is not supported
-        NotImplementedError: PaddleOCR support coming soon
+        RuntimeError: If model loading fails
     """
     global _model_cache, _current_model_name, _current_language, _current_model_config, _last_access_time
 
@@ -185,48 +186,33 @@ def get_model(model_name: str, language: Optional[str] = None):
     if model_name != _current_model_name or lang != _current_language:
         # Clear existing cache
         if _model_cache is not None:
-            del _model_cache
+            _model_cache.cleanup()
             _model_cache = None
         _current_model_name = model_name
         _current_language = lang
         _current_model_config = model_config
 
     if _model_cache is None:
-        # Load PaddleOCR model
         try:
-            from paddleocr import PaddleOCR
-
-            # Forward SIGTERM to SIGINT after Paddle is imported to avoid
-            # Paddle's FatalError log on normal shutdown under reloaders.
-            _install_sigterm_forwarder()
+            # Install SIGTERM forwarder for PaddleOCR models
+            if model_config.get("architecture") == "paddleocr":
+                _install_sigterm_forwarder()
 
             logger.info(f"Loading OCR model '{model_name}' with language='{lang}'...")
 
-            # Initialize PaddleOCR
-            # PaddleOCR 3.x uses 'device' parameter instead of 'use_gpu'
-            # Check if PaddlePaddle has GPU support
-            try:
-                import paddle
-                has_gpu = paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0
-                device = "gpu:0" if has_gpu else "cpu"
-            except Exception:
-                # Fallback to CPU if paddle check fails
-                device = "cpu"
-
-            _model_cache = PaddleOCR(
-                lang=lang,
-                device=device
+            # Create inference engine
+            _model_cache = OCRInferenceEngine(
+                model_id=model_name,
+                architecture=model_config.get("architecture", "paddleocr"),
+                model_config=model_config,
+                language=lang,
             )
 
-            logger.info(f"PaddleOCR initialized with lang={lang}, device={device}")
+            # Load the model
+            _model_cache.load()
 
             logger.info(f"OCR model '{model_name}' loaded successfully")
 
-        except ImportError:
-            raise RuntimeError(
-                "PaddleOCR is not installed. Please install it with: "
-                "pip install paddlepaddle-gpu paddleocr"
-            )
         except Exception as e:
             logger.error(f"Failed to load OCR model '{model_name}': {e}", exc_info=True)
             raise RuntimeError(f"Failed to load OCR model: {str(e)}")
@@ -248,28 +234,17 @@ def cleanup():
 
     if _model_cache is not None:
         try:
-            # TODO: Add proper cleanup for PaddleOCR models
             logger.debug(f"Cleaning up OCR model '{model_name}'")
+            _model_cache.cleanup()
         except Exception as e:
             logger.warning(f"Error cleaning up OCR model: {e}")
 
-        del _model_cache
         _model_cache = None
 
     _current_model_name = ""
     _current_language = ""
     _current_model_config = None
     _last_access_time = None
-
-    # Force GPU memory release
-    try:
-        import torch
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            logger.debug("GPU cache cleared and synchronized for OCR model")
-    except Exception as e:
-        logger.warning(f"Error releasing GPU memory: {e}")
 
 
 def decode_image(image_data: str) -> Image.Image:
@@ -323,38 +298,9 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
             get_model, request.model, request.language
         )
 
-        # Save image temporarily for PaddleOCR (it expects file path)
-        import tempfile
-        import os
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-            # Saving image can be CPU/IO heavy; do it in a thread
-            await asyncio.to_thread(image.save, tmp_file.name)
-            tmp_path = tmp_file.name
-
-        try:
-            # Perform OCR
-            # PaddleOCR 3.x: ocr() is an alias for predict(), no cls parameter needed
-            # Run OCR predict in a worker thread to avoid blocking the event loop
-            result = await asyncio.to_thread(model.predict, tmp_path)
-
-            # Parse results - PaddleOCR 3.x returns list of dicts with 'rec_texts' field
-            # Format: [{'rec_texts': ['text1', 'text2', ...], 'rec_scores': [0.95, 0.89, ...], ...}]
-            extracted_text = []
-            if result and len(result) > 0:
-                # Get the first result (single image)
-                page_result = result[0]
-                if 'rec_texts' in page_result:
-                    extracted_text = page_result['rec_texts']
-
-            # Join all detected text with newlines
-            final_text = "\n".join(extracted_text) if extracted_text else ""
-
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                # Remove temp file off the loop
-                await asyncio.to_thread(os.unlink, tmp_path)
+        # Perform OCR using unified inference engine
+        # Run prediction in a worker thread to avoid blocking the event loop
+        final_text = await asyncio.to_thread(model.predict, image)
 
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
