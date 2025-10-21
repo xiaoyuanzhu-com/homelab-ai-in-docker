@@ -17,6 +17,7 @@ from transformers import (
     AutoModelForVision2Seq,
     AutoModelForCausalLM,
     LlavaForConditionalGeneration,
+    LlavaNextForConditionalGeneration,
     Blip2ForConditionalGeneration,
 )
 import torch
@@ -195,6 +196,11 @@ def get_model(model_name: str):
             if architecture == "llava":
                 # LLaVA requires specific class
                 _model_cache = LlavaForConditionalGeneration.from_pretrained(
+                    _current_model_name, **load_kwargs
+                )
+            elif architecture == "llava_next":
+                # LLaVA-NeXT (v1.6) uses different class
+                _model_cache = LlavaNextForConditionalGeneration.from_pretrained(
                     _current_model_name, **load_kwargs
                 )
             elif architecture == "blip2":

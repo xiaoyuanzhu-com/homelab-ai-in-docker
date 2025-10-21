@@ -97,7 +97,7 @@
       "name": "llava-v1.6-mistral-7b-hf-bnb-4bit",
       "team": "unsloth",
       "task": "Image to Text",
-      "architecture": "llava",
+      "architecture": "llava_next",
       "default_prompt": "USER: <image>\nDescribe this image in detail.\nASSISTANT:",
       "size_mb": 4500,
       "parameters_m": 7000,
