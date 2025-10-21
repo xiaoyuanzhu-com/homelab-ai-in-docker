@@ -10,6 +10,7 @@ import uuid
 from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException
+import asyncio
 from PIL import Image
 
 from ..models.image_ocr import OCRRequest, OCRResponse
@@ -314,24 +315,28 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
     start_time = time.time()
 
     try:
-        # Decode image
-        image = decode_image(request.image)
+        # Decode image off the event loop (PIL operations can block)
+        image = await asyncio.to_thread(decode_image, request.image)
 
-        # Load model and get config (with optional language parameter)
-        model, model_config = get_model(request.model, language=request.language)
+        # Load model and get config off the event loop
+        model, model_config = await asyncio.to_thread(
+            get_model, request.model, request.language
+        )
 
         # Save image temporarily for PaddleOCR (it expects file path)
         import tempfile
         import os
 
         with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmp_file:
-            image.save(tmp_file.name)
+            # Saving image can be CPU/IO heavy; do it in a thread
+            await asyncio.to_thread(image.save, tmp_file.name)
             tmp_path = tmp_file.name
 
         try:
             # Perform OCR
             # PaddleOCR 3.x: ocr() is an alias for predict(), no cls parameter needed
-            result = model.predict(tmp_path)
+            # Run OCR predict in a worker thread to avoid blocking the event loop
+            result = await asyncio.to_thread(model.predict, tmp_path)
 
             # Parse results - PaddleOCR 3.x returns list of dicts with 'rec_texts' field
             # Format: [{'rec_texts': ['text1', 'text2', ...], 'rec_scores': [0.95, 0.89, ...], ...}]
@@ -348,7 +353,8 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
         finally:
             # Clean up temp file
             if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+                # Remove temp file off the loop
+                await asyncio.to_thread(os.unlink, tmp_path)
 
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
