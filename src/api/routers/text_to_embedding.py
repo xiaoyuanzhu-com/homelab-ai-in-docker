@@ -73,21 +73,21 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
         # Path: data/models/sentence-transformers/all-MiniLM-L6-v2
         model_dir = get_data_dir() / "models" / target_model
 
-        # Check if model exists
-        if not model_dir.exists():
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "code": "MODEL_NOT_FOUND",
-                    "message": f"Model '{target_model}' not found. Please download it first from the Models tab.",
-                },
-            )
-
         # Set HuggingFace endpoint for model loading
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
 
-        # Load model from local directory
-        _model_cache = SentenceTransformer(str(model_dir))
+        # Check if model exists locally
+        if model_dir.exists() and (model_dir / "config.json").exists():
+            # Load from local directory
+            logger.info(f"Using locally downloaded model from {model_dir}")
+            model_path = str(model_dir)
+        else:
+            # Fallback to downloading from HuggingFace
+            logger.info(f"Model not found locally, will download from HuggingFace: {target_model}")
+            model_path = target_model
+
+        # Load model (from local path or HuggingFace)
+        _model_cache = SentenceTransformer(model_path)
         _current_model_name = target_model
 
     # Update last access time

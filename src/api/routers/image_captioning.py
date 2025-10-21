@@ -185,8 +185,21 @@ def get_model(model_name: str):
         # Get custom cache directory
         cache_dir = get_model_cache_dir("image-caption", _current_model_name)
 
-        # Note: HF_HOME is set globally in main.py, no need to set per-model cache
-        # The models will be cached under HF_HOME/hub/models--{org}--{model}/
+        # Check if model is already downloaded locally via hfd
+        from ...config import get_data_dir
+        from pathlib import Path
+        local_model_dir = get_data_dir() / "models" / _current_model_name
+
+        # Determine which path to use for loading
+        if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+            model_path = str(local_model_dir)
+            logger.info(f"Using locally downloaded model from {model_path}")
+            # Use local_files_only to prevent re-downloading
+            extra_kwargs = {"local_files_only": True}
+        else:
+            model_path = _current_model_name
+            logger.info(f"Model not found locally, will download from HuggingFace: {_current_model_name}")
+            extra_kwargs = {}
 
         # Set HuggingFace endpoint for model loading
         from ...config import get_hf_endpoint
@@ -195,7 +208,7 @@ def get_model(model_name: str):
         try:
             # Load processor using Auto class (works for all architectures)
             _processor_cache = AutoProcessor.from_pretrained(
-                _current_model_name, cache_dir=str(cache_dir), use_fast=True
+                model_path, use_fast=True, **extra_kwargs
             )
 
             # Load model based on architecture
@@ -203,8 +216,8 @@ def get_model(model_name: str):
 
             # Common loading kwargs
             load_kwargs = {
-                "cache_dir": str(cache_dir),
                 "low_cpu_mem_usage": True,     # Reduce CPU memory usage
+                **extra_kwargs,
             }
 
             # Check if this model requires quantization (from database)
@@ -219,22 +232,22 @@ def get_model(model_name: str):
             if architecture == "llava":
                 # LLaVA requires specific class
                 _model_cache = LlavaForConditionalGeneration.from_pretrained(
-                    _current_model_name, **load_kwargs
+                    model_path, **load_kwargs
                 )
             elif architecture == "llava_next":
                 # LLaVA-NeXT (v1.6) uses different class
                 _model_cache = LlavaNextForConditionalGeneration.from_pretrained(
-                    _current_model_name, **load_kwargs
+                    model_path, **load_kwargs
                 )
             elif architecture == "blip2":
                 # BLIP-2 uses specific class
                 _model_cache = Blip2ForConditionalGeneration.from_pretrained(
-                    _current_model_name, **load_kwargs
+                    model_path, **load_kwargs
                 )
             else:
                 # BLIP and others use AutoModelForVision2Seq
                 _model_cache = AutoModelForVision2Seq.from_pretrained(
-                    _current_model_name, **load_kwargs
+                    model_path, **load_kwargs
                 )
 
         except Exception as e:
