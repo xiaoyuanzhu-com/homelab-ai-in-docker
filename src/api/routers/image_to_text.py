@@ -187,14 +187,19 @@ def get_model(model_name: str):
             # Common loading kwargs
             load_kwargs = {
                 "cache_dir": str(cache_dir),
-                "dtype": torch.float16,  # Use fp16 for efficiency
                 "low_cpu_mem_usage": True,     # Reduce CPU memory usage
             }
 
-            # Add device_map for quantized models
-            if "bnb" in _current_model_name.lower() or "4bit" in _current_model_name.lower():
+            # Check if this is a quantized model
+            is_quantized = "bnb" in _current_model_name.lower() or "4bit" in _current_model_name.lower()
+
+            if is_quantized:
                 # Pre-quantized models - load with device_map="auto"
+                # Don't set dtype - quantized models have their own precision (4-bit)
                 load_kwargs["device_map"] = "auto"
+            else:
+                # Non-quantized models - use fp16 for efficiency
+                load_kwargs["dtype"] = torch.float16
 
             if architecture == "llava":
                 # LLaVA requires specific class
@@ -300,12 +305,10 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
             # Models that only need image (BLIP base/large)
             inputs = processor(images=image, return_tensors="pt")
 
-        # Move inputs to appropriate device
-        # For quantized models with device_map, inputs are already handled
-        # For regular models, move to first device
-        if not hasattr(model, "hf_device_map"):
-            device = next(model.parameters()).device
-            inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+        # Move inputs to the same device as the model
+        # Works for both quantized models (with device_map) and regular models
+        device = next(model.parameters()).device
+        inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
 
         # Generate caption
         with torch.no_grad():
