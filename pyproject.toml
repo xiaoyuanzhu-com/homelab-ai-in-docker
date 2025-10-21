@@ -24,6 +24,7 @@ dependencies = [
     "mineru-vl-utils>=0.1.0",
     "flash-attn>=2.7.3; platform_system=='Linux'",
     "einops>=0.7.0",
+    "docling-core>=2.0.0",
 ]
 
 [tool.setuptools]

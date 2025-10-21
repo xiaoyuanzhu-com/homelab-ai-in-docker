@@ -145,6 +145,19 @@
       "gpu_memory_mb": 8192,
       "link": "https://huggingface.co/deepseek-ai/DeepSeek-OCR",
       "platform_requirements": "Requires transformers >= 4.46.3, flash-attn 2.7.3"
+    },
+    {
+      "id": "ibm-granite/granite-docling-258M",
+      "name": "granite-docling-258M",
+      "team": "ibm-granite",
+      "task": "image-ocr",
+      "architecture": "granite-docling",
+      "default_prompt": "Convert this page to markdown.",
+      "size_mb": 520,
+      "parameters_m": 258,
+      "gpu_memory_mb": 2048,
+      "link": "https://huggingface.co/ibm-granite/granite-docling-258M",
+      "platform_requirements": "Requires transformers >= 4.45.0, docling_core"
     }
   ]
 }

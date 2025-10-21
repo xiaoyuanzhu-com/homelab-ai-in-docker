@@ -13,6 +13,7 @@ class OCRInferenceEngine:
     - PaddleOCR (paddleocr)
     - MinerU2.5 (mineru)
     - DeepSeek-OCR (deepseek)
+    - IBM Granite Docling (granite-docling)
     """
 
     def __init__(
@@ -46,6 +47,8 @@ class OCRInferenceEngine:
             self._load_mineru()
         elif self.architecture == "deepseek":
             self._load_deepseek()
+        elif self.architecture == "granite-docling":
+            self._load_granite_docling()
         else:
             raise ValueError(f"Unsupported OCR architecture: {self.architecture}")
 
@@ -143,6 +146,42 @@ class OCRInferenceEngine:
                 "Please install: pip install transformers>=4.46.3 flash-attn>=2.7.3 torch"
             )
 
+    def _load_granite_docling(self) -> None:
+        """Load IBM Granite Docling model."""
+        try:
+            from transformers import AutoProcessor, AutoModelForVision2Seq
+            import torch
+
+            logger.info(f"Loading Granite Docling model '{self.model_id}'...")
+
+            # Determine device and attention implementation
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            attn_impl = "flash_attention_2" if device == "cuda" else "sdpa"
+
+            # Load processor
+            self.processor = AutoProcessor.from_pretrained(self.model_id)
+
+            # Load model with appropriate settings
+            self.model = AutoModelForVision2Seq.from_pretrained(
+                self.model_id,
+                torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
+                _attn_implementation=attn_impl,
+                device_map="auto" if device == "cuda" else None,
+            )
+
+            # Move to device if CPU
+            if device == "cpu":
+                self.model = self.model.to(device)
+
+            logger.info(f"Granite Docling model loaded successfully on {device}")
+
+        except ImportError as e:
+            missing_pkg = str(e).split("'")[1] if "'" in str(e) else "unknown"
+            raise RuntimeError(
+                f"Granite Docling dependencies not installed. Missing: {missing_pkg}. "
+                "Please install: pip install transformers>=4.45.0 docling_core torch"
+            )
+
     def predict(self, image: Image.Image) -> str:
         """
         Run OCR prediction on image.
@@ -162,6 +201,8 @@ class OCRInferenceEngine:
             return self._predict_mineru(image)
         elif self.architecture == "deepseek":
             return self._predict_deepseek(image)
+        elif self.architecture == "granite-docling":
+            return self._predict_granite_docling(image)
         else:
             raise ValueError(f"Unsupported architecture: {self.architecture}")
 
@@ -227,6 +268,52 @@ class OCRInferenceEngine:
         text = self.processor.batch_decode(outputs, skip_special_tokens=True)[0]
 
         return text
+
+    def _predict_granite_docling(self, image: Image.Image) -> str:
+        """Run IBM Granite Docling prediction."""
+        import torch
+
+        # Get the prompt from model config or use default
+        prompt_text = self.model_config.get("default_prompt", "Convert this page to markdown.")
+
+        # Create input messages in chat format
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": prompt_text}
+                ],
+            },
+        ]
+
+        # Apply chat template
+        prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True)
+
+        # Process inputs
+        inputs = self.processor(text=prompt, images=[image], return_tensors="pt")
+
+        # Move inputs to same device as model
+        device = next(self.model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        # Generate output
+        with torch.no_grad():
+            generated_ids = self.model.generate(**inputs, max_new_tokens=4096)
+
+        # Decode output
+        generated_text = self.processor.batch_decode(
+            generated_ids, skip_special_tokens=True
+        )[0]
+
+        # Extract the assistant's response (after the last "Assistant:" or similar marker)
+        # The output typically includes the conversation history, we want just the response
+        if "Assistant:" in generated_text:
+            generated_text = generated_text.split("Assistant:")[-1].strip()
+        elif "ASSISTANT:" in generated_text:
+            generated_text = generated_text.split("ASSISTANT:")[-1].strip()
+
+        return generated_text
 
     def cleanup(self) -> None:
         """Clean up model resources."""
