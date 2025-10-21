@@ -10,6 +10,7 @@ import uuid
 from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, HTTPException
+import asyncio
 from PIL import Image
 from transformers import (
     AutoProcessor,
@@ -328,49 +329,42 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
     start_time = time.time()
 
     try:
-        # Decode image
-        image = decode_image(request.image)
+        # Decode image off the event loop
+        image = await asyncio.to_thread(decode_image, request.image)
 
-        # Load model and get config
-        processor, model, model_config = get_model(request.model)
+        # Load model and get config off the event loop
+        processor, model, model_config = await asyncio.to_thread(get_model, request.model)
 
-        # Determine prompt to use (user-provided or default from config)
-        prompt = request.prompt
-        if prompt is None and model_config.get("default_prompt"):
-            prompt = model_config["default_prompt"]
+        # Run the full preprocessing + generation pipeline in a worker thread
+        def _run_inference():
+            prompt = request.prompt
+            if prompt is None and model_config.get("default_prompt"):
+                prompt = model_config["default_prompt"]
 
-        # Process image and generate caption with unified interface
-        if prompt:
-            # Models that support text prompts (BLIP-2, LLaVA, etc.)
-            inputs = processor(text=prompt, images=image, return_tensors="pt")
-        else:
-            # Models that only need image (BLIP base/large)
-            inputs = processor(images=image, return_tensors="pt")
+            # Process image and generate caption with unified interface
+            if prompt:
+                inputs = processor(text=prompt, images=image, return_tensors="pt")
+            else:
+                inputs = processor(images=image, return_tensors="pt")
 
-        # Move inputs to the same device as the model
-        # Works for both quantized models (with device_map) and regular models
-        device = next(model.parameters()).device
-        inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+            device = next(model.parameters()).device
+            inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
 
-        # Generate caption
-        with torch.no_grad():
-            output_ids = model.generate(**inputs, max_new_tokens=150)
+            with torch.no_grad():
+                output_ids = model.generate(**inputs, max_new_tokens=150)
 
-        # Decode output
-        caption = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
+            # Decode output
+            _caption = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
 
-        # Clean up caption (remove prompt/conversation formatting if echoed back)
-        # LLaVA models are trained with conversation format: "USER: ... ASSISTANT: ..."
-        # This is part of LLaVA's training data format, not our invention
-        # The model outputs the full conversation, so we extract only the ASSISTANT's response
-        if "ASSISTANT:" in caption:
-            # Extract everything after the last "ASSISTANT:" marker
-            # Example: "USER: <image>\nDescribe...\nASSISTANT: The image shows..."
-            #       -> "The image shows..."
-            caption = caption.split("ASSISTANT:")[-1].strip()
-        elif prompt and caption.startswith(prompt):
-            # For non-conversational models (BLIP, BLIP2), remove echoed prompt
-            caption = caption[len(prompt):].strip()
+            # Clean up caption formatting if necessary
+            if "ASSISTANT:" in _caption:
+                _caption = _caption.split("ASSISTANT:")[-1].strip()
+            elif prompt and _caption.startswith(prompt):
+                _caption = _caption[len(prompt):].strip()
+
+            return _caption
+
+        caption = await asyncio.to_thread(_run_inference)
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 

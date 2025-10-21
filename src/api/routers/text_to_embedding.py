@@ -7,6 +7,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+import asyncio
 from sentence_transformers import SentenceTransformer
 import torch
 
@@ -151,11 +152,11 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
     start_time = time.time()
 
     try:
-        # Load model
-        model = get_model(request.model)
+        # Load model off the event loop
+        model = await asyncio.to_thread(get_model, request.model)
 
-        # Generate embeddings
-        embeddings = model.encode(request.texts, convert_to_numpy=True)
+        # Generate embeddings off the event loop
+        embeddings = await asyncio.to_thread(model.encode, request.texts, convert_to_numpy=True)
 
         # Convert to list of lists
         embeddings_list = embeddings.tolist()
