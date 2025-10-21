@@ -113,7 +113,7 @@ def validate_model(model_name: str) -> None:
 
 def check_and_cleanup_idle_model():
     """Check if model has been idle too long and cleanup if needed."""
-    global _model_cache, _last_access_time
+    global _model_cache, _last_access_time, _current_model_name
 
     if _model_cache is None or _last_access_time is None:
         return
@@ -125,8 +125,12 @@ def check_and_cleanup_idle_model():
     # Check if model has been idle too long
     idle_duration = time.time() - _last_access_time
     if idle_duration >= idle_timeout:
-        logger.info(f"Model idle for {idle_duration:.1f}s (timeout: {idle_timeout}s), cleaning up...")
+        logger.info(
+            f"Image captioning model '{_current_model_name}' idle for {idle_duration:.1f}s "
+            f"(timeout: {idle_timeout}s), unloading from GPU..."
+        )
         cleanup()
+        logger.info(f"Image captioning model '{_current_model_name}' unloaded from GPU")
 
 
 def get_model(model_name: str):
@@ -244,11 +248,14 @@ def cleanup():
     """
     global _model_cache, _processor_cache, _current_model_name, _current_model_config, _last_access_time
 
+    model_name = _current_model_name  # Save for logging
+
     if _model_cache is not None:
         # Move model to CPU first (helps with cleanup)
         try:
             if hasattr(_model_cache, 'cpu'):
                 _model_cache.cpu()
+                logger.debug(f"Moved image captioning model '{model_name}' to CPU")
         except Exception as e:
             logger.warning(f"Error moving model to CPU during cleanup: {e}")
 
@@ -269,7 +276,7 @@ def cleanup():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()  # Wait for GPU operations to finish
-            logger.info("GPU memory released for image captioning model")
+            logger.debug("GPU cache cleared and synchronized for image captioning model")
     except Exception as e:
         logger.warning(f"Error releasing GPU memory: {e}")
 

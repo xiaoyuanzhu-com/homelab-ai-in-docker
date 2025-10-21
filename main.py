@@ -1,5 +1,6 @@
 """Main FastAPI application for Homelab AI Services."""
 
+import asyncio
 import json
 import logging
 import os
@@ -38,6 +39,41 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+
+
+async def periodic_model_cleanup():
+    """
+    Background task that periodically checks and cleans up idle models.
+
+    Runs every second to check if models have exceeded their idle timeout.
+    When a model is idle too long, it's automatically unloaded from GPU
+    to free memory for other services.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Periodic model cleanup task started (checks every 1 second)")
+
+    while True:
+        try:
+            # Check every second for idle models
+            await asyncio.sleep(1)
+
+            # Check image-to-text models
+            try:
+                image_to_text.check_and_cleanup_idle_model()
+            except Exception as e:
+                logger.debug(f"Error checking idle image-to-text model: {e}")
+
+            # Check text-to-embedding models
+            try:
+                text_to_embedding.check_and_cleanup_idle_model()
+            except Exception as e:
+                logger.debug(f"Error checking idle text-to-embedding model: {e}")
+
+        except asyncio.CancelledError:
+            logger.info("Periodic model cleanup task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Unexpected error in periodic model cleanup: {e}", exc_info=True)
 
 
 @asynccontextmanager
@@ -97,12 +133,22 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning(f"Models manifest not found at {manifest_path}")
 
+    # Start background task for periodic model cleanup
+    cleanup_task = asyncio.create_task(periodic_model_cleanup())
+
     logger.info("Startup complete")
 
     yield  # Application runs here
 
     # Shutdown
     logger.info("Shutting down application...")
+
+    # Cancel background cleanup task
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
 
     # Clean up ML model resources
     from src.api.routers import text_to_embedding, image_to_text
