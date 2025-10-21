@@ -17,6 +17,7 @@ from src.api.routers import (
     history,
     models,
     hardware,
+    settings,
 )
 from src.db.models import init_db, upsert_model
 
@@ -140,6 +141,7 @@ app.include_router(image_to_text.router)
 app.include_router(history.router)
 app.include_router(models.router)
 app.include_router(hardware.router)
+app.include_router(settings.router)
 
 # Serve static files from the UI build
 UI_DIST_DIR = Path(__file__).parent / "ui" / "dist"
