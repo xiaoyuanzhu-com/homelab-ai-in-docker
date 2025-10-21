@@ -39,8 +39,8 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
     # Load model if not cached or if different model requested
     if _model_cache is None or target_model != _current_model_name:
         # Use the downloaded models directory (preserves HuggingFace structure)
-        # Path: data/embedding/models/BAAI/bge-large-en-v1.5
-        model_dir = get_data_dir() / "embedding" / "models" / target_model
+        # Path: data/models/sentence-transformers/all-MiniLM-L6-v2
+        model_dir = get_data_dir() / "models" / target_model
 
         # Check if model exists
         if not model_dir.exists():

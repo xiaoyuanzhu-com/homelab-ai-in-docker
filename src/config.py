@@ -38,17 +38,19 @@ def get_model_cache_dir(service: str, model_name: str) -> Path:
     """
     Get the cache directory for a specific model.
 
+    Uses unified model storage structure: data/models/{model_id}
+    This matches the download location used by the models API.
+
     Args:
-        service: Service name (e.g., 'embedding', 'image-caption')
-        model_name: Model identifier (e.g., 'all-MiniLM-L6-v2')
+        service: Service name (deprecated, kept for compatibility)
+        model_name: Model identifier (e.g., 'sentence-transformers/all-MiniLM-L6-v2')
 
     Returns:
         Path to model cache directory
     """
-    # Sanitize model name for filesystem (replace / with --)
-    safe_model_name = model_name.replace("/", "--")
-
-    cache_dir = get_data_dir() / service / safe_model_name
+    # Use unified models directory structure to match download location
+    # Path: data/models/sentence-transformers/all-MiniLM-L6-v2
+    cache_dir = get_data_dir() / "models" / model_name
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     return cache_dir
