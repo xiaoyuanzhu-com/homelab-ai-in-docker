@@ -58,11 +58,13 @@ export default function ModelsPage() {
     fetchModels();
   }, []);
 
-  // Auto-refresh every 5s when there are downloading models
+  // Auto-refresh every 5s when downloads are in progress
+  // Trigger when either server-reported status or local downloading state is present
   useEffect(() => {
-    const hasDownloading = models.some(m => m.status === "downloading");
+    const hasServerDownloading = models.some(m => m.status === "downloading");
+    const hasLocalDownloading = downloadingModels.size > 0;
 
-    if (!hasDownloading) {
+    if (!hasServerDownloading && !hasLocalDownloading) {
       return;
     }
 
@@ -71,7 +73,7 @@ export default function ModelsPage() {
     }, 5000);
 
     return () => clearInterval(intervalId);
-  }, [models]);
+  }, [models, downloadingModels]);
 
   const handleDownload = async (modelId: string) => {
     setDownloadingModels(prev => new Set(prev).add(modelId));
@@ -83,6 +85,9 @@ export default function ModelsPage() {
       // Use SSE streaming endpoint for real-time progress
       const encodedId = encodeURIComponent(modelId);
       const eventSource = new EventSource(`/api/models/download?model=${encodedId}`);
+
+      // Kick off a refresh immediately so the UI reflects "downloading" status promptly
+      fetchModels();
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);

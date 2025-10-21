@@ -22,6 +22,7 @@ def init_settings_table():
         # Insert default settings if not exists
         defaults = [
             ("model_idle_timeout_seconds", "5", "Seconds of inactivity before unloading models from GPU memory"),
+            ("hf_endpoint", "https://huggingface.co", "HuggingFace endpoint URL for model downloads and loading"),
         ]
         
         for key, value, description in defaults:

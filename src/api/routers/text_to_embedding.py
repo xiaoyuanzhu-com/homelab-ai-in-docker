@@ -1,6 +1,7 @@
 """Text to embedding API router for text vectorization."""
 
 import logging
+import os
 import time
 import uuid
 from typing import Optional
@@ -11,7 +12,7 @@ import torch
 
 from ..models.text_to_embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
-from ...config import get_data_dir
+from ...config import get_data_dir, get_hf_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,9 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
                     "message": f"Model '{target_model}' not found. Please download it first from the Models tab.",
                 },
             )
+
+        # Set HuggingFace endpoint for model loading
+        os.environ["HF_ENDPOINT"] = get_hf_endpoint()
 
         # Load model from local directory
         _model_cache = SentenceTransformer(str(model_dir))

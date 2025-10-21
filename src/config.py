@@ -60,3 +60,30 @@ def get_model_cache_dir(service: str, model_name: str) -> Path:
 HF_HOME_ENV = "HF_HOME"
 TRANSFORMERS_CACHE_ENV = "TRANSFORMERS_CACHE"
 SENTENCE_TRANSFORMERS_HOME_ENV = "SENTENCE_TRANSFORMERS_HOME"
+
+
+def get_hf_endpoint() -> str:
+    """
+    Get the HuggingFace endpoint URL with priority order:
+    1. Database settings
+    2. Environment variable (HF_ENDPOINT)
+    3. Default (https://huggingface.co)
+
+    Returns:
+        HuggingFace endpoint URL
+    """
+    # Avoid circular import by importing here
+    from src.db.settings import get_setting
+
+    # Priority 1: Database settings
+    db_endpoint = get_setting("hf_endpoint")
+    if db_endpoint:
+        return db_endpoint
+
+    # Priority 2: Environment variable
+    env_endpoint = os.getenv("HF_ENDPOINT")
+    if env_endpoint:
+        return env_endpoint
+
+    # Priority 3: Default
+    return "https://huggingface.co"

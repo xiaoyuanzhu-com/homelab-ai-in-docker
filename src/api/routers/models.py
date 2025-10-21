@@ -143,8 +143,10 @@ async def download_model_with_progress(
 
     process = None
     try:
+        from ...config import get_hf_endpoint
+
         env = os.environ.copy()
-        hf_endpoint = env.get("HF_ENDPOINT", "https://huggingface.co")
+        hf_endpoint = get_hf_endpoint()
 
         logger.info(f"=== Download Starting for {model_id} ===")
         logger.info(f"HuggingFace Endpoint: {hf_endpoint}")

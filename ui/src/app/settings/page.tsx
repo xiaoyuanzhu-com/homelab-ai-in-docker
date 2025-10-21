@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 export default function SettingsPage() {
   const [modelIdleTimeout, setModelIdleTimeout] = useState("5");
+  const [hfEndpoint, setHfEndpoint] = useState("https://huggingface.co");
   const [loading, setLoading] = useState(true);
 
   // Load settings on mount
@@ -20,6 +21,9 @@ export default function SettingsPage() {
           const data = await response.json();
           if (data.settings.model_idle_timeout_seconds) {
             setModelIdleTimeout(data.settings.model_idle_timeout_seconds);
+          }
+          if (data.settings.hf_endpoint) {
+            setHfEndpoint(data.settings.hf_endpoint);
           }
         }
       } catch (error) {
@@ -33,16 +37,24 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     try {
-      const response = await fetch("/api/settings/model_idle_timeout_seconds", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: modelIdleTimeout }),
-      });
+      // Save both settings
+      const responses = await Promise.all([
+        fetch("/api/settings/model_idle_timeout_seconds", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: modelIdleTimeout }),
+        }),
+        fetch("/api/settings/hf_endpoint", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: hfEndpoint }),
+        }),
+      ]);
 
-      if (response.ok) {
+      if (responses.every((r) => r.ok)) {
         toast.success("Settings saved successfully!");
       } else {
-        toast.error("Failed to save settings");
+        toast.error("Failed to save some settings");
       }
     } catch (error) {
       console.error("Error saving settings:", error);
@@ -59,35 +71,62 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Performance</CardTitle>
-          <CardDescription>Optimize GPU memory usage and model loading</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="model-idle-timeout">GPU Model Idle Timeout (seconds)</Label>
-            <Input
-              id="model-idle-timeout"
-              type="number"
-              min="1"
-              max="300"
-              value={modelIdleTimeout}
-              onChange={(e) => setModelIdleTimeout(e.target.value)}
-              disabled={loading}
-            />
-            <p className="text-sm text-muted-foreground">
-              Time in seconds before unloading idle models from GPU memory. Lower values free GPU
-              faster for other services. Higher values improve performance for frequent requests.
-              Default: 5 seconds.
-            </p>
-          </div>
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Model Downloads</CardTitle>
+            <CardDescription>Configure HuggingFace model download and loading behavior</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="hf-endpoint">HuggingFace Endpoint</Label>
+              <Input
+                id="hf-endpoint"
+                type="url"
+                value={hfEndpoint}
+                onChange={(e) => setHfEndpoint(e.target.value)}
+                disabled={loading}
+                placeholder="https://huggingface.co"
+              />
+              <p className="text-sm text-muted-foreground">
+                Base URL for downloading and loading HuggingFace models. Use a mirror endpoint for
+                faster downloads in certain regions (e.g., https://hf-mirror.com in China).
+                Default: https://huggingface.co
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
-          <Button onClick={handleSave} disabled={loading}>
-            Save Settings
-          </Button>
-        </CardContent>
-      </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Performance</CardTitle>
+            <CardDescription>Optimize GPU memory usage and model loading</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="model-idle-timeout">GPU Model Idle Timeout (seconds)</Label>
+              <Input
+                id="model-idle-timeout"
+                type="number"
+                min="1"
+                max="300"
+                value={modelIdleTimeout}
+                onChange={(e) => setModelIdleTimeout(e.target.value)}
+                disabled={loading}
+              />
+              <p className="text-sm text-muted-foreground">
+                Time in seconds before unloading idle models from GPU memory. Lower values free GPU
+                faster for other services. Higher values improve performance for frequent requests.
+                Default: 5 seconds.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Button onClick={handleSave} disabled={loading} size="lg">
+          Save All Settings
+        </Button>
+      </div>
     </div>
   );
 }

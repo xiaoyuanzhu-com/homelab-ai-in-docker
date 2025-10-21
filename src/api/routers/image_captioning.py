@@ -185,6 +185,10 @@ def get_model(model_name: str):
         # Set HuggingFace cache environment variable
         os.environ["TRANSFORMERS_CACHE"] = str(cache_dir)
 
+        # Set HuggingFace endpoint for model loading
+        from ...config import get_hf_endpoint
+        os.environ["HF_ENDPOINT"] = get_hf_endpoint()
+
         try:
             # Load processor using Auto class (works for all architectures)
             _processor_cache = AutoProcessor.from_pretrained(
