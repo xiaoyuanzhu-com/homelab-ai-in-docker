@@ -20,7 +20,7 @@ from ..models.speaker_embedding import (
     CompareEmbeddingsResponse,
 )
 
-router = APIRouter(prefix="/speaker-embedding", tags=["speaker-embedding"])
+router = APIRouter(prefix="/api/speaker-embedding", tags=["speaker-embedding"])
 logger = logging.getLogger(__name__)
 
 # Global model cache
