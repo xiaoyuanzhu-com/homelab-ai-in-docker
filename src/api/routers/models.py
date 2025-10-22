@@ -143,22 +143,40 @@ async def download_model_with_progress(
 
     process = None
     try:
-        from ...config import get_hf_endpoint
+        from ...config import get_hf_endpoint, get_hf_username, get_hf_token
 
         env = os.environ.copy()
         hf_endpoint = get_hf_endpoint()
+        hf_username = get_hf_username()
+        hf_token = get_hf_token()
+
         # Disable Python's output buffering to get real-time logs
         env["PYTHONUNBUFFERED"] = "1"
 
         logger.info(f"=== Download Starting for {model_id} ===")
         logger.info(f"HuggingFace Endpoint: {hf_endpoint}")
+        logger.info(f"HuggingFace Username: {'[configured]' if hf_username else '[not set]'}")
+        logger.info(f"HuggingFace Token: {'[configured]' if hf_token else '[not set]'}")
         logger.info(f"Target directory: {cache_dir}")
 
         # Use hfd (huggingface downloader with aria2) for better mirror support and resume capability
-        # hfd properly respects HF_ENDPOINT and uses aria2c for faster multi-threaded downloads
+        # hfd requires both --hf_username and --hf_token for gated/private models
         # stdbuf -oL forces line-buffered output to get logs immediately
-        cmd_str = f"HF_ENDPOINT={hf_endpoint} stdbuf -oL hfd {model_id} --local-dir {cache_dir}"
-        logger.info(f"Command: {cmd_str}")
+        import shlex
+
+        cmd_parts = [
+            f"HF_ENDPOINT={hf_endpoint}",
+            "stdbuf", "-oL", "hfd",
+            model_id,
+            "--local-dir", str(cache_dir)
+        ]
+        if hf_username and hf_token:
+            cmd_parts.extend(["--hf_username", hf_username, "--hf_token", hf_token])
+
+        cmd_str = " ".join(shlex.quote(part) if i > 0 else part for i, part in enumerate(cmd_parts))
+        # Log with redacted token
+        log_cmd = cmd_str.replace(hf_token, '[REDACTED]') if hf_token else cmd_str
+        logger.info(f"Command: {log_cmd}")
 
         process = subprocess.Popen(
             cmd_str,

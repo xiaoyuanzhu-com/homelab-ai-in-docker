@@ -12,6 +12,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
+# Sensitive keys that should be redacted in logs
+SENSITIVE_KEYS = {"hf_token", "token", "password", "secret", "api_key", "apikey"}
+
+
+def should_redact(key: str) -> bool:
+    """Check if a setting key contains sensitive data that should be redacted."""
+    key_lower = key.lower()
+    return any(sensitive in key_lower for sensitive in SENSITIVE_KEYS)
+
 
 class SettingValue(BaseModel):
     """Request model for updating a setting value."""
@@ -28,7 +37,11 @@ class SettingsResponse(BaseModel):
 async def get_settings() -> SettingsResponse:
     """
     Get all application settings.
-    
+
+    Note: Sensitive values (tokens, passwords, etc.) are returned as-is since
+    the frontend needs them to display in password fields. The frontend should
+    use type="password" for these fields.
+
     Returns:
         All settings as key-value pairs
     """
@@ -50,17 +63,23 @@ async def get_settings() -> SettingsResponse:
 async def update_setting(key: str, setting: SettingValue) -> Dict[str, Any]:
     """
     Update a setting value.
-    
+
     Args:
         key: Setting key to update
         setting: New value and optional description
-        
+
     Returns:
         Success message with updated value
     """
     try:
         set_setting(key, setting.value, setting.description)
-        logger.info(f"Updated setting '{key}' to '{setting.value}'")
+
+        # Redact sensitive values in logs
+        if should_redact(key):
+            logger.info(f"Updated setting '{key}' to '[REDACTED]'")
+        else:
+            logger.info(f"Updated setting '{key}' to '{setting.value}'")
+
         return {
             "success": True,
             "key": key,

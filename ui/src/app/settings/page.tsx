@@ -10,6 +10,8 @@ import { toast } from "sonner";
 export default function SettingsPage() {
   const [modelIdleTimeout, setModelIdleTimeout] = useState("5");
   const [hfEndpoint, setHfEndpoint] = useState("https://huggingface.co");
+  const [hfUsername, setHfUsername] = useState("");
+  const [hfToken, setHfToken] = useState("");
   const [loading, setLoading] = useState(true);
 
   // Load settings on mount
@@ -25,6 +27,12 @@ export default function SettingsPage() {
           if (data.settings.hf_endpoint) {
             setHfEndpoint(data.settings.hf_endpoint);
           }
+          if (data.settings.hf_username !== undefined) {
+            setHfUsername(data.settings.hf_username);
+          }
+          if (data.settings.hf_token !== undefined) {
+            setHfToken(data.settings.hf_token);
+          }
         }
       } catch (error) {
         console.error("Failed to load settings:", error);
@@ -37,7 +45,7 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     try {
-      // Save both settings
+      // Save all settings
       const responses = await Promise.all([
         fetch("/api/settings/model_idle_timeout_seconds", {
           method: "PUT",
@@ -48,6 +56,16 @@ export default function SettingsPage() {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ value: hfEndpoint }),
+        }),
+        fetch("/api/settings/hf_username", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: hfUsername }),
+        }),
+        fetch("/api/settings/hf_token", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value: hfToken }),
         }),
       ]);
 
@@ -92,6 +110,45 @@ export default function SettingsPage() {
                 Base URL for downloading and loading HuggingFace models. Use a mirror endpoint for
                 faster downloads in certain regions (e.g., https://hf-mirror.com in China).
                 Default: https://huggingface.co
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="hf-username">HuggingFace Username</Label>
+              <Input
+                id="hf-username"
+                type="text"
+                value={hfUsername}
+                onChange={(e) => setHfUsername(e.target.value)}
+                disabled={loading}
+                placeholder="your-username"
+              />
+              <p className="text-sm text-muted-foreground">
+                Your HuggingFace username (not email) for accessing gated models. Required along with
+                API token for authentication. Leave empty for public models.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="hf-token">HuggingFace API Token</Label>
+              <Input
+                id="hf-token"
+                type="password"
+                value={hfToken}
+                onChange={(e) => setHfToken(e.target.value)}
+                disabled={loading}
+                placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
+              />
+              <p className="text-sm text-muted-foreground">
+                API token for accessing private models or gated models requiring authentication.
+                Get your token from{" "}
+                <a
+                  href="https://huggingface.co/settings/tokens"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  https://huggingface.co/settings/tokens
+                </a>
+                . Both username and token are required for authentication.
               </p>
             </div>
           </CardContent>

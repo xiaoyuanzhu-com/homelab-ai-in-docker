@@ -23,6 +23,8 @@ def init_settings_table():
         defaults = [
             ("model_idle_timeout_seconds", "5", "Seconds of inactivity before unloading models from GPU memory"),
             ("hf_endpoint", "https://huggingface.co", "HuggingFace endpoint URL for model downloads and loading"),
+            ("hf_username", "", "HuggingFace username for accessing gated models (optional, not email)"),
+            ("hf_token", "", "HuggingFace API token for accessing private models (optional)"),
         ]
         
         for key, value, description in defaults:

@@ -87,3 +87,57 @@ def get_hf_endpoint() -> str:
 
     # Priority 3: Default
     return "https://huggingface.co"
+
+
+def get_hf_username() -> str:
+    """
+    Get the HuggingFace username with priority order:
+    1. Database settings
+    2. Environment variable (HF_USERNAME)
+    3. Default (empty string)
+
+    Returns:
+        HuggingFace username (empty string if not configured)
+    """
+    # Avoid circular import by importing here
+    from src.db.settings import get_setting
+
+    # Priority 1: Database settings
+    db_username = get_setting("hf_username")
+    if db_username:
+        return db_username
+
+    # Priority 2: Environment variable
+    env_username = os.getenv("HF_USERNAME")
+    if env_username:
+        return env_username
+
+    # Priority 3: Default (empty)
+    return ""
+
+
+def get_hf_token() -> str:
+    """
+    Get the HuggingFace API token with priority order:
+    1. Database settings
+    2. Environment variable (HF_TOKEN)
+    3. Default (empty string)
+
+    Returns:
+        HuggingFace API token (empty string if not configured)
+    """
+    # Avoid circular import by importing here
+    from src.db.settings import get_setting
+
+    # Priority 1: Database settings
+    db_token = get_setting("hf_token")
+    if db_token:
+        return db_token
+
+    # Priority 2: Environment variable
+    env_token = os.getenv("HF_TOKEN")
+    if env_token:
+        return env_token
+
+    # Priority 3: Default (empty)
+    return ""
