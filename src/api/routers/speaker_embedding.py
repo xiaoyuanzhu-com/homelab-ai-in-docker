@@ -66,6 +66,13 @@ def get_model(model_name: str):
         os.environ["HF_TOKEN"] = hf_token
 
     try:
+        # Suppress TF32 warnings by setting the backends before loading model
+        if torch.cuda.is_available():
+            # Enable TF32 for better performance on Ampere+ GPUs
+            # This suppresses the pyannote reproducibility warning
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+
         # Load model
         model = Model.from_pretrained(model_path, use_auth_token=hf_token if hf_token else None)
 
