@@ -18,6 +18,7 @@ from src.api.routers import (
     image_captioning,
     image_ocr,
     automatic_speech_recognition,
+    speaker_embedding,
     history,
     models,
     hardware,
@@ -93,6 +94,12 @@ async def periodic_model_cleanup():
                 automatic_speech_recognition.check_and_cleanup_idle_model()
             except Exception as e:
                 logger.debug(f"Error checking idle ASR model: {e}")
+
+            # Check speaker embedding models
+            try:
+                speaker_embedding.check_and_cleanup_idle_model()
+            except Exception as e:
+                logger.debug(f"Error checking idle speaker embedding model: {e}")
 
         except asyncio.CancelledError:
             logger.info("Periodic model cleanup task cancelled")
@@ -252,6 +259,7 @@ app.include_router(text_generation.router)
 app.include_router(image_captioning.router)
 app.include_router(image_ocr.router)
 app.include_router(automatic_speech_recognition.router)
+app.include_router(speaker_embedding.router)
 app.include_router(history.router)
 app.include_router(models.router)
 app.include_router(hardware.router)

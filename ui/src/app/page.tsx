@@ -202,6 +202,14 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
+        id: "speaker-embedding",
+        title: "Speaker Embedding",
+        description: "Extract speaker embeddings for verification",
+        icon: <Volume2 className="h-5 w-5" />,
+        href: "/speaker-embedding",
+        available: true
+      },
+      {
         id: "audio-classification",
         title: "Audio Classification",
         description: "Classify audio recordings",

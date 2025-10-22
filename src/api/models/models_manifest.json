@@ -256,6 +256,19 @@
       "gpu_memory_mb": 2048,
       "link": "https://huggingface.co/pyannote/speaker-diarization-3.1",
       "platform_requirements": "Requires pyannote.audio>=3.1 and HuggingFace access token. Must accept conditions for pyannote/segmentation-3.0 and pyannote/speaker-diarization-3.1"
+    },
+    {
+      "id": "pyannote/embedding",
+      "name": "embedding",
+      "team": "pyannote",
+      "task": "speaker-embedding",
+      "architecture": "pyannote",
+      "default_prompt": null,
+      "size_mb": 50,
+      "parameters_m": 3.56,
+      "gpu_memory_mb": 512,
+      "link": "https://huggingface.co/pyannote/embedding",
+      "platform_requirements": "Requires pyannote.audio>=2.1 and HuggingFace access token. TDNN-based x-vector architecture with SincNet features. Achieves 2.8% EER on VoxCeleb 1."
     }
   ]
 }
