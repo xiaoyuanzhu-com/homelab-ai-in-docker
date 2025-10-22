@@ -265,10 +265,10 @@
       "architecture": "pyannote",
       "default_prompt": null,
       "size_mb": 50,
-      "parameters_m": 3.56,
+      "parameters_m": 4,
       "gpu_memory_mb": 512,
       "link": "https://huggingface.co/pyannote/embedding",
-      "platform_requirements": "Requires pyannote.audio>=2.1 and HuggingFace access token. TDNN-based x-vector architecture with SincNet features. Achieves 2.8% EER on VoxCeleb 1."
+      "platform_requirements": "Requires pyannote.audio>=2.1 and HuggingFace access token. TDNN-based x-vector architecture with SincNet features. Achieves 2.8% EER on VoxCeleb 1. Actual: 3.56M params."
     }
   ]
 }
