@@ -144,8 +144,16 @@ async def extract_embedding(request: EmbeddingRequest) -> EmbeddingResponse:
                 embedding = inference(str(audio_path))
                 duration = None
 
-            # Convert to list
-            embedding_list = embedding[0].tolist()
+            # Convert to list - embedding is a (1, D) numpy array
+            import numpy as np
+            if isinstance(embedding, np.ndarray):
+                # If it's already a numpy array, get the first row
+                embedding_vector = embedding[0] if embedding.ndim > 1 else embedding
+                embedding_list = embedding_vector.tolist()
+            else:
+                # If it's a different type, try to convert
+                embedding_list = np.array(embedding).flatten().tolist()
+
             return embedding_list, len(embedding_list), duration
 
         # Run in thread pool to avoid blocking
