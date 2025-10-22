@@ -196,15 +196,7 @@ const TASK_CATEGORIES: TaskCategory[] = [
       {
         id: "automatic-speech-recognition",
         title: "Automatic Speech Recognition",
-        description: "Transcribe speech to text",
-        icon: <Volume2 className="h-5 w-5" />,
-        href: "/automatic-speech-recognition",
-        available: true
-      },
-      {
-        id: "audio-to-audio",
-        title: "Audio To Audio",
-        description: "Speaker diarization and segmentation",
+        description: "Transcribe speech to text and identify speakers",
         icon: <Volume2 className="h-5 w-5" />,
         href: "/automatic-speech-recognition",
         available: true
