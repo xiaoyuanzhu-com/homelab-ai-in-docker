@@ -194,19 +194,19 @@ const TASK_CATEGORIES: TaskCategory[] = [
     title: "Audio",
     tasks: [
       {
-        id: "audio-classification",
-        title: "Audio Classification",
-        description: "Classify audio recordings",
-        icon: <Volume2 className="h-5 w-5" />,
-        available: false
-      },
-      {
         id: "automatic-speech-recognition",
         title: "Automatic Speech Recognition",
         description: "Transcribe speech to text",
         icon: <Volume2 className="h-5 w-5" />,
         href: "/automatic-speech-recognition",
         available: true
+      },
+      {
+        id: "audio-classification",
+        title: "Audio Classification",
+        description: "Classify audio recordings",
+        icon: <Volume2 className="h-5 w-5" />,
+        available: false
       },
       {
         id: "text-to-speech",
