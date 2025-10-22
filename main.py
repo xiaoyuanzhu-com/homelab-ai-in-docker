@@ -17,6 +17,7 @@ from src.api.routers import (
     text_generation,
     image_captioning,
     image_ocr,
+    automatic_speech_recognition,
     history,
     models,
     hardware,
@@ -86,6 +87,12 @@ async def periodic_model_cleanup():
                 text_generation.check_and_cleanup_idle_model()
             except Exception as e:
                 logger.debug(f"Error checking idle text generation model: {e}")
+
+            # Check ASR models
+            try:
+                automatic_speech_recognition.check_and_cleanup_idle_model()
+            except Exception as e:
+                logger.debug(f"Error checking idle ASR model: {e}")
 
         except asyncio.CancelledError:
             logger.info("Periodic model cleanup task cancelled")
@@ -169,7 +176,7 @@ async def lifespan(app: FastAPI):
         pass
 
     # Clean up ML model resources
-    from src.api.routers import text_to_embedding, text_generation, image_captioning, image_ocr
+    from src.api.routers import text_to_embedding, text_generation, image_captioning, image_ocr, automatic_speech_recognition
 
     try:
         logger.info("Releasing text embedding model resources...")
@@ -194,6 +201,12 @@ async def lifespan(app: FastAPI):
         image_ocr.cleanup()
     except Exception as e:
         logger.warning(f"Error cleaning up image OCR model: {e}")
+
+    try:
+        logger.info("Releasing ASR model resources...")
+        automatic_speech_recognition.cleanup()
+    except Exception as e:
+        logger.warning(f"Error cleaning up ASR model: {e}")
 
     # Best-effort shutdown of any joblib/loky process executors to avoid
     # leaked semaphore warnings from Python's resource_tracker on exit.
@@ -238,6 +251,7 @@ app.include_router(text_to_embedding.router)
 app.include_router(text_generation.router)
 app.include_router(image_captioning.router)
 app.include_router(image_ocr.router)
+app.include_router(automatic_speech_recognition.router)
 app.include_router(history.router)
 app.include_router(models.router)
 app.include_router(hardware.router)
@@ -269,6 +283,7 @@ async def root():
             "text_generation": "/api/text-generation",
             "image_captioning": "/api/image-captioning",
             "image_ocr": "/api/image-ocr",
+            "automatic_speech_recognition": "/api/automatic-speech-recognition",
             "hardware": "/api/hardware",
             "docs": "/api/docs",
             "health": "/api/health",
@@ -294,6 +309,7 @@ async def ready():
             "text_generation": "available",
             "image_captioning": "available",
             "image_ocr": "available",
+            "automatic_speech_recognition": "available",
         },
     }
 

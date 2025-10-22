@@ -28,6 +28,7 @@ dependencies = [
     "addict>=2.4.0",
     "matplotlib>=3.7.0",
     "easydict>=1.9",
+    "librosa>=0.10.0",
 ]
 
 [project.optional-dependencies]

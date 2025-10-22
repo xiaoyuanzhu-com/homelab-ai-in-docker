@@ -205,7 +205,8 @@ const TASK_CATEGORIES: TaskCategory[] = [
         title: "Automatic Speech Recognition",
         description: "Transcribe speech to text",
         icon: <Volume2 className="h-5 w-5" />,
-        available: false
+        href: "/automatic-speech-recognition",
+        available: true
       },
       {
         id: "text-to-speech",

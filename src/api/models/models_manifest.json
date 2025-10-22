@@ -205,5 +205,31 @@
       "gpu_memory_mb": 2560,
       "link": "https://huggingface.co/google/gemma-3-1b-it"
     }
+  ],
+  "automatic-speech-recognition": [
+    {
+      "id": "openai/whisper-large-v3",
+      "name": "whisper-large-v3",
+      "team": "openai",
+      "task": "automatic-speech-recognition",
+      "architecture": "whisper",
+      "default_prompt": null,
+      "size_mb": 6170,
+      "parameters_m": 1550,
+      "gpu_memory_mb": 6144,
+      "link": "https://huggingface.co/openai/whisper-large-v3"
+    },
+    {
+      "id": "openai/whisper-large-v3-turbo",
+      "name": "whisper-large-v3-turbo",
+      "team": "openai",
+      "task": "automatic-speech-recognition",
+      "architecture": "whisper",
+      "default_prompt": null,
+      "size_mb": 3090,
+      "parameters_m": 809,
+      "gpu_memory_mb": 4096,
+      "link": "https://huggingface.co/openai/whisper-large-v3-turbo"
+    }
   ]
 }
