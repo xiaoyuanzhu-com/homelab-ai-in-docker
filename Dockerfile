@@ -27,25 +27,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     aria2 \
     wget \
     ccache \
-    ca-certificates \
-    xz-utils \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
-
-# Install FFmpeg 7 shared build for torchcodec compatibility
-ARG FFMPEG_VERSION=7.0.2
-ARG FFMPEG_TAG="n${FFMPEG_VERSION}"
-RUN curl -LsSf "https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_TAG}/ffmpeg-${FFMPEG_TAG}-linux64-gpl-shared-${FFMPEG_VERSION}.tar.xz" -o /tmp/ffmpeg.tar.xz \
-    && mkdir -p /opt/ffmpeg \
-    && tar -xJf /tmp/ffmpeg.tar.xz --strip-components=1 -C /opt/ffmpeg \
-    && rm /tmp/ffmpeg.tar.xz \
-    && echo "/opt/ffmpeg/lib" > /etc/ld.so.conf.d/ffmpeg.conf \
-    && ldconfig
 
 # Install uv for faster Python package management
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
-ENV PATH="/opt/ffmpeg/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/opt/ffmpeg/lib:/usr/local/lib/python3.13/site-packages/torch/lib:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/lib/python3.13/site-packages/torch/lib:${LD_LIBRARY_PATH}"
 
 # Install hfd (HuggingFace downloader with aria2 support and mirror compatibility)
 RUN curl -L https://gist.githubusercontent.com/padeoe/697678ab8e528b85a2a7bddafea1fa4f/raw/hfd.sh -o /usr/local/bin/hfd && \
