@@ -20,13 +20,15 @@ FROM python:3.13
 WORKDIR /haid
 
 # Install system dependencies required by the AI libraries
-RUN apt-get update && apt-get install -y \
+# ffmpeg: Required for pyannote.audio speaker diarization (torchcodec backend)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     git \
     aria2 \
     wget \
     ccache \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for faster Python package management

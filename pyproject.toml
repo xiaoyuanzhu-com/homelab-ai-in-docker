@@ -29,6 +29,7 @@ dependencies = [
     "matplotlib>=3.7.0",
     "easydict>=1.9",
     "librosa>=0.10.0",
+    "pyannote.audio>=3.1.0",
 ]
 
 [project.optional-dependencies]

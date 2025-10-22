@@ -76,11 +76,12 @@ def get_available_models() -> list[str]:
     Load available ASR models from the database.
 
     Returns:
-        List of model IDs that can be used
+        List of model IDs that can be used (both Whisper and pyannote)
     """
     all_models = get_all_models()
-    # Filter for ASR models only
-    return [model["id"] for model in all_models if model["task"] == "automatic-speech-recognition"]
+    # Filter for all ASR models (Whisper for transcription, pyannote for diarization)
+    return [model["id"] for model in all_models
+            if model["task"] == "automatic-speech-recognition"]
 
 
 def validate_model(model_name: str) -> None:
@@ -329,23 +330,52 @@ def decode_audio(audio_data: str) -> Path:
 @router.post("/automatic-speech-recognition", response_model=TranscriptionResponse)
 async def transcribe_audio(request: TranscriptionRequest) -> TranscriptionResponse:
     """
-    Transcribe audio to text using automatic speech recognition.
+    Perform automatic speech recognition on audio.
 
-    Creates text transcription from audio files using Whisper models.
+    Supports both transcription (Whisper models) and speaker diarization (pyannote models).
 
     Args:
-        request: Transcription request parameters
+        request: ASR request parameters
 
     Returns:
-        Transcribed text and metadata
+        Transcription or diarization results based on model type
 
     Raises:
-        HTTPException: If transcription fails
+        HTTPException: If processing fails
     """
     request_id = str(uuid.uuid4())
     start_time = time.time()
     audio_path = None
 
+    try:
+        # Route to appropriate processing based on output_format
+        if request.output_format == "diarization":
+            # Speaker diarization processing
+            return await _process_diarization(request, request_id, start_time)
+        else:
+            # Whisper transcription processing
+            return await _process_transcription(request, request_id, start_time)
+
+    except ValueError as e:
+        error_msg = str(e)
+        code = "INVALID_MODEL" if "Model" in error_msg or "model" in error_msg else "INVALID_AUDIO"
+        logger.warning(f"{code} for request {request_id}: {error_msg}")
+        raise HTTPException(
+            status_code=400,
+            detail={"code": code, "message": error_msg, "request_id": request_id},
+        )
+    except Exception as e:
+        error_msg = f"Failed to process audio: {str(e)}"
+        logger.error(f"Processing failed for request {request_id}: {error_msg}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "PROCESSING_FAILED", "message": error_msg, "request_id": request_id},
+        )
+
+
+async def _process_transcription(request: TranscriptionRequest, request_id: str, start_time: float) -> TranscriptionResponse:
+    """Process Whisper transcription."""
+    audio_path = None
     try:
         # Decode audio off the event loop
         audio_path = await asyncio.to_thread(decode_audio, request.audio)
@@ -451,35 +481,108 @@ async def transcribe_audio(request: TranscriptionRequest) -> TranscriptionRespon
         schedule_idle_cleanup()
         return response
 
-    except ValueError as e:
-        error_msg = str(e)
-        # Distinguish between audio and model errors
-        if "Model" in error_msg or "model" in error_msg:
-            code = "INVALID_MODEL"
-            logger.warning(f"Model error for request {request_id}: {error_msg}")
-        else:
-            code = "INVALID_AUDIO"
-            logger.warning(f"Audio decode error for request {request_id}: {error_msg}")
+    finally:
+        # Clean up temporary audio file
+        if audio_path and audio_path.exists():
+            try:
+                audio_path.unlink()
+            except Exception as e:
+                logger.warning(f"Failed to delete temporary audio file: {e}")
 
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": code,
-                "message": error_msg,
-                "request_id": request_id,
-            },
+
+async def _process_diarization(request: TranscriptionRequest, request_id: str, start_time: float) -> TranscriptionResponse:
+    """Process pyannote speaker diarization."""
+    audio_path = None
+    try:
+        # Decode audio off the event loop
+        audio_path = await asyncio.to_thread(decode_audio, request.audio)
+
+        # Load pyannote pipeline
+        from pyannote.audio import Pipeline
+        from ...db.settings import get_setting
+        from ...config import get_data_dir, get_hf_endpoint
+
+        # Check for local model
+        local_model_dir = get_data_dir() / "models" / request.model
+        if local_model_dir.exists() and (local_model_dir / "config.yaml").exists():
+            model_path = str(local_model_dir)
+            logger.info(f"Using locally downloaded model from {model_path}")
+            # For local path, don't pass use_auth_token
+            pipeline_kwargs = {}
+        else:
+            model_path = request.model
+            # For remote model, use HF token
+            hf_token = get_setting("hf_token")
+            if not hf_token:
+                raise ValueError(
+                    "HuggingFace access token is required. Please set 'hf_token' in settings and accept "
+                    "conditions at https://huggingface.co/pyannote/speaker-diarization-3.1"
+                )
+            pipeline_kwargs = {"use_auth_token": hf_token}
+
+        os.environ["HF_ENDPOINT"] = get_hf_endpoint()
+
+        # Load and run pipeline
+        def _run_diarization():
+            pipeline = Pipeline.from_pretrained(model_path, **pipeline_kwargs)
+            if torch.cuda.is_available():
+                pipeline.to(torch.device("cuda"))
+
+            # Build kwargs
+            kwargs = {}
+            if request.num_speakers:
+                kwargs["num_speakers"] = request.num_speakers
+            if request.min_speakers:
+                kwargs["min_speakers"] = request.min_speakers
+            if request.max_speakers:
+                kwargs["max_speakers"] = request.max_speakers
+
+            # Run diarization
+            diarization = pipeline(str(audio_path), **kwargs)
+
+            # Convert to segments
+            from ..models.automatic_speech_recognition import SpeakerSegment
+            segments = []
+            speakers = set()
+            for turn, _, speaker in diarization.itertracks(yield_label=True):
+                segments.append(SpeakerSegment(
+                    start=turn.start,
+                    end=turn.end,
+                    speaker=speaker
+                ))
+                speakers.add(speaker)
+
+            return {"segments": segments, "num_speakers": len(speakers)}
+
+        result = await asyncio.to_thread(_run_diarization)
+
+        processing_time_ms = int((time.time() - start_time) * 1000)
+
+        response = TranscriptionResponse(
+            request_id=request_id,
+            model=request.model,
+            segments=result["segments"],
+            num_speakers=result["num_speakers"],
+            processing_time_ms=processing_time_ms,
         )
-    except Exception as e:
-        error_msg = f"Failed to transcribe audio: {str(e)}"
-        logger.error(f"Transcription failed for request {request_id}: {error_msg}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "TRANSCRIPTION_FAILED",
-                "message": error_msg,
-                "request_id": request_id,
+
+        # Save to history
+        history_storage.add_request(
+            service="automatic-speech-recognition",
+            request_id=request_id,
+            request_data={
+                "model": request.model,
+                "min_speakers": request.min_speakers,
+                "max_speakers": request.max_speakers,
+                "num_speakers": request.num_speakers,
             },
+            response_data=response.model_dump(),
+            status="success",
         )
+
+        schedule_idle_cleanup()
+        return response
+
     finally:
         # Clean up temporary audio file
         if audio_path and audio_path.exists():

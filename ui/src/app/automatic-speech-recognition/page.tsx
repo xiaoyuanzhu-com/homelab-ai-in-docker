@@ -9,13 +9,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Volume2, Upload, Loader2, Mic, StopCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Input } from "@/components/ui/input";
+
+interface SpeakerSegment {
+  start: number;
+  end: number;
+  speaker: string;
+}
 
 interface TranscriptionResult {
   request_id: string;
-  text: string;
+  text?: string;
   model: string;
-  language: string | null;
+  language?: string | null;
   processing_time_ms: number;
+  segments?: SpeakerSegment[];
+  num_speakers?: number;
 }
 
 interface ModelInfo {
@@ -43,6 +53,11 @@ export default function AutomaticSpeechRecognitionPage() {
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [language, setLanguage] = useState<string>("");
+  const [outputFormat, setOutputFormat] = useState<"transcription" | "diarization">("transcription");
+
+  // Diarization-specific state
+  const [minSpeakers, setMinSpeakers] = useState<string>("");
+  const [maxSpeakers, setMaxSpeakers] = useState<string>("");
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -186,15 +201,28 @@ export default function AutomaticSpeechRecognitionPage() {
         const base64Data = (reader.result as string).split(",")[1];
 
         try {
+          const requestBody: any = {
+            audio: base64Data,
+            model: selectedModel,
+            output_format: outputFormat,
+          };
+
+          // Add transcription-specific params
+          if (outputFormat === "transcription") {
+            requestBody.language = language || undefined;
+            requestBody.return_timestamps = false;
+          }
+
+          // Add diarization-specific params
+          if (outputFormat === "diarization") {
+            if (minSpeakers) requestBody.min_speakers = parseInt(minSpeakers);
+            if (maxSpeakers) requestBody.max_speakers = parseInt(maxSpeakers);
+          }
+
           const response = await fetch("/api/automatic-speech-recognition", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              audio: base64Data,
-              model: selectedModel,
-              language: language || undefined,
-              return_timestamps: false,
-            }),
+            body: JSON.stringify(requestBody),
           });
 
           if (!response.ok) {
@@ -204,7 +232,8 @@ export default function AutomaticSpeechRecognitionPage() {
 
           const data = await response.json();
           setResult(data);
-          toast.success("Transcription completed!", {
+          const successMsg = outputFormat === "diarization" ? "Speaker analysis completed!" : "Transcription completed!";
+          toast.success(successMsg, {
             description: `Processed in ${data.processing_time_ms}ms`,
           });
         } catch (err) {
@@ -232,7 +261,7 @@ export default function AutomaticSpeechRecognitionPage() {
           Automatic Speech Recognition
         </h1>
         <p className="text-muted-foreground">
-          Transcribe speech from audio files to text using Whisper models
+          Transcribe speech or identify speakers in audio files using Whisper and pyannote models
         </p>
       </div>
 
@@ -245,12 +274,31 @@ export default function AutomaticSpeechRecognitionPage() {
         <TabsContent value="try" className="space-y-6 mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>Audio Transcription</CardTitle>
+              <CardTitle>Audio Processing</CardTitle>
               <CardDescription>
-                Record audio from your microphone or upload an audio file to transcribe
+                Record audio from your microphone or upload an audio file to process
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Output Format Selection */}
+              <div className="space-y-3">
+                <Label>Output Format</Label>
+                <RadioGroup value={outputFormat} onValueChange={(val) => setOutputFormat(val as "transcription" | "diarization")}>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="transcription" id="transcription" />
+                    <Label htmlFor="transcription" className="font-normal cursor-pointer">
+                      Transcription (speech to text)
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="diarization" id="diarization" />
+                    <Label htmlFor="diarization" className="font-normal cursor-pointer">
+                      Speaker Diarization (who spoke when)
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
               {/* Model Selection */}
               <div className="space-y-2">
                 <Label htmlFor="model">Model</Label>
@@ -279,26 +327,56 @@ export default function AutomaticSpeechRecognitionPage() {
                 )}
               </div>
 
-              {/* Language Selection (Optional) */}
-              <div className="space-y-2">
-                <Label htmlFor="language">Language (Optional)</Label>
-                <Select value={language || "auto"} onValueChange={(val) => setLanguage(val === "auto" ? "" : val)}>
-                  <SelectTrigger id="language">
-                    <SelectValue placeholder="Auto-detect" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Auto-detect</SelectItem>
-                    <SelectItem value="en">English</SelectItem>
-                    <SelectItem value="zh">Chinese</SelectItem>
-                    <SelectItem value="es">Spanish</SelectItem>
-                    <SelectItem value="fr">French</SelectItem>
-                    <SelectItem value="de">German</SelectItem>
-                    <SelectItem value="ja">Japanese</SelectItem>
-                    <SelectItem value="ko">Korean</SelectItem>
-                    <SelectItem value="ru">Russian</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Transcription-specific options */}
+              {outputFormat === "transcription" && (
+                <div className="space-y-2">
+                  <Label htmlFor="language">Language (Optional)</Label>
+                  <Select value={language || "auto"} onValueChange={(val) => setLanguage(val === "auto" ? "" : val)}>
+                    <SelectTrigger id="language">
+                      <SelectValue placeholder="Auto-detect" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Auto-detect</SelectItem>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="zh">Chinese</SelectItem>
+                      <SelectItem value="es">Spanish</SelectItem>
+                      <SelectItem value="fr">French</SelectItem>
+                      <SelectItem value="de">German</SelectItem>
+                      <SelectItem value="ja">Japanese</SelectItem>
+                      <SelectItem value="ko">Korean</SelectItem>
+                      <SelectItem value="ru">Russian</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Diarization-specific options */}
+              {outputFormat === "diarization" && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="min-speakers">Min Speakers (Optional)</Label>
+                    <Input
+                      id="min-speakers"
+                      type="number"
+                      min="1"
+                      placeholder="Auto"
+                      value={minSpeakers}
+                      onChange={(e) => setMinSpeakers(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="max-speakers">Max Speakers (Optional)</Label>
+                    <Input
+                      id="max-speakers"
+                      type="number"
+                      min="1"
+                      placeholder="Auto"
+                      value={maxSpeakers}
+                      onChange={(e) => setMaxSpeakers(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Recording Controls */}
               <div className="space-y-4">
@@ -417,7 +495,7 @@ export default function AutomaticSpeechRecognitionPage() {
                 )}
               </div>
 
-              {/* Transcribe Button */}
+              {/* Process Button */}
               <Button
                 onClick={handleTranscribe}
                 disabled={!audioFile || !selectedModel || loading}
@@ -426,12 +504,12 @@ export default function AutomaticSpeechRecognitionPage() {
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Transcribing...
+                    {outputFormat === "diarization" ? "Processing..." : "Transcribing..."}
                   </>
                 ) : (
                   <>
                     <Volume2 className="h-4 w-4 mr-2" />
-                    Transcribe Audio
+                    {outputFormat === "diarization" ? "Analyze Speakers" : "Transcribe Audio"}
                   </>
                 )}
               </Button>
@@ -446,14 +524,40 @@ export default function AutomaticSpeechRecognitionPage() {
               {/* Result Display */}
               {result && (
                 <div className="space-y-4 mt-6">
-                  <div className="space-y-2">
-                    <Label>Transcription</Label>
-                    <Textarea
-                      value={result.text}
-                      readOnly
-                      className="min-h-[200px] font-mono text-sm"
-                    />
-                  </div>
+                  {/* Transcription Result */}
+                  {result.text && (
+                    <div className="space-y-2">
+                      <Label>Transcription</Label>
+                      <Textarea
+                        value={result.text}
+                        readOnly
+                        className="min-h-[200px] font-mono text-sm"
+                      />
+                    </div>
+                  )}
+
+                  {/* Diarization Result */}
+                  {result.segments && result.segments.length > 0 && (
+                    <div className="space-y-2">
+                      <Label>Speaker Segments ({result.num_speakers || 0} speakers detected)</Label>
+                      <div className="border rounded-lg max-h-[400px] overflow-y-auto">
+                        <div className="divide-y">
+                          {result.segments.map((segment, idx) => (
+                            <div key={idx} className="p-3 hover:bg-muted/50">
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="font-semibold text-sm text-primary">
+                                  {segment.speaker}
+                                </span>
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                  {segment.start.toFixed(1)}s - {segment.end.toFixed(1)}s
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                     <div>
@@ -462,6 +566,11 @@ export default function AutomaticSpeechRecognitionPage() {
                     {result.language && (
                       <div>
                         <span className="font-semibold">Language:</span> {result.language}
+                      </div>
+                    )}
+                    {result.num_speakers !== undefined && (
+                      <div>
+                        <span className="font-semibold">Speakers:</span> {result.num_speakers}
                       </div>
                     )}
                     <div>

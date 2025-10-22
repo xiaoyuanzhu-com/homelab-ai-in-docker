@@ -202,6 +202,14 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
+        id: "audio-to-audio",
+        title: "Audio To Audio",
+        description: "Speaker diarization and segmentation",
+        icon: <Volume2 className="h-5 w-5" />,
+        href: "/automatic-speech-recognition",
+        available: true
+      },
+      {
         id: "audio-classification",
         title: "Audio Classification",
         description: "Classify audio recordings",
@@ -212,13 +220,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         id: "text-to-speech",
         title: "Text to Speech",
         description: "Synthesize speech from text",
-        icon: <Volume2 className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "audio-to-audio",
-        title: "Audio to Audio",
-        description: "Transform audio",
         icon: <Volume2 className="h-5 w-5" />,
         available: false
       }
