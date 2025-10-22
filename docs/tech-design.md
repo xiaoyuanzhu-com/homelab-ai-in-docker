@@ -100,8 +100,12 @@ GET  /metrics             # Prometheus metrics
 
 **Storage Location**: All models use HuggingFace's standard `HF_HOME` convention.
 
-- **Path**: `data/models/hub/models--{org}--{model}/`
-- **Configuration**: Set via `HF_HOME` environment variable in `main.py`
+- **Root directory**:
+  - In Docker images the app root (`/haid`) is present, so `HF_HOME` defaults to `/haid/data/models`
+  - In local development `HF_HOME` resolves to `<project_root>/data/models` unless `HAID_DATA_DIR` is set
+  - Any deployment can override the root by exporting `HAID_DATA_DIR` (the app then sets `HF_HOME=<HAID_DATA_DIR>/models`)
+- **Cache layout**: `models/hub/models--{org}--{model}/`
+- **Configuration**: `main.py` ensures `HF_HOME` is defined at startup based on the rules above
 - **Benefits**:
   - Standard HuggingFace convention - all HF libraries automatically respect `HF_HOME`
   - Automatic organization with consistent structure across all model types
@@ -111,8 +115,8 @@ GET  /metrics             # Prometheus metrics
 
 **Example structure**:
 ```
-data/
-  models/
+data/                # default root in local development
+  models/            # HF_HOME
     hub/
       models--BAAI--bge-large-en-v1.5/
       models--Alibaba-NLP--gte-large-en-v1.5/
