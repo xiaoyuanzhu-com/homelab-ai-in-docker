@@ -498,6 +498,9 @@ async def _process_diarization(request: TranscriptionRequest, request_id: str, s
         audio_path = await asyncio.to_thread(decode_audio, request.audio)
 
         # Load pyannote pipeline
+        from ...compat import torchcodec_stub
+
+        torchcodec_stub.ensure_torchcodec()
         from pyannote.audio import Pipeline
         from ...db.settings import get_setting
         from ...config import get_data_dir, get_hf_endpoint
@@ -511,16 +514,21 @@ async def _process_diarization(request: TranscriptionRequest, request_id: str, s
             pipeline_kwargs = {}
         else:
             model_path = request.model
-            # For remote model, use HF token
-            hf_token = get_setting("hf_token")
-            if not hf_token:
-                raise ValueError(
-                    "HuggingFace access token is required. Please set 'hf_token' in settings and accept "
-                    "conditions at https://huggingface.co/pyannote/speaker-diarization-3.1"
-                )
-            pipeline_kwargs = {"use_auth_token": hf_token}
+            pipeline_kwargs = {}
+            logger.info("Model not found locally, will use HuggingFace hub")
 
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
+        hf_token = get_setting("hf_token") or os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
+        if model_path == request.model and not hf_token:
+            raise ValueError(
+                "HuggingFace access token is required. Please set 'hf_token' in settings and accept "
+                "conditions at https://huggingface.co/pyannote/speaker-diarization-3.1"
+            )
+        if hf_token:
+            pipeline_kwargs.setdefault("token", hf_token)
+            # Ensure downstream libraries see the token (pyannote uses huggingface_hub directly)
+            os.environ["HF_TOKEN"] = hf_token
+            os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
 
         # Load and run pipeline
         def _run_diarization():
@@ -538,31 +546,41 @@ async def _process_diarization(request: TranscriptionRequest, request_id: str, s
                 kwargs["max_speakers"] = request.max_speakers
 
             # Run diarization
-            diarization = pipeline(str(audio_path), **kwargs)
+            return pipeline(str(audio_path), **kwargs)
 
-            # Convert to segments
-            from ..models.automatic_speech_recognition import SpeakerSegment
-            segments = []
-            speakers = set()
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
-                segments.append(SpeakerSegment(
-                    start=turn.start,
-                    end=turn.end,
-                    speaker=speaker
-                ))
-                speakers.add(speaker)
-
-            return {"segments": segments, "num_speakers": len(speakers)}
-
-        result = await asyncio.to_thread(_run_diarization)
+        diarization_result = await asyncio.to_thread(_run_diarization)
 
         processing_time_ms = int((time.time() - start_time) * 1000)
+
+        # pyannote>=4 returns DiarizeOutput with annotations attached to attributes.
+        # For older versions the pipeline itself is an Annotation.
+        diarization_annotation = None
+        if hasattr(diarization_result, "speaker_diarization"):
+            diarization_annotation = getattr(diarization_result, "exclusive_speaker_diarization", None) or diarization_result.speaker_diarization
+        elif hasattr(diarization_result, "annotations") and callable(getattr(diarization_result, "itertracks", None)):
+            diarization_annotation = diarization_result
+        elif callable(getattr(diarization_result, "itertracks", None)):
+            diarization_annotation = diarization_result
+
+        if diarization_annotation is None:
+            raise ValueError("Unexpected diarization output format returned by pyannote.")
+
+        from ..models.automatic_speech_recognition import SpeakerSegment
+        segments = []
+        speakers = set()
+        for turn, _, speaker in diarization_annotation.itertracks(yield_label=True):
+            segments.append(SpeakerSegment(
+                start=float(turn.start),
+                end=float(turn.end),
+                speaker=speaker
+            ))
+            speakers.add(speaker)
 
         response = TranscriptionResponse(
             request_id=request_id,
             model=request.model,
-            segments=result["segments"],
-            num_speakers=result["num_speakers"],
+            segments=segments,
+            num_speakers=len(speakers),
             processing_time_ms=processing_time_ms,
         )
 
