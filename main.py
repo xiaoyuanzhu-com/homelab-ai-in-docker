@@ -42,6 +42,16 @@ if "CRAWL4AI_BASE_DIRECTORY" not in os.environ:
 if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(HAID_DATA_DIR / "playwright")
 
+# Configure PyTorch TF32 for better performance on Ampere+ GPUs
+# This suppresses pyannote.audio reproducibility warnings
+try:
+    import torch
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+except ImportError:
+    pass  # torch not installed, skip
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
