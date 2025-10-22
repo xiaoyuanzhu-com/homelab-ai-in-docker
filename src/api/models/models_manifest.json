@@ -232,6 +232,19 @@
       "link": "https://huggingface.co/openai/whisper-large-v3-turbo"
     },
     {
+      "id": "pyannote/segmentation-3.0",
+      "name": "segmentation-3.0",
+      "team": "pyannote",
+      "task": "automatic-speech-recognition",
+      "architecture": "pyannote",
+      "default_prompt": null,
+      "size_mb": 150,
+      "parameters_m": 50,
+      "gpu_memory_mb": 1024,
+      "link": "https://huggingface.co/pyannote/segmentation-3.0",
+      "platform_requirements": "Requires pyannote.audio>=3.0 and HuggingFace access token. Used as dependency by speaker-diarization-3.1. Processes 10-second audio chunks at 16kHz."
+    },
+    {
       "id": "pyannote/speaker-diarization-3.1",
       "name": "speaker-diarization-3.1",
       "team": "pyannote",
