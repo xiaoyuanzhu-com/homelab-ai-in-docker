@@ -7,10 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Volume2, Upload, Loader2, Mic, StopCircle, Trash2 } from "lucide-react";
+import { Volume2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AlertCircle } from "lucide-react";
+import { TryLayout, ModelSelector } from "@/components/try";
+import { AudioUpload, AudioPlayer, AudioRecorderControls } from "@/components/inputs";
 
 interface SpeakerSegment {
   start: number;
@@ -66,6 +71,7 @@ export default function AutomaticSpeechRecognitionPage() {
   const [isRecordingSupported, setIsRecordingSupported] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     // Check if recording is supported
@@ -101,6 +107,24 @@ export default function AutomaticSpeechRecognitionPage() {
 
     fetchModels();
   }, []);
+
+  useEffect(() => {
+    if (recordedAudioUrl) {
+      setAudioPreviewUrl(recordedAudioUrl);
+      return;
+    }
+
+    if (audioFile) {
+      const objectUrl = URL.createObjectURL(audioFile);
+      setAudioPreviewUrl(objectUrl);
+      return () => {
+        URL.revokeObjectURL(objectUrl);
+      };
+    }
+
+    setAudioPreviewUrl(null);
+    return;
+  }, [audioFile, recordedAudioUrl]);
 
   const startRecording = async () => {
     // Check if mediaDevices is supported
@@ -201,7 +225,17 @@ export default function AutomaticSpeechRecognitionPage() {
         const base64Data = (reader.result as string).split(",")[1];
 
         try {
-          const requestBody: any = {
+          interface RequestPayload {
+            audio: string;
+            model: string;
+            output_format: "transcription" | "diarization";
+            language?: string;
+            return_timestamps?: boolean;
+            min_speakers?: number;
+            max_speakers?: number;
+          }
+
+          const requestBody: RequestPayload = {
             audio: base64Data,
             model: selectedModel,
             output_format: outputFormat,
@@ -253,6 +287,221 @@ export default function AutomaticSpeechRecognitionPage() {
     }
   };
 
+  const modelOptions = availableModels.map((model) => ({
+    value: model.id,
+    label: `${model.name} (${model.parameters_m}M params)`,
+  }));
+
+  const rawRequestPayload = {
+    model: selectedModel || null,
+    output_format: outputFormat,
+    language: language || "auto",
+    min_speakers: minSpeakers || null,
+    max_speakers: maxSpeakers || null,
+    audio_source: recordedAudioUrl
+      ? "recorded"
+      : audioFile
+      ? audioFile.name
+      : null,
+  };
+
+  const rawResponsePayload = result;
+  const hasAudioInput = Boolean(audioFile || recordedBlob);
+
+  const inputPanel = (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="model">Model</Label>
+        <ModelSelector
+          value={selectedModel}
+          onChange={setSelectedModel}
+          options={modelOptions}
+          loading={modelsLoading}
+          disabled={loading}
+          emptyMessage="No ASR models downloaded. Visit the Models page to install one."
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Mode</Label>
+        <RadioGroup
+          value={outputFormat}
+          onValueChange={(val) => setOutputFormat(val as "transcription" | "diarization")}
+          className="grid grid-cols-1 gap-2 md:grid-cols-2"
+        >
+          <div className="flex items-center space-x-2 rounded-lg border p-3">
+            <RadioGroupItem value="transcription" id="mode-transcription" />
+            <Label htmlFor="mode-transcription" className="cursor-pointer">
+              Transcription
+            </Label>
+          </div>
+          <div className="flex items-center space-x-2 rounded-lg border p-3">
+            <RadioGroupItem value="diarization" id="mode-diarization" />
+            <Label htmlFor="mode-diarization" className="cursor-pointer">
+              Speaker Diarization
+            </Label>
+          </div>
+        </RadioGroup>
+      </div>
+
+      {outputFormat === "transcription" && (
+        <div className="space-y-2">
+          <Label htmlFor="language">Language (Optional)</Label>
+          <Select value={language || "auto"} onValueChange={(val) => setLanguage(val === "auto" ? "" : val)}>
+            <SelectTrigger id="language">
+              <SelectValue placeholder="Auto-detect" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto-detect</SelectItem>
+              <SelectItem value="en">English</SelectItem>
+              <SelectItem value="zh">Chinese</SelectItem>
+              <SelectItem value="es">Spanish</SelectItem>
+              <SelectItem value="fr">French</SelectItem>
+              <SelectItem value="de">German</SelectItem>
+              <SelectItem value="ja">Japanese</SelectItem>
+              <SelectItem value="ko">Korean</SelectItem>
+              <SelectItem value="ru">Russian</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {outputFormat === "diarization" && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="min-speakers">Min Speakers (Optional)</Label>
+            <Input
+              id="min-speakers"
+              type="number"
+              min="1"
+              placeholder="Auto"
+              value={minSpeakers}
+              onChange={(e) => setMinSpeakers(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="max-speakers">Max Speakers (Optional)</Label>
+            <Input
+              id="max-speakers"
+              type="number"
+              min="1"
+              placeholder="Auto"
+              value={maxSpeakers}
+              onChange={(e) => setMaxSpeakers(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <AudioRecorderControls
+          isRecording={isRecording}
+          onStart={startRecording}
+          onStop={stopRecording}
+          onClear={recordedAudioUrl || audioFile ? clearRecording : undefined}
+          supported={isRecordingSupported}
+          disabled={loading}
+        />
+
+        <AudioUpload
+          id="audio-file"
+          label="Audio File"
+          onChange={handleFileChange}
+          disabled={loading || isRecording}
+          fileName={audioFile ? audioFile.name : undefined}
+          accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
+        />
+
+        {audioPreviewUrl && !isRecording && (
+          <AudioPlayer src={audioPreviewUrl} label="Audio Preview" />
+        )}
+
+        {isRecording && (
+          <div className="flex items-center gap-2 p-4 bg-destructive/10 text-destructive rounded-lg">
+            <div className="h-3 w-3 bg-destructive rounded-full animate-pulse" />
+            <span className="text-sm font-medium">Recording in progress...</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const outputContent = (
+    <>
+      {loading && (
+        <div className="space-y-4">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      )}
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {result && !error && (
+        <div className="space-y-4">
+          {result.text && (
+            <div className="space-y-2">
+              <Label>Transcription</Label>
+              <Textarea value={result.text} readOnly className="min-h-[200px] font-mono text-sm" />
+            </div>
+          )}
+
+          {result.segments && result.segments.length > 0 && (
+            <div className="space-y-2">
+              <Label>Speaker Segments ({result.num_speakers || 0} speakers detected)</Label>
+              <div className="border rounded-lg max-h-[400px] overflow-y-auto">
+                <div className="divide-y">
+                  {result.segments.map((segment, idx) => (
+                    <div key={idx} className="p-3 hover:bg-muted/50">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-semibold text-sm text-primary">{segment.speaker}</span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {segment.start.toFixed(1)}s - {segment.end.toFixed(1)}s
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+            <div>
+              <span className="font-semibold">Model:</span> {result.model}
+            </div>
+            {result.language && (
+              <div>
+                <span className="font-semibold">Language:</span> {result.language}
+              </div>
+            )}
+            {result.num_speakers !== undefined && (
+              <div>
+                <span className="font-semibold">Speakers:</span> {result.num_speakers}
+              </div>
+            )}
+            <div>
+              <span className="font-semibold">Processing Time:</span> {result.processing_time_ms}ms
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!loading && !error && !result && (
+        <p className="text-muted-foreground text-center py-8">
+          Upload or record audio, then run transcription to view results here.
+        </p>
+      )}
+    </>
+  );
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
       <div className="mb-6">
@@ -271,316 +520,46 @@ export default function AutomaticSpeechRecognitionPage() {
           <TabsTrigger value="models">Models</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="try" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Audio Processing</CardTitle>
-              <CardDescription>
-                Record audio from your microphone or upload an audio file to process
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Output Format Selection */}
-              <div className="space-y-3">
-                <Label>Output Format</Label>
-                <RadioGroup value={outputFormat} onValueChange={(val) => setOutputFormat(val as "transcription" | "diarization")}>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="transcription" id="transcription" />
-                    <Label htmlFor="transcription" className="font-normal cursor-pointer">
-                      Transcription (speech to text)
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="diarization" id="diarization" />
-                    <Label htmlFor="diarization" className="font-normal cursor-pointer">
-                      Speaker Diarization (who spoke when)
-                    </Label>
-                  </div>
-                </RadioGroup>
-              </div>
-
-              {/* Model Selection */}
-              <div className="space-y-2">
-                <Label htmlFor="model">Model</Label>
-                {modelsLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading models...
-                  </div>
-                ) : availableModels.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">
-                    No models downloaded. Please download a model from the Models tab.
-                  </div>
-                ) : (
-                  <Select value={selectedModel} onValueChange={setSelectedModel}>
-                    <SelectTrigger id="model">
-                      <SelectValue placeholder="Select a model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableModels.map((model) => (
-                        <SelectItem key={model.id} value={model.id}>
-                          {model.name} ({model.parameters_m}M params)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              {/* Transcription-specific options */}
-              {outputFormat === "transcription" && (
-                <div className="space-y-2">
-                  <Label htmlFor="language">Language (Optional)</Label>
-                  <Select value={language || "auto"} onValueChange={(val) => setLanguage(val === "auto" ? "" : val)}>
-                    <SelectTrigger id="language">
-                      <SelectValue placeholder="Auto-detect" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto-detect</SelectItem>
-                      <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="zh">Chinese</SelectItem>
-                      <SelectItem value="es">Spanish</SelectItem>
-                      <SelectItem value="fr">French</SelectItem>
-                      <SelectItem value="de">German</SelectItem>
-                      <SelectItem value="ja">Japanese</SelectItem>
-                      <SelectItem value="ko">Korean</SelectItem>
-                      <SelectItem value="ru">Russian</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {/* Diarization-specific options */}
-              {outputFormat === "diarization" && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="min-speakers">Min Speakers (Optional)</Label>
-                    <Input
-                      id="min-speakers"
-                      type="number"
-                      min="1"
-                      placeholder="Auto"
-                      value={minSpeakers}
-                      onChange={(e) => setMinSpeakers(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="max-speakers">Max Speakers (Optional)</Label>
-                    <Input
-                      id="max-speakers"
-                      type="number"
-                      min="1"
-                      placeholder="Auto"
-                      value={maxSpeakers}
-                      onChange={(e) => setMaxSpeakers(e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Recording Controls */}
-              <div className="space-y-4">
-                <Label>Audio Input</Label>
-
-                {/* Record from Microphone */}
-                {isRecordingSupported ? (
-                  <>
-                    <div className="flex items-center gap-2">
-                      {!isRecording ? (
-                        <Button
-                          type="button"
-                          variant="default"
-                          onClick={startRecording}
-                          disabled={loading}
-                          className="flex-1"
-                        >
-                          <Mic className="h-4 w-4 mr-2" />
-                          Record from Microphone
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          onClick={stopRecording}
-                          className="flex-1"
-                        >
-                          <StopCircle className="h-4 w-4 mr-2" />
-                          Stop Recording
-                        </Button>
-                      )}
-
-                      {(recordedAudioUrl || audioFile) && !isRecording && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          onClick={clearRecording}
-                          disabled={loading}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-
-                    {/* Or Upload File */}
-                    {!isRecording && (
-                      <div className="relative">
-                        <div className="absolute inset-0 flex items-center">
-                          <span className="w-full border-t" />
-                        </div>
-                        <div className="relative flex justify-center text-xs uppercase">
-                          <span className="bg-background px-2 text-muted-foreground">
-                            Or upload a file
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="p-3 bg-muted rounded-lg text-sm text-muted-foreground">
-                    <p className="mb-2">
-                      <strong>Note:</strong> Audio recording is not available in your current environment.
-                    </p>
-                    <p className="text-xs">
-                      Recording requires HTTPS or localhost. Please upload an audio file instead.
-                    </p>
-                  </div>
-                )}
-
-                {!isRecording && (
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="audio-file"
-                      type="file"
-                      accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
-                      onChange={handleFileChange}
-                      className="hidden"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => document.getElementById("audio-file")?.click()}
-                      className="flex-1"
-                      disabled={loading}
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      {audioFile && !recordedBlob ? audioFile.name : "Choose Audio File"}
-                    </Button>
-                  </div>
-                )}
-
-                {/* Audio Preview */}
-                {(recordedAudioUrl || audioFile) && !isRecording && (
-                  <div className="space-y-2">
-                    <Label>Audio Preview</Label>
-                    <audio
-                      controls
-                      className="w-full"
-                      src={recordedAudioUrl || (audioFile ? URL.createObjectURL(audioFile) : undefined)}
-                    />
-                    {recordedBlob && (
-                      <p className="text-xs text-muted-foreground">
-                        Recorded audio (webm format)
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Recording Indicator */}
-                {isRecording && (
-                  <div className="flex items-center gap-2 p-4 bg-destructive/10 text-destructive rounded-lg">
-                    <div className="h-3 w-3 bg-destructive rounded-full animate-pulse" />
-                    <span className="text-sm font-medium">Recording in progress...</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Process Button */}
-              <Button
-                onClick={handleTranscribe}
-                disabled={!audioFile || !selectedModel || loading}
-                className="w-full"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {outputFormat === "diarization" ? "Processing..." : "Transcribing..."}
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="h-4 w-4 mr-2" />
-                    {outputFormat === "diarization" ? "Analyze Speakers" : "Transcribe Audio"}
-                  </>
-                )}
-              </Button>
-
-              {/* Error Display */}
-              {error && (
-                <div className="p-4 bg-destructive/10 text-destructive rounded-lg text-sm">
-                  {error}
-                </div>
-              )}
-
-              {/* Result Display */}
-              {result && (
-                <div className="space-y-4 mt-6">
-                  {/* Transcription Result */}
-                  {result.text && (
-                    <div className="space-y-2">
-                      <Label>Transcription</Label>
-                      <Textarea
-                        value={result.text}
-                        readOnly
-                        className="min-h-[200px] font-mono text-sm"
-                      />
-                    </div>
+        <TabsContent value="try" className="mt-6">
+          <TryLayout
+            input={{
+              title: "Audio Processing",
+              description: "Configure transcription and provide audio",
+              children: inputPanel,
+              footer: (
+                <Button
+                  onClick={handleTranscribe}
+                  disabled={!hasAudioInput || !selectedModel || loading}
+                  className="w-full"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      {outputFormat === "diarization" ? "Processing..." : "Transcribing..."}
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="h-4 w-4 mr-2" />
+                      {outputFormat === "diarization" ? "Analyze Speakers" : "Transcribe Audio"}
+                    </>
                   )}
-
-                  {/* Diarization Result */}
-                  {result.segments && result.segments.length > 0 && (
-                    <div className="space-y-2">
-                      <Label>Speaker Segments ({result.num_speakers || 0} speakers detected)</Label>
-                      <div className="border rounded-lg max-h-[400px] overflow-y-auto">
-                        <div className="divide-y">
-                          {result.segments.map((segment, idx) => (
-                            <div key={idx} className="p-3 hover:bg-muted/50">
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="font-semibold text-sm text-primary">
-                                  {segment.speaker}
-                                </span>
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                  {segment.start.toFixed(1)}s - {segment.end.toFixed(1)}s
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                    <div>
-                      <span className="font-semibold">Model:</span> {result.model}
-                    </div>
-                    {result.language && (
-                      <div>
-                        <span className="font-semibold">Language:</span> {result.language}
-                      </div>
-                    )}
-                    {result.num_speakers !== undefined && (
-                      <div>
-                        <span className="font-semibold">Speakers:</span> {result.num_speakers}
-                      </div>
-                    )}
-                    <div>
-                      <span className="font-semibold">Processing Time:</span> {result.processing_time_ms}ms
-                    </div>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </Button>
+              ),
+              rawPayload: {
+                label: "View Raw Request",
+                payload: rawRequestPayload,
+              },
+            }}
+            output={{
+              title: "Results",
+              description: outputFormat === "diarization" ? "Speaker analysis" : "Transcription result",
+              children: outputContent,
+              rawPayload: {
+                label: "View Raw Response",
+                payload: rawResponsePayload,
+              },
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="models" className="mt-6">

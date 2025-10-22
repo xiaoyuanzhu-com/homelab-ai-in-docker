@@ -10,6 +10,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { TextGenerationInputOutput } from "@/components/text-generation-input-output";
 
 interface HistoryEntry {
+  service: string;
   timestamp: string;
   request_id: string;
   status: string;
@@ -62,33 +63,35 @@ export function TextGenerationHistory() {
     setExpandedId(expandedId === requestId ? null : requestId);
   };
 
-  const extractEntryData = (entry: HistoryEntry) => {
-    const prompt = typeof entry.request.prompt === "string"
-      ? entry.request.prompt
-      : "";
+const extractEntryData = (entry: HistoryEntry) => {
+  const prompt =
+    typeof entry.request.prompt === "string" ? entry.request.prompt : "";
 
-    const result: GenerationResult | null =
-      entry.response.generated_text && typeof entry.response.generated_text === "string"
-        ? {
-            request_id: entry.request_id,
-            generated_text: entry.response.generated_text as string,
-            model:
-              typeof entry.response.model === "string"
-                ? entry.response.model
-                : "",
-            tokens_generated:
-              typeof entry.response.tokens_generated === "number"
-                ? (entry.response.tokens_generated as number)
-                : 0,
-            processing_time_ms:
-              typeof entry.response.processing_time_ms === "number"
-                ? (entry.response.processing_time_ms as number)
-                : 0,
-          }
-        : null;
+  const result: GenerationResult | null =
+    entry.response.generated_text && typeof entry.response.generated_text === "string"
+      ? {
+          request_id: entry.request_id,
+          generated_text: entry.response.generated_text as string,
+          model:
+            typeof entry.response.model === "string" ? entry.response.model : "",
+          tokens_generated:
+            typeof entry.response.tokens_generated === "number"
+              ? (entry.response.tokens_generated as number)
+              : 0,
+          processing_time_ms:
+            typeof entry.response.processing_time_ms === "number"
+              ? (entry.response.processing_time_ms as number)
+              : 0,
+        }
+      : null;
 
-    return { prompt, result };
+  return {
+    prompt,
+    result,
+    requestPayload: entry.request,
+    responsePayload: entry.response,
   };
+};
 
   return (
     <Card>
@@ -122,7 +125,7 @@ export function TextGenerationHistory() {
             <div className="space-y-3">
               {history.map((entry) => {
                 const isExpanded = expandedId === entry.request_id;
-                const { prompt, result } = extractEntryData(entry);
+                const { prompt, result, requestPayload, responsePayload } = extractEntryData(entry);
 
                 return (
                   <Collapsible
@@ -186,6 +189,8 @@ export function TextGenerationHistory() {
                             result={result}
                             loading={false}
                             error={null}
+                            requestPayload={requestPayload}
+                            responsePayload={responsePayload}
                           />
                         </div>
                       </CollapsibleContent>

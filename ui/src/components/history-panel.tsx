@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface HistoryEntry {
+  service: string;
   timestamp: string;
   request_id: string;
   status: string;

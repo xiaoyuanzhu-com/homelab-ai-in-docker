@@ -10,9 +10,24 @@ from ...storage.history import history_storage
 router = APIRouter(prefix="/api/history", tags=["history"])
 
 
+SERVICE_ALIASES = {
+    "crawl": "crawl",
+    "text-generation": "text-generation",
+    "text-to-embedding": "text-to-embedding",
+    "embed": "text-to-embedding",
+    "image-captioning": "image-captioning",
+    "caption": "image-captioning",
+    "image-ocr": "image-ocr",
+    "ocr": "image-ocr",
+    "automatic-speech-recognition": "automatic-speech-recognition",
+    "asr": "automatic-speech-recognition",
+}
+
+
 class HistoryEntry(BaseModel):
     """History entry model."""
 
+    service: str
     timestamp: str
     request_id: str
     status: str
@@ -29,6 +44,32 @@ async def get_stats():
         Dictionary with running, today, and total task counts
     """
     return history_storage.get_stats()
+
+
+def _resolve_service(service: str) -> str:
+    resolved = SERVICE_ALIASES.get(service)
+    if not resolved:
+        raise HTTPException(status_code=400, detail="Invalid service name")
+    return resolved
+
+
+@router.get("/all", response_model=List[HistoryEntry])
+async def get_all_history(
+    limit: int = Query(default=50, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """
+    Get unified request history across all services.
+
+    Args:
+        limit: Maximum number of entries (max 100)
+        offset: Number of entries to skip
+
+    Returns:
+        List of history entries sorted by timestamp (most recent first)
+    """
+    history = history_storage.get_history(limit=limit, offset=offset)
+    return history
 
 
 @router.get("/{service}", response_model=List[HistoryEntry])
@@ -48,10 +89,8 @@ async def get_history(
     Returns:
         List of history entries
     """
-    if service not in ["crawl", "embed", "caption", "text-generation", "ocr"]:
-        raise HTTPException(status_code=400, detail="Invalid service name")
-
-    history = history_storage.get_history(service, limit=limit, offset=offset)
+    resolved_service = _resolve_service(service)
+    history = history_storage.get_history(resolved_service, limit=limit, offset=offset)
     return history
 
 
@@ -70,10 +109,9 @@ async def get_request(service: str, request_id: str):
     Raises:
         HTTPException: If request not found
     """
-    if service not in ["crawl", "embed", "caption", "text-generation", "ocr"]:
-        raise HTTPException(status_code=400, detail="Invalid service name")
+    resolved_service = _resolve_service(service)
 
-    entry = history_storage.get_request(service, request_id)
+    entry = history_storage.get_request(resolved_service, request_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Request not found")
 
@@ -91,8 +129,7 @@ async def clear_history(service: str):
     Returns:
         Success message
     """
-    if service not in ["crawl", "embed", "caption", "text-generation", "ocr"]:
-        raise HTTPException(status_code=400, detail="Invalid service name")
+    resolved_service = _resolve_service(service)
 
-    history_storage.clear_history(service)
-    return {"message": f"History cleared for {service}"}
+    history_storage.clear_history(resolved_service)
+    return {"message": f"History cleared for {resolved_service}"}

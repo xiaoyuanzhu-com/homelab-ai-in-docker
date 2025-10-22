@@ -10,6 +10,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { ImageCaptionInputOutput } from "@/components/image-caption-input-output";
 
 interface HistoryEntry {
+  service: string;
   timestamp: string;
   request_id: string;
   status: string;

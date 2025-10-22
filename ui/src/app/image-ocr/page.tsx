@@ -8,8 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { FileText, Loader2, Upload, Copy } from "lucide-react";
+import { FileText, Loader2, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { TryLayout, ModelSelector } from "@/components/try";
+import { ImageUpload } from "@/components/inputs";
 
 interface OCRResult {
   request_id: string;
@@ -163,6 +165,137 @@ export default function ImageOCRPage() {
     }
   };
 
+  const modelOptions = availableModels.map((model) => ({
+    value: model.id,
+    label: `${model.name} (${model.team})`,
+  }));
+
+  const requestPayload = {
+    model: selectedModel || null,
+    output_format: outputFormat,
+    image: imagePreview ? `<base64 data, ${Math.round(imagePreview.length / 1024)}KB>` : null,
+  };
+
+  const responsePayload = result;
+
+  const inputContent = (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="model">Model</Label>
+        <ModelSelector
+          value={selectedModel}
+          onChange={setSelectedModel}
+          options={modelOptions}
+          loading={modelsLoading}
+          disabled={loading}
+          emptyMessage="No OCR models downloaded. Visit the Models page to install one."
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="format">Output Format</Label>
+        <Select
+          value={outputFormat}
+          onValueChange={(value) => setOutputFormat(value as "text" | "markdown")}
+          disabled={!supportsMarkdown()}
+        >
+          <SelectTrigger id="format">
+            <SelectValue placeholder="Select format" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="text">Plain Text</SelectItem>
+            <SelectItem value="markdown">Markdown</SelectItem>
+          </SelectContent>
+        </Select>
+        {!supportsMarkdown() && selectedModel && (
+          <p className="text-xs text-muted-foreground">
+            This model only supports plain text output.
+          </p>
+        )}
+        {supportsMarkdown() && (
+          <p className="text-xs text-muted-foreground">Markdown rendering supported for this model.</p>
+        )}
+      </div>
+
+      <ImageUpload
+        id="ocr-image"
+        label="Image"
+        onChange={handleFileChange}
+        previewSrc={imagePreview}
+        disabled={loading}
+        helperText="Supported formats: PNG, JPG, WebP."
+      />
+    </div>
+  );
+
+  const outputContent = (
+    <div className="space-y-4">
+      {error && (
+        <div className="bg-destructive/10 text-destructive p-4 rounded-lg text-sm">{error}</div>
+      )}
+
+      {result && (
+        <>
+          {result.output_format === "markdown" && (
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant={viewMode === "rendered" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewMode("rendered")}
+              >
+                Rendered
+              </Button>
+              <Button
+                variant={viewMode === "raw" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewMode("raw")}
+              >
+                Raw
+              </Button>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Extracted Text</Label>
+              <Button variant="ghost" size="sm" onClick={copyToClipboard} className="h-8">
+                <Copy className="h-4 w-4 mr-2" />
+                Copy
+              </Button>
+            </div>
+
+            {result.output_format === "markdown" && viewMode === "rendered" ? (
+              <div className="border rounded-lg p-4 min-h-[300px] prose prose-sm max-w-none dark:prose-invert">
+                <ReactMarkdown>{result.text}</ReactMarkdown>
+              </div>
+            ) : (
+              <Textarea
+                value={result.text}
+                readOnly
+                className="min-h-[300px] font-mono text-sm"
+                placeholder="Extracted text will appear here..."
+              />
+            )}
+          </div>
+
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div>Request ID: {result.request_id}</div>
+            <div>Model: {result.model}</div>
+            <div>Output Format: {result.output_format}</div>
+            <div>Processing Time: {result.processing_time_ms}ms</div>
+          </div>
+        </>
+      )}
+
+      {!result && !error && (
+        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+          <FileText className="h-12 w-12 mb-2" />
+          <p className="text-sm">Upload an image and click Extract Text</p>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6">
@@ -179,106 +312,13 @@ export default function ImageOCRPage() {
         </TabsList>
 
         {/* Try Tab */}
-        <TabsContent value="try">
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Input Card */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Input</CardTitle>
-                <CardDescription>Upload an image to extract text</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Model Selection */}
-                <div className="space-y-2">
-                  <Label htmlFor="model">Model</Label>
-                  {modelsLoading ? (
-                    <div className="text-sm text-muted-foreground">Loading models...</div>
-                  ) : availableModels.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">
-                      No OCR models downloaded. Visit the{" "}
-                      <a href="/models" className="text-primary hover:underline">
-                        Models page
-                      </a>{" "}
-                      to download one.
-                    </div>
-                  ) : (
-                    <Select value={selectedModel} onValueChange={setSelectedModel}>
-                      <SelectTrigger id="model">
-                        <SelectValue placeholder="Select a model" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableModels.map((model) => (
-                          <SelectItem key={model.id} value={model.id}>
-                            {model.name} ({model.team})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-
-                {/* Output Format */}
-                <div className="space-y-2">
-                  <Label htmlFor="format">Output Format</Label>
-                  <Select
-                    value={outputFormat}
-                    onValueChange={(value) => setOutputFormat(value as "text" | "markdown")}
-                    disabled={!supportsMarkdown()}
-                  >
-                    <SelectTrigger id="format">
-                      <SelectValue placeholder="Select format" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="text">Plain Text</SelectItem>
-                      <SelectItem value="markdown">Markdown</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {!supportsMarkdown() && selectedModel && (
-                    <p className="text-xs text-muted-foreground">
-                      ⚠️ This model only supports plain text output
-                    </p>
-                  )}
-                  {supportsMarkdown() && (
-                    <p className="text-xs text-muted-foreground">
-                      ✓ Markdown format supported by this model
-                    </p>
-                  )}
-                </div>
-
-                {/* Image Upload */}
-                <div className="space-y-2">
-                  <Label htmlFor="image">Image</Label>
-                  <div className="border-2 border-dashed rounded-lg p-4 hover:border-primary/50 transition-colors">
-                    <input
-                      id="image"
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="hidden"
-                    />
-                    <label
-                      htmlFor="image"
-                      className="flex flex-col items-center justify-center cursor-pointer"
-                    >
-                      {imagePreview ? (
-                        <img
-                          src={imagePreview}
-                          alt="Preview"
-                          className="max-h-64 rounded-md"
-                        />
-                      ) : (
-                        <>
-                          <Upload className="h-8 w-8 text-muted-foreground mb-2" />
-                          <span className="text-sm text-muted-foreground">
-                            Click to upload image
-                          </span>
-                        </>
-                      )}
-                    </label>
-                  </div>
-                </div>
-
-                {/* Extract Button */}
+        <TabsContent value="try" className="mt-6">
+          <TryLayout
+            input={{
+              title: "Input",
+              description: "Upload an image to extract text",
+              children: inputContent,
+              footer: (
                 <Button
                   onClick={handleOCR}
                   disabled={!imagePreview || !selectedModel || loading}
@@ -296,92 +336,22 @@ export default function ImageOCRPage() {
                     </>
                   )}
                 </Button>
-              </CardContent>
-            </Card>
-
-            {/* Output Card */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Output</CardTitle>
-                    <CardDescription>Extracted text from the image</CardDescription>
-                  </div>
-                  {result && result.output_format === "markdown" && (
-                    <div className="flex gap-2">
-                      <Button
-                        variant={viewMode === "rendered" ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setViewMode("rendered")}
-                      >
-                        Rendered
-                      </Button>
-                      <Button
-                        variant={viewMode === "raw" ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => setViewMode("raw")}
-                      >
-                        Raw
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {error && (
-                  <div className="bg-destructive/10 text-destructive p-4 rounded-lg text-sm">
-                    {error}
-                  </div>
-                )}
-
-                {result && (
-                  <>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label>Extracted Text</Label>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={copyToClipboard}
-                          className="h-8"
-                        >
-                          <Copy className="h-4 w-4 mr-2" />
-                          Copy
-                        </Button>
-                      </div>
-
-                      {result.output_format === "markdown" && viewMode === "rendered" ? (
-                        <div className="border rounded-lg p-4 min-h-[300px] prose prose-sm max-w-none dark:prose-invert">
-                          <ReactMarkdown>{result.text}</ReactMarkdown>
-                        </div>
-                      ) : (
-                        <Textarea
-                          value={result.text}
-                          readOnly
-                          className="min-h-[300px] font-mono text-sm"
-                          placeholder="Extracted text will appear here..."
-                        />
-                      )}
-                    </div>
-
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <div>Request ID: {result.request_id}</div>
-                      <div>Model: {result.model}</div>
-                      <div>Output Format: {result.output_format}</div>
-                      <div>Processing Time: {result.processing_time_ms}ms</div>
-                    </div>
-                  </>
-                )}
-
-                {!result && !error && (
-                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                    <FileText className="h-12 w-12 mb-2" />
-                    <p className="text-sm">Upload an image and click Extract Text</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+              ),
+              rawPayload: {
+                label: "View Raw Request",
+                payload: requestPayload,
+              },
+            }}
+            output={{
+              title: "Output",
+              description: "Extracted text from the image",
+              children: outputContent,
+              rawPayload: {
+                label: "View Raw Response",
+                payload: responsePayload,
+              },
+            }}
+          />
         </TabsContent>
 
         {/* API Tab */}

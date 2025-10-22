@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TaskHistoryList } from "@/components/task-history";
 
 interface HardwareStats {
   cpu: {
@@ -129,6 +130,11 @@ export default function StatsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Task History */}
+      <div className="mb-8">
+        <TaskHistoryList />
+      </div>
 
       {/* Hardware Stats Card */}
       <Card>

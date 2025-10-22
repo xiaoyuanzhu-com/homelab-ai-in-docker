@@ -80,7 +80,7 @@ class HistoryStorage:
             )
 
     def get_history(
-        self, service: str, limit: int = 50, offset: int = 0
+        self, service: Optional[str] = None, limit: int = 50, offset: int = 0
     ) -> List[Dict[str, Any]]:
         """
         Get request history for a service.
@@ -94,15 +94,21 @@ class HistoryStorage:
             List of history entries (most recent first)
         """
         with get_db() as conn:
+            params: List[Any] = []
+            where_clause = ""
+            if service:
+                where_clause = "WHERE service = ?"
+                params.append(service)
+
             cursor = conn.execute(
-                """
+                f"""
                 SELECT service, request_id, timestamp, status, request_data, response_data
                 FROM request_history
-                WHERE service = ?
+                {where_clause}
                 ORDER BY timestamp DESC
                 LIMIT ? OFFSET ?
                 """,
-                (service, limit, offset),
+                (*params, limit, offset),
             )
 
             rows = cursor.fetchall()
@@ -111,6 +117,7 @@ class HistoryStorage:
             for row in rows:
                 entries.append(
                     {
+                        "service": row["service"],
                         "timestamp": row["timestamp"],
                         "request_id": row["request_id"],
                         "status": row["status"],
@@ -149,6 +156,7 @@ class HistoryStorage:
                 return None
 
             return {
+                "service": row["service"],
                 "timestamp": row["timestamp"],
                 "request_id": row["request_id"],
                 "status": row["status"],

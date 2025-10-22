@@ -10,6 +10,7 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { TextEmbeddingInputOutput } from "@/components/text-embedding-input-output";
 
 interface HistoryEntry {
+  service: string;
   timestamp: string;
   request_id: string;
   status: string;
