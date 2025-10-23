@@ -7,25 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Download, Trash2, ExternalLink, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { getTaskDisplayName } from "@/lib/tasks";
-
-interface Model {
-  id: string;
-  name: string;
-  team: string;
-  type: string;
-  task: string;
-  size_mb: number;
-  parameters_m: number;
-  gpu_memory_mb: number;
-  link: string;
-  status: "init" | "downloading" | "failed" | "downloaded";
-  downloaded_size_mb?: number;
-  error_message?: string;
-}
-
-interface ModelsResponse {
-  models: Model[];
-}
+import { SkillInfo, SkillsResponse, isSkillReady } from "@/lib/skills";
 
 interface LogEntry {
   log_line: string;
@@ -33,21 +15,21 @@ interface LogEntry {
 }
 
 export default function ModelsPage() {
-  const [models, setModels] = useState<Model[]>([]);
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [downloadingModels, setDownloadingModels] = useState<Set<string>>(new Set());
-  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
-  const [modelLogs, setModelLogs] = useState<Record<string, LogEntry[]>>({});
+  const [downloadingSkills, setDownloadingSkills] = useState<Set<string>>(new Set());
+  const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
+  const [skillLogs, setSkillLogs] = useState<Record<string, LogEntry[]>>({});
 
-  const fetchModels = async () => {
+  const fetchSkills = async () => {
     try {
-      const response = await fetch("/api/models");
-      if (!response.ok) throw new Error("Failed to fetch models");
-      const data: ModelsResponse = await response.json();
-      setModels(data.models);
+      const response = await fetch("/api/skills");
+      if (!response.ok) throw new Error("Failed to fetch skills");
+      const data: SkillsResponse = await response.json();
+      setSkills(data.skills);
     } catch (error) {
-      console.error("Failed to fetch models:", error);
-      toast.error("Failed to load models");
+      console.error("Failed to fetch skills:", error);
+      toast.error("Failed to load skills");
     } finally {
       setLoading(false);
     }
@@ -55,39 +37,39 @@ export default function ModelsPage() {
 
   // Initial fetch
   useEffect(() => {
-    fetchModels();
+    fetchSkills();
   }, []);
 
   // Auto-refresh every 5s when downloads are in progress
   // Trigger when either server-reported status or local downloading state is present
   useEffect(() => {
-    const hasServerDownloading = models.some(m => m.status === "downloading");
-    const hasLocalDownloading = downloadingModels.size > 0;
+    const hasServerDownloading = skills.some(skill => skill.status === "downloading");
+    const hasLocalDownloading = downloadingSkills.size > 0;
 
     if (!hasServerDownloading && !hasLocalDownloading) {
       return;
     }
 
     const intervalId = setInterval(() => {
-      fetchModels();
+      fetchSkills();
     }, 5000);
 
     return () => clearInterval(intervalId);
-  }, [models, downloadingModels]);
+  }, [skills, downloadingSkills]);
 
-  const handleDownload = async (modelId: string) => {
-    setDownloadingModels(prev => new Set(prev).add(modelId));
-    toast.info("Downloading model...", {
-      description: "This may take several minutes depending on model size",
+  const handleDownload = async (skillId: string) => {
+    setDownloadingSkills(prev => new Set(prev).add(skillId));
+    toast.info("Downloading skill...", {
+      description: "This may take several minutes depending on size",
     });
 
     try {
       // Use SSE streaming endpoint for real-time progress
-      const encodedId = encodeURIComponent(modelId);
-      const eventSource = new EventSource(`/api/models/download?model=${encodedId}`);
+      const encodedId = encodeURIComponent(skillId);
+      const eventSource = new EventSource(`/api/skills/download?skill=${encodedId}`);
 
       // Kick off a refresh immediately so the UI reflects "downloading" status promptly
-      fetchModels();
+      fetchSkills();
 
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
@@ -100,19 +82,19 @@ export default function ModelsPage() {
           toast.info(message);
         } else if (data.type === "complete") {
           eventSource.close();
-          toast.success("Model downloaded successfully!");
-          fetchModels();
-          setDownloadingModels(prev => {
+          toast.success("Skill downloaded successfully!");
+          fetchSkills();
+          setDownloadingSkills(prev => {
             const newSet = new Set(prev);
-            newSet.delete(modelId);
+            newSet.delete(skillId);
             return newSet;
           });
         } else if (data.type === "error") {
           eventSource.close();
           toast.error("Download failed", { description: data.message });
-          setDownloadingModels(prev => {
+          setDownloadingSkills(prev => {
             const newSet = new Set(prev);
-            newSet.delete(modelId);
+            newSet.delete(skillId);
             return newSet;
           });
         }
@@ -121,72 +103,72 @@ export default function ModelsPage() {
       eventSource.onerror = () => {
         eventSource.close();
         toast.error("Download connection failed");
-        setDownloadingModels(prev => {
+        setDownloadingSkills(prev => {
           const newSet = new Set(prev);
-          newSet.delete(modelId);
+          newSet.delete(skillId);
           return newSet;
         });
       };
     } catch (error) {
-      console.error("Failed to download model:", error);
-      toast.error("Failed to download model");
-      setDownloadingModels(prev => {
+      console.error("Failed to download skill:", error);
+      toast.error("Failed to download skill");
+      setDownloadingSkills(prev => {
         const newSet = new Set(prev);
-        newSet.delete(modelId);
+        newSet.delete(skillId);
         return newSet;
       });
     }
   };
 
-  const handleDelete = async (modelId: string) => {
+  const handleDelete = async (skillId: string) => {
     try {
-      const encodedId = encodeURIComponent(modelId);
-      const response = await fetch(`/api/models/${encodedId}`, {
+      const encodedId = encodeURIComponent(skillId);
+      const response = await fetch(`/api/skills/${encodedId}`, {
         method: "DELETE",
       });
 
       if (!response.ok) throw new Error("Delete failed");
 
-      toast.success("Model deleted successfully!");
-      await fetchModels();
+      toast.success("Skill deleted successfully!");
+      await fetchSkills();
     } catch (error) {
-      console.error("Failed to delete model:", error);
-      toast.error("Failed to delete model");
+      console.error("Failed to delete skill:", error);
+      toast.error("Failed to delete skill");
     }
   };
 
-  const fetchLogs = async (modelId: string) => {
+  const fetchLogs = async (skillId: string) => {
     try {
-      const encodedId = encodeURIComponent(modelId);
-      const response = await fetch(`/api/models/${encodedId}/logs`);
+      const encodedId = encodeURIComponent(skillId);
+      const response = await fetch(`/api/skills/${encodedId}/logs`);
       if (!response.ok) throw new Error("Failed to fetch logs");
       const data = await response.json();
-      setModelLogs(prev => ({ ...prev, [modelId]: data.logs }));
+      setSkillLogs(prev => ({ ...prev, [skillId]: data.logs }));
     } catch (error) {
       console.error("Failed to fetch logs:", error);
     }
   };
 
-  const toggleExpanded = async (modelId: string) => {
-    const isExpanded = expandedModels.has(modelId);
-    const newExpanded = new Set(expandedModels);
+  const toggleExpanded = async (skillId: string) => {
+    const isExpanded = expandedSkills.has(skillId);
+    const newExpanded = new Set(expandedSkills);
 
     if (isExpanded) {
-      newExpanded.delete(modelId);
+      newExpanded.delete(skillId);
     } else {
-      newExpanded.add(modelId);
+      newExpanded.add(skillId);
       // Fetch logs when expanding
-      await fetchLogs(modelId);
+      await fetchLogs(skillId);
     }
 
-    setExpandedModels(newExpanded);
+    setExpandedSkills(newExpanded);
   };
 
   // Auto-refresh logs for expanded downloading models
   useEffect(() => {
-    const downloadingExpanded = Array.from(expandedModels).filter(modelId => {
-      const model = models.find(m => m.id === modelId);
-      return model?.status === "downloading";
+    const downloadingExpanded = Array.from(expandedSkills).filter(skillId => {
+      const skill = skills.find(s => s.id === skillId);
+      return skill?.status === "downloading";
     });
 
     if (downloadingExpanded.length === 0) {
@@ -194,18 +176,18 @@ export default function ModelsPage() {
     }
 
     const intervalId = setInterval(() => {
-      downloadingExpanded.forEach(modelId => fetchLogs(modelId));
+      downloadingExpanded.forEach(skillId => fetchLogs(skillId));
     }, 2000); // Refresh logs every 2 seconds
 
     return () => clearInterval(intervalId);
-  }, [expandedModels, models]);
+  }, [expandedSkills, skills]);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">Models</h1>
+        <h1 className="text-3xl font-bold mb-2">Skills</h1>
         <p className="text-muted-foreground">
-          Manage AI models for various tasks
+          Manage downloadable and built-in skills across tasks
         </p>
       </div>
 
@@ -213,9 +195,9 @@ export default function ModelsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Team</TableHead>
-              <TableHead>Task</TableHead>
+              <TableHead>Skill</TableHead>
+              <TableHead>Provider</TableHead>
+              <TableHead>Tasks</TableHead>
               <TableHead className="text-right">Parameters</TableHead>
               <TableHead className="text-right">GPU Memory</TableHead>
               <TableHead className="text-right">Size</TableHead>
@@ -227,64 +209,76 @@ export default function ModelsPage() {
             {loading ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                  Loading models...
+                  Loading skills...
                 </TableCell>
               </TableRow>
-            ) : models.length === 0 ? (
+            ) : skills.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                  No models available
+                  No skills available
                 </TableCell>
               </TableRow>
             ) : (
-              models.map((model) => (
-                <React.Fragment key={model.id}>
+              skills.map((skill) => (
+                <React.Fragment key={skill.id}>
                 <TableRow>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
-                      {model.name}
-                      <a
-                        href={model.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
+                      {skill.label}
+                      {skill.reference_url && (
+                        <a
+                          href={skill.reference_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{model.team}</TableCell>
+                  <TableCell className="text-muted-foreground">{skill.provider || "—"}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary" className="text-xs">
-                      {getTaskDisplayName(model.task)}
-                    </Badge>
+                    <div className="flex flex-wrap gap-1">
+                      {skill.tasks.length > 0 ? (
+                        skill.tasks.map(task => (
+                          <Badge key={task} variant="secondary" className="text-xs">
+                            {getTaskDisplayName(task)}
+                          </Badge>
+                        ))
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">Unknown</Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
-                    {model.parameters_m}M
+                    {typeof skill.parameters_m === "number" ? `${skill.parameters_m}M` : "—"}
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
-                    {(model.gpu_memory_mb / 1024).toFixed(1)} GB
+                    {typeof skill.gpu_memory_mb === "number"
+                      ? `${(skill.gpu_memory_mb / 1024).toFixed(1)} GB`
+                      : "—"}
                   </TableCell>
                   <TableCell className="text-right">
-                    {model.downloaded_size_mb
-                      ? `${model.downloaded_size_mb} MB`
-                      : `${model.size_mb} MB`}
+                    {skill.downloaded_size_mb
+                      ? `${skill.downloaded_size_mb} MB`
+                      : typeof skill.size_mb === "number" ? `${skill.size_mb} MB` : "—"}
                   </TableCell>
                   <TableCell>
-                    {model.status === "init" && (
+                    {skill.status === "init" && (
                       <Badge variant="secondary">Not Downloaded</Badge>
                     )}
-                    {model.status === "downloading" && (
+                    {skill.status === "downloading" && (
                       <div className="flex items-center gap-2">
                         <Badge variant="default" className="bg-blue-600">Downloading</Badge>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => toggleExpanded(model.id)}
+                          onClick={() => toggleExpanded(skill.id)}
                           className="h-6 w-6 p-0"
-                          title={expandedModels.has(model.id) ? "Hide logs" : "Show logs"}
+                          title={expandedSkills.has(skill.id) ? "Hide logs" : "Show logs"}
                         >
-                          {expandedModels.has(model.id) ? (
+                          {expandedSkills.has(skill.id) ? (
                             <ChevronUp className="h-4 w-4" />
                           ) : (
                             <ChevronDown className="h-4 w-4" />
@@ -292,13 +286,13 @@ export default function ModelsPage() {
                         </Button>
                       </div>
                     )}
-                    {model.status === "downloaded" && (
+                    {skill.status === "downloaded" && (
                       <Badge variant="default" className="bg-green-600">Downloaded</Badge>
                     )}
-                    {model.status === "failed" && (
+                    {skill.status === "failed" && (
                       <Badge
                         variant="destructive"
-                        title={model.error_message || "Download failed"}
+                        title={skill.error_message || "Download failed"}
                       >
                         Failed
                       </Badge>
@@ -306,23 +300,23 @@ export default function ModelsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1 justify-end">
-                      {model.status === "init" && (
+                      {skill.status === "init" && skill.requires_download && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDownload(model.id)}
-                          disabled={downloadingModels.has(model.id)}
+                          onClick={() => handleDownload(skill.id)}
+                          disabled={downloadingSkills.has(skill.id)}
                           className="h-8 px-2"
                         >
                           <Download className="h-4 w-4" />
                         </Button>
                       )}
-                      {model.status === "downloading" && (
+                      {skill.status === "downloading" && (
                         <>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDownload(model.id)}
+                            onClick={() => handleDownload(skill.id)}
                             className="h-8 px-2"
                             title="Retry download"
                           >
@@ -331,7 +325,7 @@ export default function ModelsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDelete(model.id)}
+                            onClick={() => handleDelete(skill.id)}
                             className="h-8 px-2"
                             title="Delete"
                           >
@@ -339,22 +333,22 @@ export default function ModelsPage() {
                           </Button>
                         </>
                       )}
-                      {model.status === "downloaded" && (
+                      {skill.status === "downloaded" && skill.requires_download && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDelete(model.id)}
+                          onClick={() => handleDelete(skill.id)}
                           className="h-8 px-2"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       )}
-                      {model.status === "failed" && (
+                      {skill.status === "failed" && (
                         <>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDownload(model.id)}
+                            onClick={() => handleDownload(skill.id)}
                             className="h-8 px-2"
                             title="Retry download"
                           >
@@ -363,7 +357,7 @@ export default function ModelsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDelete(model.id)}
+                            onClick={() => handleDelete(skill.id)}
                             className="h-8 px-2"
                             title="Delete"
                           >
@@ -375,13 +369,13 @@ export default function ModelsPage() {
                   </TableCell>
                 </TableRow>
                 {/* Expandable logs row */}
-                {expandedModels.has(model.id) && (
+                {expandedSkills.has(skill.id) && (
                   <TableRow>
                     <TableCell colSpan={8} className="bg-muted/50 p-0">
                       <div className="p-4 max-h-96 overflow-y-auto">
                         <div className="text-sm font-mono bg-black text-green-400 p-4 rounded">
-                          {modelLogs[model.id] && modelLogs[model.id].length > 0 ? (
-                            modelLogs[model.id].map((log, idx) => (
+                          {skillLogs[skill.id] && skillLogs[skill.id].length > 0 ? (
+                            skillLogs[skill.id].map((log, idx) => (
                               <div key={idx} className="whitespace-pre-wrap break-all">
                                 {log.log_line}
                               </div>
