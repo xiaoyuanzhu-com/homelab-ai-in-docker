@@ -33,7 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv for faster Python package management
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib/python3.13/site-packages/torch/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Torch wheels expect their shared libraries to be on the runtime search path.
+ENV LD_LIBRARY_PATH="/usr/local/lib/python3.13/site-packages/torch/lib"
 
 # Install hfd (HuggingFace downloader with aria2 support and mirror compatibility)
 RUN curl -L https://gist.githubusercontent.com/padeoe/697678ab8e528b85a2a7bddafea1fa4f/raw/hfd.sh -o /usr/local/bin/hfd && \
