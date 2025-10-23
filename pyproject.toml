@@ -10,8 +10,8 @@ dependencies = [
     "crawl4ai>=0.7.0",
     "pydantic>=2.0.0",
     "sentence-transformers>=3.0.0",
-    "torch>=2.0.0",
-    "torchvision>=0.15.0",
+    "torch>=2.7.0",
+    "torchvision>=0.20.0",
     "pillow>=10.0.0",
     "transformers==4.46.3",
     "tokenizers==0.20.3",
@@ -34,13 +34,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# GPU acceleration (NVIDIA CUDA 12.4)
-# Includes CUDA-enabled PyTorch and flash-attn for optimal performance
+# GPU acceleration (NVIDIA CUDA 12.4, PyTorch 2.7)
+# Uses pre-built flash-attn wheels to avoid compilation
 # Docker setup assumes GPU availability and installs this by default
 gpu = [
-    "torch>=2.0.0",
-    "torchvision>=0.15.0",
-    "flash-attn==2.7.3; platform_system=='Linux'",
+    "torch==2.7.0",
+    "torchvision==0.20.0",
+    "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.4.12/flash_attn-2.8.3%2Bcu124torch2.7-cp313-cp313-linux_x86_64.whl; platform_system=='Linux'",
 ]
 
 [tool.setuptools]

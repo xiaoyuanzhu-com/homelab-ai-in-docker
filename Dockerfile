@@ -43,9 +43,10 @@ RUN curl -L https://gist.githubusercontent.com/padeoe/697678ab8e528b85a2a7bddafe
 COPY pyproject.toml ./
 
 # Install Python dependencies with GPU support (--no-cache to reduce image size)
-# Using PyTorch CUDA 12.4 index for GPU acceleration
+# PyTorch 2.7.0 with CUDA 12.4, flash-attn 2.8.3 from pre-built wheels
 RUN uv pip install --system --no-cache -r pyproject.toml && \
-    uv pip install --system --no-cache --extra-index-url https://download.pytorch.org/whl/cu124 \
+    uv pip install --system --no-cache \
+    --index-url https://download.pytorch.org/whl/cu124 \
     -e .[gpu]
 
 # Install playwright browsers for crawl4ai (--no-cache to reduce image size)
