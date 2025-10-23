@@ -42,11 +42,11 @@ RUN curl -L https://gist.githubusercontent.com/padeoe/697678ab8e528b85a2a7bddafe
 # Copy dependency files
 COPY pyproject.toml ./
 
-# Install Python dependencies
-RUN uv pip install --system -r pyproject.toml
+# Install Python dependencies (--no-cache to reduce image size)
+RUN uv pip install --system --no-cache -r pyproject.toml
 
-# Install playwright browsers for crawl4ai
-RUN uv pip install --system playwright && \
+# Install playwright browsers for crawl4ai (--no-cache to reduce image size)
+RUN uv pip install --system --no-cache playwright && \
     playwright install --with-deps chromium && \
     crawl4ai-setup
 
