@@ -21,7 +21,7 @@ export function Header() {
         {/* Logo/Brand */}
         <Link href="/" className="flex items-center gap-2">
           <div className="text-2xl">🤖</div>
-          <span className="font-bold text-lg">Homelab AI</span>
+          <span className="font-bold text-lg">Homelab AI in Docker</span>
         </Link>
 
         {/* Navigation Menu */}

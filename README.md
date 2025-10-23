@@ -1,6 +1,6 @@
-# Homelab AI Services API
+# Homelab AI in Docker
 
-REST API service wrapping common AI capabilities for homelab developers. Enables any programming language to access local AI features without managing Python ML dependencies.
+AI capabilities wrapped in a RESTful API, specially crafted for homelab.
 
 ## Features
 

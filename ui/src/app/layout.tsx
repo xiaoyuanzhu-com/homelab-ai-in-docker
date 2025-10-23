@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Homelab AI Services",
+  title: "Homelab AI in Docker",
   description: "REST API wrapping common AI capabilities for homelab developers",
 };
 
