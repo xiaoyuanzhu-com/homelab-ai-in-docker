@@ -25,6 +25,7 @@ from src.api.routers import (
     settings,
 )
 from src.db.models import init_db, upsert_model
+from src.db.skills import init_skills_table, upsert_skill, SkillStatus
 
 # Configure data directories for crawl4ai and playwright
 # Use environment variables if set, otherwise default to /haid/data
@@ -138,6 +139,7 @@ async def lifespan(app: FastAPI):
     # Initialize database schema (models, history, download_logs, and settings tables in haid.db)
     logger.info("Initializing database...")
     init_db()
+    init_skills_table()
 
     # Initialize download logs table
     from src.db.download_logs import init_download_logs_table
@@ -190,6 +192,40 @@ async def lifespan(app: FastAPI):
         logger.info(f"Loaded {model_count} models from manifest into database")
     else:
         logger.warning(f"Models manifest not found at {manifest_path}")
+
+    # Load skills manifest (new format)
+    skills_manifest_path = Path(__file__).parent / "src" / "api" / "skills" / "skills_manifest.json"
+    if skills_manifest_path.exists():
+        with open(skills_manifest_path, "r") as f:
+            skills_manifest = json.load(f)
+
+        skill_count = 0
+        for skill in skills_manifest.get("skills", []):
+            upsert_skill(
+                skill_id=skill["id"],
+                label=skill["label"],
+                provider=skill.get("provider", ""),
+                tasks=skill.get("tasks", []),
+                architecture=skill.get("architecture"),
+                default_prompt=skill.get("default_prompt"),
+                platform_requirements=skill.get("platform_requirements"),
+                supports_markdown=skill.get("supports_markdown", False),
+                requires_quantization=skill.get("requires_quantization", False),
+                requires_download=skill.get("requires_download", True),
+                hf_model=skill.get("hf_model"),
+                reference_url=skill.get("reference_url"),
+                size_mb=skill.get("size_mb"),
+                parameters_m=skill.get("parameters_m"),
+                gpu_memory_mb=skill.get("gpu_memory_mb"),
+                initial_status=(
+                    SkillStatus.DOWNLOADED if not skill.get("requires_download", True) else SkillStatus.INIT
+                ),
+            )
+            skill_count += 1
+
+        logger.info(f"Loaded {skill_count} skills from manifest into database")
+    else:
+        logger.warning(f"Skills manifest not found at {skills_manifest_path}")
 
     # Start background task for periodic model cleanup
     cleanup_task = asyncio.create_task(periodic_model_cleanup())
