@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv for faster Python package management
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/lib/python3.13/site-packages/torch/lib:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/lib/python3.13/site-packages/torch/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # Install hfd (HuggingFace downloader with aria2 support and mirror compatibility)
 RUN curl -L https://gist.githubusercontent.com/padeoe/697678ab8e528b85a2a7bddafea1fa4f/raw/hfd.sh -o /usr/local/bin/hfd && \
@@ -42,12 +42,8 @@ RUN curl -L https://gist.githubusercontent.com/padeoe/697678ab8e528b85a2a7bddafe
 # Copy dependency files
 COPY pyproject.toml ./
 
-# Install Python dependencies with GPU support (--no-cache to reduce image size)
-# PyTorch 2.7.0 with CUDA 12.4, flash-attn 2.8.3 from pre-built wheels
-RUN uv pip install --system --no-cache -r pyproject.toml && \
-    uv pip install --system --no-cache \
-    --index-url https://download.pytorch.org/whl/cu124 \
-    -e .[gpu]
+# Install Python dependencies (--no-cache to reduce image size)
+RUN uv pip install --system --no-cache -r pyproject.toml
 
 # Install playwright browsers for crawl4ai (--no-cache to reduce image size)
 RUN uv pip install --system --no-cache playwright && \
@@ -57,6 +53,11 @@ RUN uv pip install --system --no-cache playwright && \
 # Copy application code
 COPY main.py ./
 COPY src/ ./src/
+
+# Install package in editable mode with GPU support (--no-cache to reduce image size)
+# PyTorch 2.7.0 with CUDA 12.6, flash-attn 2.8.3 from pre-built wheels
+# Index configuration is in pyproject.toml [tool.uv.index]
+RUN uv pip install --system --no-cache -e .[gpu]
 
 # Copy built UI from builder stage
 COPY --from=ui-builder /ui/dist ./ui/dist

@@ -34,13 +34,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# GPU acceleration (NVIDIA CUDA 12.4, PyTorch 2.7)
+# GPU acceleration (NVIDIA CUDA 12.6, PyTorch 2.7.0)
 # Uses pre-built flash-attn wheels to avoid compilation
 # Docker setup assumes GPU availability and installs this by default
 gpu = [
-    "torch==2.7.0",
-    "torchvision==0.20.0",
-    "flash-attn @ https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.4.12/flash_attn-2.8.3%2Bcu124torch2.7-cp313-cp313-linux_x86_64.whl; platform_system=='Linux'",
+    "flash-attn>=2.8.3; platform_system=='Linux'",
 ]
 
 [tool.setuptools]
@@ -51,3 +49,14 @@ packages = ["src"]
 
 [tool.uv.extra-build-dependencies]
 flash-attn = ["torch"]
+
+# PyTorch CUDA 12.6 index configuration for uv
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }
+flash-attn = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.4.12/flash_attn-2.8.3%2Bcu126torch2.7-cp313-cp313-linux_x86_64.whl" }
