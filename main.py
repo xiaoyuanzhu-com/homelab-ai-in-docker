@@ -142,6 +142,12 @@ async def lifespan(app: FastAPI):
     from src.storage.history import history_storage
     # history_storage.__init__() already called on import, table created
 
+    # Ensure Playwright browsers are installed for crawl4ai
+    # This runs installation in background if needed, non-blocking
+    logger.info("Checking Playwright installation status...")
+    from src.services.playwright_installer import ensure_playwright_installed
+    asyncio.create_task(ensure_playwright_installed())
+
     # Load models manifest and upsert into database
     logger.info("Loading models manifest...")
     manifest_path = Path(__file__).parent / "src" / "api" / "models" / "models_manifest.json"

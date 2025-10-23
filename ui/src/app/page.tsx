@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +22,8 @@ import {
   Layers,
   FileImage,
   Boxes,
-  Zap
+  Zap,
+  Loader2
 } from "lucide-react";
 
 interface Task {
@@ -324,6 +326,40 @@ const TASK_CATEGORIES: TaskCategory[] = [
 ];
 
 export default function Home() {
+  const [crawlStatus, setCrawlStatus] = useState<"active" | "preparing" | "checking">("checking");
+
+  useEffect(() => {
+    // Check crawl service readiness on mount
+    const checkCrawlStatus = async () => {
+      try {
+        const response = await fetch("/api/crawl/ready");
+        const data = await response.json();
+        setCrawlStatus(data.status);
+
+        // If preparing, poll every 3 seconds until ready
+        if (data.status === "preparing") {
+          const interval = setInterval(async () => {
+            const checkResponse = await fetch("/api/crawl/ready");
+            const checkData = await checkResponse.json();
+            setCrawlStatus(checkData.status);
+
+            if (checkData.status === "active") {
+              clearInterval(interval);
+            }
+          }, 3000);
+
+          return () => clearInterval(interval);
+        }
+      } catch (error) {
+        console.error("Failed to check crawl status:", error);
+        // Default to active on error to not block the user
+        setCrawlStatus("active");
+      }
+    };
+
+    checkCrawlStatus();
+  }, []);
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
       {TASK_CATEGORIES.map((category) => (
@@ -331,10 +367,18 @@ export default function Home() {
           <h2 className="text-2xl font-bold mb-6">{category.title}</h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {category.tasks.map((task) => {
+              // Special handling for web-crawling task
+              const isCrawlTask = task.id === "web-crawling";
+              const isTaskAvailable = isCrawlTask
+                ? crawlStatus === "active"
+                : task.available;
+              const isPreparing = isCrawlTask && crawlStatus === "preparing";
+              const isChecking = isCrawlTask && crawlStatus === "checking";
+
               const CardContent = (
                 <Card
                   className={`h-full transition-all ${
-                    task.available
+                    isTaskAvailable
                       ? "hover:shadow-lg cursor-pointer group border-border"
                       : "opacity-60 cursor-not-allowed bg-muted/30"
                   }`}
@@ -343,32 +387,45 @@ export default function Home() {
                     <div className="flex items-start justify-between mb-2">
                       <div
                         className={`p-2 rounded-lg ${
-                          task.available
+                          isTaskAvailable
                             ? "bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground"
                             : "bg-muted text-muted-foreground"
                         } transition-colors`}
                       >
-                        {task.icon}
+                        {isPreparing || isChecking ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                          task.icon
+                        )}
                       </div>
-                      {!task.available && (
+                      {!task.available && !isCrawlTask && (
                         <Badge variant="secondary" className="text-xs">
                           Coming Soon
+                        </Badge>
+                      )}
+                      {isPreparing && (
+                        <Badge variant="secondary" className="text-xs">
+                          Preparing...
                         </Badge>
                       )}
                     </div>
                     <CardTitle
                       className={`text-base mb-1 ${
-                        task.available ? "group-hover:text-primary" : "text-muted-foreground"
+                        isTaskAvailable ? "group-hover:text-primary" : "text-muted-foreground"
                       } transition-colors`}
                     >
                       {task.title}
                     </CardTitle>
-                    <CardDescription className="text-xs">{task.description}</CardDescription>
+                    <CardDescription className="text-xs">
+                      {isPreparing
+                        ? "Installing Playwright browsers..."
+                        : task.description}
+                    </CardDescription>
                   </CardHeader>
                 </Card>
               );
 
-              return task.available && task.href ? (
+              return isTaskAvailable && task.href ? (
                 <Link key={task.id} href={task.href}>
                   {CardContent}
                 </Link>

@@ -13,6 +13,7 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig
 
 from ..models.crawl import CrawlRequest, CrawlResponse, ErrorResponse
 from ...storage.history import history_storage
+from ...services.playwright_installer import check_playwright_installation
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,26 @@ router = APIRouter(prefix="/api", tags=["crawl"])
 
 # Get default remote Chrome URL from environment
 DEFAULT_CHROME_CDP_URL = os.environ.get("CHROME_CDP_URL")
+
+
+@router.get("/crawl/ready")
+async def crawl_ready():
+    """
+    Check if the crawl service is ready to handle requests.
+
+    This endpoint checks if Playwright browsers are installed and ready.
+    The frontend uses this to show "preparing" vs "active" state.
+
+    Returns:
+        Dictionary with ready status and optional message
+    """
+    is_ready = await check_playwright_installation()
+
+    return {
+        "ready": is_ready,
+        "status": "active" if is_ready else "preparing",
+        "message": "Crawl service is ready" if is_ready else "Installing Playwright browsers...",
+    }
 
 
 async def crawl_url(

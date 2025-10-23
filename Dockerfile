@@ -43,13 +43,9 @@ RUN curl -L https://gist.githubusercontent.com/padeoe/697678ab8e528b85a2a7bddafe
 # Copy dependency files
 COPY pyproject.toml ./
 
-# Install Python dependencies (--no-cache to reduce image size)
+# Install Python dependencies including playwright (--no-cache to reduce image size)
+# Playwright browsers will be installed at runtime on first startup
 RUN uv pip install --system --no-cache -r pyproject.toml
-
-# Install playwright browsers for crawl4ai (--no-cache to reduce image size)
-RUN uv pip install --system --no-cache playwright && \
-    playwright install --with-deps chromium && \
-    crawl4ai-setup
 
 # Copy application code
 COPY main.py ./
@@ -64,7 +60,7 @@ RUN uv pip install --system --no-cache -e .[gpu]
 COPY --from=ui-builder /ui/dist ./ui/dist
 
 # Create data directories for model cache, crawl4ai, playwright, and paddlex
-RUN mkdir -p /haid/data/embedding /haid/data/image-caption /haid/data/crawl4ai /haid/data/playwright /haid/data/paddlex
+RUN mkdir -p /haid/data/crawl4ai /haid/data/playwright /haid/data/paddlex
 
 # Set PaddleX cache directory to persist OCR models
 ENV PADDLE_PDX_CACHE_HOME=/haid/data/paddlex
