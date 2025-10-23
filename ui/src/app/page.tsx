@@ -329,35 +329,8 @@ export default function Home() {
   const [crawlStatus, setCrawlStatus] = useState<"active" | "preparing" | "checking">("checking");
 
   useEffect(() => {
-    // Check crawl service readiness on mount
-    const checkCrawlStatus = async () => {
-      try {
-        const response = await fetch("/api/crawl/ready");
-        const data = await response.json();
-        setCrawlStatus(data.status);
-
-        // If preparing, poll every 3 seconds until ready
-        if (data.status === "preparing") {
-          const interval = setInterval(async () => {
-            const checkResponse = await fetch("/api/crawl/ready");
-            const checkData = await checkResponse.json();
-            setCrawlStatus(checkData.status);
-
-            if (checkData.status === "active") {
-              clearInterval(interval);
-            }
-          }, 3000);
-
-          return () => clearInterval(interval);
-        }
-      } catch (error) {
-        console.error("Failed to check crawl status:", error);
-        // Default to active on error to not block the user
-        setCrawlStatus("active");
-      }
-    };
-
-    checkCrawlStatus();
+    // Crawl service is always ready (Playwright pre-installed at build time)
+    setCrawlStatus("active");
   }, []);
 
   return (
