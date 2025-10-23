@@ -253,7 +253,7 @@ class OCRInferenceEngine:
 
     def load(self) -> None:
         """Load the model based on architecture."""
-        if self.architecture == "paddleocr":
+        if self.architecture in ("paddleocr", "paddleocr-legacy"):
             self._load_paddleocr()
         elif self.architecture == "mineru":
             self._load_mineru()
@@ -551,7 +551,7 @@ class OCRInferenceEngine:
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
 
-        if self.architecture == "paddleocr":
+        if self.architecture in ("paddleocr", "paddleocr-legacy"):
             return self._predict_paddleocr(image)
         elif self.architecture == "mineru":
             return self._predict_mineru(image)
@@ -613,19 +613,42 @@ class OCRInferenceEngine:
 
                     return "\n".join(all_text) if all_text else ""
             else:
-                # Legacy PaddleOCR: Use ocr() method
-                result = self.model.ocr(tmp_path, cls=True)
+                # PaddleOCR 3.x: Use ocr() method
+                # Note: PP-OCRv5 changed API and doesn't accept cls parameter
+                result = self.model.ocr(tmp_path)
 
-                # Parse results from legacy format
-                # Result format: [[[bbox, (text, confidence)], ...]]
+                # PaddleOCR 3.x returns a list of dicts with 'rec_texts' key
                 extracted_text = []
-                if result and len(result) > 0:
-                    page_result = result[0]
-                    if page_result:
-                        for line in page_result:
+
+                if isinstance(result, list) and len(result) > 0:
+                    # PaddleOCR 3.x format: [{'rec_texts': [...], 'dt_polys': [...], ...}]
+                    first_item = result[0]
+                    if isinstance(first_item, dict) and 'rec_texts' in first_item:
+                        # New PaddleOCR 3.x format
+                        rec_texts = first_item['rec_texts']
+                        if isinstance(rec_texts, list):
+                            for item in rec_texts:
+                                # Items are strings
+                                if isinstance(item, str):
+                                    extracted_text.append(item)
+                                elif isinstance(item, dict) and 'text' in item:
+                                    extracted_text.append(item['text'])
+                    elif isinstance(first_item, list):
+                        # Old format: [[[bbox, (text, confidence)], ...]]
+                        for line in first_item:
                             if len(line) >= 2:
                                 text = line[1][0] if isinstance(line[1], tuple) else line[1]
                                 extracted_text.append(text)
+                elif isinstance(result, dict):
+                    # Direct dict format (fallback)
+                    if 'rec_texts' in result:
+                        rec_texts = result['rec_texts']
+                        if isinstance(rec_texts, list):
+                            extracted_text.extend([str(t) for t in rec_texts if t])
+                    elif 'rec_text' in result:
+                        rec_texts = result['rec_text']
+                        if isinstance(rec_texts, list):
+                            extracted_text.extend([str(t) for t in rec_texts if t])
 
                 return "\n".join(extracted_text) if extracted_text else ""
 

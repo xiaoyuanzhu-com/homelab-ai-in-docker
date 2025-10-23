@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from PIL import Image
 
 from src.inference.ocr import OCRInferenceEngine
-from src.db.models import get_model as get_model_from_db
+from src.db.skills import get_skill_dict
 
 
 logger = logging.getLogger("ocr_worker")
@@ -54,23 +54,10 @@ _idle_task: Optional[asyncio.Task] = None
 
 
 def _get_model_config(model_id: str) -> Dict[str, Any]:
-    db_model = get_model_from_db(model_id)
-    if db_model is None:
+    skill = get_skill_dict(model_id)
+    if skill is None:
         raise RuntimeError(f"Model '{model_id}' not found in database")
-    return {
-        "id": db_model["id"],
-        "name": db_model["name"],
-        "team": db_model["team"],
-        "task": db_model["task"],
-        "architecture": db_model["architecture"],
-        "default_prompt": db_model["default_prompt"],
-        "platform_requirements": db_model["platform_requirements"],
-        "requires_quantization": bool(db_model["requires_quantization"]),
-        "size_mb": db_model["size_mb"],
-        "parameters_m": db_model["parameters_m"],
-        "gpu_memory_mb": db_model["gpu_memory_mb"],
-        "link": db_model["link"],
-    }
+    return skill
 
 
 def _decode_image(image_data: str) -> Image.Image:
@@ -132,6 +119,9 @@ async def infer(req: InferRequest) -> InferResponse:
         image = await asyncio.to_thread(_decode_image, req.image)
         text = await asyncio.to_thread(ENGINE.predict, image)  # type: ignore[union-attr]
     except Exception as e:
+        # Log the full exception for debugging
+        logger.error(f"Inference failed: {e}", exc_info=True)
+
         # Explicitly handle CUDA OOM: free caches then exit the process to release context
         msg = str(e)
         is_oom = "out of memory" in msg.lower()
@@ -189,7 +179,7 @@ def main(argv: list[str]) -> int:
         model_id=MODEL_ID,
         architecture=MODEL_CONFIG.get("architecture", "paddleocr"),
         model_config=MODEL_CONFIG,
-        language=LANGUAGE or MODEL_CONFIG.get("language"),
+        language=LANGUAGE or MODEL_CONFIG.get("language") or "ch",
     )
     ENGINE.load()
     logger.info("Worker started for model %s on port %d", MODEL_ID, args.port)

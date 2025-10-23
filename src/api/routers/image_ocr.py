@@ -15,7 +15,7 @@ from PIL import Image
 
 from ..models.image_ocr import OCRRequest, OCRResponse
 from ...storage.history import history_storage
-from ...db.models import get_model as get_model_from_db, get_all_models
+from ...db.skills import get_skill_dict, list_skills
 from ...worker.manager import manager as ocr_manager
 
 logger = logging.getLogger(__name__)
@@ -69,60 +69,46 @@ def _install_sigterm_forwarder():
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
     """
-    Get model configuration from database.
+    Get skill configuration from database.
 
     Args:
-        model_id: Model identifier
+        model_id: Skill identifier
 
     Returns:
-        Model configuration dictionary
+        Skill configuration dictionary
 
     Raises:
-        ValueError: If model not found in database
+        ValueError: If skill not found in database
     """
-    db_model = get_model_from_db(model_id)
+    skill = get_skill_dict(model_id)
 
-    if db_model is None:
-        raise ValueError(f"Model '{model_id}' not found in database")
+    if skill is None:
+        raise ValueError(f"Skill '{model_id}' not found in database")
 
-    # Convert sqlite3.Row to dict
-    return {
-        "id": db_model["id"],
-        "name": db_model["name"],
-        "team": db_model["team"],
-        "task": db_model["task"],
-        "architecture": db_model["architecture"],
-        "default_prompt": db_model["default_prompt"],
-        "platform_requirements": db_model["platform_requirements"],
-        "requires_quantization": bool(db_model["requires_quantization"]),
-        "size_mb": db_model["size_mb"],
-        "parameters_m": db_model["parameters_m"],
-        "gpu_memory_mb": db_model["gpu_memory_mb"],
-        "link": db_model["link"],
-    }
+    return skill
 
 
 def get_available_models() -> list[str]:
     """
-    Load available OCR models from the database.
+    Load available OCR skills from the database.
 
     Returns:
-        List of model IDs that can be used
+        List of skill IDs that can be used
     """
-    all_models = get_all_models()
-    # Filter for image OCR models only
-    return [model["id"] for model in all_models if model["task"] == "image-ocr"]
+    # Filter for image-ocr task
+    ocr_skills = list_skills(task="image-ocr")
+    return [skill["id"] for skill in ocr_skills]
 
 
 def validate_model(model_name: str) -> None:
     """
-    Validate that the model is supported.
+    Validate that the skill is supported.
 
     Args:
-        model_name: Model identifier to validate
+        model_name: Skill identifier to validate
 
     Raises:
-        ValueError: If model is not supported
+        ValueError: If skill is not supported
     """
     available = get_available_models()
     if model_name not in available:
@@ -247,7 +233,8 @@ def get_model(model_name: str, language: Optional[str] = None):
     if _model_cache is None:
         try:
             # Install SIGTERM forwarder for PaddleOCR models
-            if model_config.get("architecture") == "paddleocr":
+            arch = model_config.get("architecture", "paddleocr-legacy")
+            if arch in ("paddleocr", "paddleocr-legacy"):
                 _install_sigterm_forwarder()
 
             logger.info(f"Loading OCR model '{model_name}' with language='{lang}'...")
@@ -256,7 +243,7 @@ def get_model(model_name: str, language: Optional[str] = None):
             # Note: output_format will be set per request in get_model
             _model_cache = OCRInferenceEngine(
                 model_id=model_name,
-                architecture=model_config.get("architecture", "paddleocr"),
+                architecture=arch,
                 model_config=model_config,
                 language=lang,
                 output_format="text",  # Default, will be updated per request

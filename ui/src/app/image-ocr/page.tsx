@@ -21,18 +21,22 @@ interface OCRResult {
   output_format: string;
 }
 
-interface ModelInfo {
+interface SkillInfo {
   id: string;
-  name: string;
-  team: string;
-  type: string;
-  task: string;
-  architecture: string;
+  label: string;
+  provider: string;
+  tasks: string[];
+  architecture?: string;
+  default_prompt?: string;
+  platform_requirements?: string;
   supports_markdown: boolean;
-  size_mb: number;
-  parameters_m: number;
-  gpu_memory_mb: number;
-  link: string;
+  requires_quantization: boolean;
+  requires_download: boolean;
+  hf_model?: string;
+  reference_url?: string;
+  size_mb?: number;
+  parameters_m?: number;
+  gpu_memory_mb?: number;
   status: string;
   downloaded_size_mb?: number;
   error_message?: string;
@@ -48,7 +52,7 @@ export default function ImageOCRPage() {
   const [error, setError] = useState<string | null>(null);
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
   const [selectedModel, setSelectedModel] = useState<string>("");
-  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [availableModels, setAvailableModels] = useState<SkillInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [outputFormat, setOutputFormat] = useState<"text" | "markdown">("text");
   const [viewMode, setViewMode] = useState<"raw" | "rendered">("rendered");
@@ -61,32 +65,32 @@ export default function ImageOCRPage() {
   }, []);
 
   useEffect(() => {
-    // Fetch available models
-    const fetchModels = async () => {
+    // Fetch available skills
+    const fetchSkills = async () => {
       try {
-        const response = await fetch("/api/models?task=image-ocr");
+        const response = await fetch("/api/skills?task=image-ocr");
         if (!response.ok) {
-          throw new Error("Failed to fetch models");
+          throw new Error("Failed to fetch skills");
         }
         const data = await response.json();
-        // Filter for downloaded models only in Try tab
-        const downloadedModels = data.models.filter(
-          (m: ModelInfo) => m.status === "downloaded"
+        // Filter for downloaded skills only in Try tab
+        const downloadedSkills = data.skills.filter(
+          (s: SkillInfo) => s.status === "downloaded"
         );
-        setAvailableModels(downloadedModels);
-        // Set first downloaded model as default
-        if (downloadedModels.length > 0) {
-          setSelectedModel(downloadedModels[0].id);
+        setAvailableModels(downloadedSkills);
+        // Set first downloaded skill as default
+        if (downloadedSkills.length > 0) {
+          setSelectedModel(downloadedSkills[0].id);
         }
       } catch (err) {
-        console.error("Error fetching models:", err);
-        toast.error("Failed to load available models");
+        console.error("Error fetching skills:", err);
+        toast.error("Failed to load available skills");
       } finally {
         setModelsLoading(false);
       }
     };
 
-    fetchModels();
+    fetchSkills();
   }, []);
 
   const handleTabChange = (tab: string) => {
@@ -166,9 +170,9 @@ export default function ImageOCRPage() {
     }
   };
 
-  const modelOptions = availableModels.map((model) => ({
-    value: model.id,
-    label: `${model.name} (${model.team})`,
+  const modelOptions = availableModels.map((skill) => ({
+    value: skill.id,
+    label: `${skill.label} (${skill.provider})`,
   }));
 
   const requestPayload = {
@@ -189,7 +193,7 @@ export default function ImageOCRPage() {
           options={modelOptions}
           loading={modelsLoading}
           disabled={loading}
-          emptyMessage="No OCR models downloaded. Visit the Models page to install one."
+          emptyMessage="No OCR skills downloaded. Visit the Skills page to install one."
         />
       </div>
 
@@ -386,7 +390,7 @@ export default function ImageOCRPage() {
                 <ul className="space-y-2 text-sm">
                   <li><code className="bg-muted px-2 py-1 rounded">image</code> (string, required) - Base64-encoded image data</li>
                   <li><code className="bg-muted px-2 py-1 rounded">model</code> (string, required) - Model ID to use for OCR</li>
-                  <li><code className="bg-muted px-2 py-1 rounded">output_format</code> (string, optional) - Output format: &quot;text&quot; (default) or &quot;markdown&quot; (supported by PaddleOCR-VL, Granite Docling, MinerU, DeepSeek)</li>
+                  <li><code className="bg-muted px-2 py-1 rounded">output_format</code> (string, optional) - Output format: &quot;text&quot; (default) or &quot;markdown&quot; (supported by Granite Docling, MinerU, DeepSeek)</li>
                   <li><code className="bg-muted px-2 py-1 rounded">language</code> (string, optional) - Language hint for OCR (e.g., &quot;en&quot;, &quot;zh&quot;, &quot;auto&quot;)</li>
                 </ul>
               </div>
