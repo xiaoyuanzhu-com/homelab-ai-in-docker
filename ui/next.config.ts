@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
   // Disable static generation errors for dynamic routes
   // We'll handle 404s with FastAPI fallback to index.html
   skipTrailingSlashRedirect: true,
+  // Disable image optimization for static export
+  images: {
+    unoptimized: true,
+  },
   // Only use rewrites in development mode
   // In production, FastAPI will serve the static files and handle API requests
   ...(process.env.NODE_ENV === "development" && {

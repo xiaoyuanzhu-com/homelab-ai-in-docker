@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { NavigationMenu, NavigationMenuItem, NavigationMenuList, navigationMenuTriggerStyle } from "@/components/ui/navigation-menu";
 import { cn } from "@/lib/utils";
@@ -19,9 +20,16 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full h-14 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto h-full flex items-center justify-between px-4">
         {/* Logo/Brand */}
-        <Link href="/" className="flex items-center gap-2">
-          <div className="text-2xl">🤖</div>
-          <span className="font-bold text-lg">Homelab AI in Docker</span>
+        <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+          <Image
+            src="/logo.png"
+            alt="Homelab AI in Docker"
+            width={32}
+            height={32}
+            className="h-8 w-8"
+          />
+          <span className="font-bold text-lg hidden sm:inline">Homelab AI in Docker</span>
+          <span className="font-bold text-lg sm:hidden">HAID</span>
         </Link>
 
         {/* Navigation Menu */}
