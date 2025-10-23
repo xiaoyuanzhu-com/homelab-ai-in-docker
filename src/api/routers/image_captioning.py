@@ -24,7 +24,6 @@ import torch
 
 from ..models.image_captioning import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
-from ...config import get_model_cache_dir
 from ...db.skills import get_skill_dict, list_skills
 
 logger = logging.getLogger(__name__)
@@ -212,24 +211,10 @@ def get_model(model_name: str):
         _current_model_config = model_config
 
     if _model_cache is None or _processor_cache is None:
-        # Get custom cache directory
-        cache_dir = get_model_cache_dir("image-caption", _current_model_name)
-
-        # Check if model is already downloaded locally via hfd
-        from ...config import get_data_dir
-        from pathlib import Path
-        local_model_dir = get_data_dir() / "skills" / _current_model_name
-
-        # Determine which path to use for loading
-        if local_model_dir.exists() and (local_model_dir / "config.json").exists():
-            model_path = str(local_model_dir)
-            logger.info(f"Using locally downloaded skill from {model_path}")
-            # Use local_files_only to prevent re-downloading
-            extra_kwargs = {"local_files_only": True}
-        else:
-            model_path = _current_model_name
-            logger.info(f"Model not found locally, will download from HuggingFace: {_current_model_name}")
-            extra_kwargs = {}
+        # Load model directly by ID - HuggingFace automatically checks HF_HOME cache (data/models)
+        model_path = _current_model_name
+        logger.info(f"Loading model '{_current_model_name}' (HF_HOME cache lookup)")
+        extra_kwargs = {}
 
         # Set HuggingFace endpoint for model loading
         from ...config import get_hf_endpoint

@@ -59,7 +59,7 @@ export default function ModelsPage() {
 
   const handleDownload = async (skillId: string) => {
     setDownloadingSkills(prev => new Set(prev).add(skillId));
-    toast.info("Downloading skill...", {
+    toast.info("Downloading...", {
       description: "This may take several minutes depending on size",
     });
 
