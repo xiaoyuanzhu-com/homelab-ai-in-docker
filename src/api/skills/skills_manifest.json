@@ -286,6 +286,25 @@
       "platform_requirements": "Works with transformers >= 4.46.3 (use torch_dtype for versions < 4.56.0)"
     },
     {
+      "id": "paddleocr/pp-ocrv5",
+      "label": "PaddleOCR PP-OCRv5",
+      "provider": "PaddlePaddle",
+      "tasks": [
+        "image-ocr"
+      ],
+      "architecture": "paddleocr-legacy",
+      "default_prompt": null,
+      "platform_requirements": "Included with container; downloads PaddleOCR assets on first use.",
+      "supports_markdown": false,
+      "requires_quantization": false,
+      "requires_download": false,
+      "hf_model": null,
+      "reference_url": "https://github.com/PaddlePaddle/PaddleOCR",
+      "size_mb": null,
+      "parameters_m": null,
+      "gpu_memory_mb": null
+    },
+    {
       "id": "Qwen/Qwen3-0.6B",
       "label": "Qwen3-0.6B",
       "provider": "Qwen",
