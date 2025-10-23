@@ -38,11 +38,10 @@ interface SkillInfo {
   label: string;
   provider: string;
   tasks: string[];
-
   size_mb: number;
   parameters_m: number;
   gpu_memory_mb: number;
-  link: string;
+  reference_url: string;
   status: string;
   downloaded_size_mb?: number;
   error_message?: string;
@@ -288,8 +287,8 @@ export default function AutomaticSpeechRecognitionPage() {
   };
 
   const modelOptions = availableModels.map((skill) => ({
-    value: model.id,
-    label: `${skill.label} (${model.parameters_m}M params)`,
+    value: skill.id,
+    label: `${skill.label} (${skill.parameters_m}M params)`,
   }));
 
   const rawRequestPayload = {

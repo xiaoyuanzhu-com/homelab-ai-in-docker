@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Download, Trash2, ExternalLink, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { getTaskDisplayName } from "@/lib/tasks";
-import { SkillInfo, SkillsResponse, isSkillReady } from "@/lib/skills";
+import { SkillInfo, SkillsResponse } from "@/lib/skills";
 
 interface LogEntry {
   log_line: string;

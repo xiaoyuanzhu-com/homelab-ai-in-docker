@@ -170,7 +170,7 @@ function renderEmbeddings(entry: TaskHistoryEntry) {
       mode="history"
       texts={texts}
       selectedModel={selectedModel}
-      availableModels={selectedModel ? [{ id: selectedModel, name: selectedModel, team: "", status: "downloaded", dimensions: result?.dimensions ?? 0 }] : []}
+      availableModels={selectedModel ? [{ id: selectedModel, label: selectedModel, provider: "", status: "ready", dimensions: result?.dimensions ?? 0 }] : []}
       result={result}
       loading={false}
       error={entry.status === "success" ? null : "Request failed"}

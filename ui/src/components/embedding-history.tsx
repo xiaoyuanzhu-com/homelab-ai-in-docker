@@ -20,8 +20,8 @@ interface HistoryEntry {
 
 interface EmbeddingModel {
   id: string;
-  name: string;
-  team: string;
+  label: string;
+  provider: string;
   status: string;
   dimensions: number;
 }

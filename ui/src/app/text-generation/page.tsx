@@ -20,13 +20,12 @@ interface SkillInfo {
   label: string;
   provider: string;
   tasks: string[];
-
   architecture: string;
   default_prompt: string | null;
   size_mb: number;
   parameters_m: number;
   gpu_memory_mb: number;
-  link: string;
+  reference_url: string;
   status: string;
   downloaded_size_mb?: number;
   error_message?: string;

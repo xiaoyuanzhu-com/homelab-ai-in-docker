@@ -20,16 +20,15 @@ interface CaptionResult {
 
 interface ModelInfo {
   id: string;
-  name: string;
-  team: string;
-  type: string;
-  task: string;
+  label: string;
+  provider: string;
+  tasks: string[];
   architecture: string;
   default_prompt: string | null;
   size_mb: number;
   parameters_m: number;
   gpu_memory_mb: number;
-  link: string;
+  reference_url: string;
   status: string;
   downloaded_size_mb?: number;
   error_message?: string;
@@ -90,7 +89,7 @@ export function ImageCaptionInputOutput({
 
   const modelOptions = availableModels.map((model) => ({
     value: model.id,
-    label: `${model.name} (${model.team})`,
+    label: `${model.label} (${model.provider})`,
   }));
 
   const requestModel =
