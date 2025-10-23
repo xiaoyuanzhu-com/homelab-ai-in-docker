@@ -11,6 +11,8 @@ interface HardwareStats {
     usage_percent: number;
     cores: number;
     frequency_mhz: number | null;
+    model: string | null;
+    temperature_c: number | null;
   };
   memory: {
     total_gb: number;
@@ -24,14 +26,17 @@ interface HardwareStats {
     devices: Array<{
       id: number;
       name: string;
-      compute_capability: string;
-      total_memory_gb: number;
-      allocated_memory_gb: number;
-      reserved_memory_gb: number;
-      free_memory_gb: number;
-      memory_usage_percent: number;
-      utilization_percent?: number;
-      temperature_c?: number;
+      driver_version?: string | null;
+      cuda_version?: string | null;
+      total_memory_gb?: number;
+      used_memory_gb?: number;
+      free_memory_gb?: number;
+      memory_usage_percent?: number;
+      utilization_percent?: number | null;
+      memory_utilization_percent?: number | null;
+      temperature_c?: number | null;
+      pytorch_allocated_gb?: number | null;
+      pytorch_reserved_gb?: number | null;
     }>;
   };
   inference: {
@@ -44,6 +49,14 @@ interface TaskStats {
   running: number;
   today: number;
   total: number;
+}
+
+// Helper function to get color based on usage percentage
+function getUsageColor(usage: number): string {
+  if (usage < 25) return "bg-green-600";
+  if (usage < 50) return "bg-yellow-600";
+  if (usage < 75) return "bg-orange-600";
+  return "bg-red-600";
 }
 
 export default function StatsPage() {
@@ -94,6 +107,171 @@ export default function StatsPage() {
         </p>
       </div>
 
+      {/* Hardware Stats - Compact 2x3 Grid */}
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle>Hardware Resources</CardTitle>
+          <CardDescription>
+            {hardwareStats?.inference.description || "Real-time system monitoring"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="grid md:grid-cols-2 gap-4">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <Skeleton key={i} className="h-24 w-full" />
+              ))}
+            </div>
+          ) : hardwareStats ? (
+            <div className="grid md:grid-cols-2 gap-4">
+              {/* Row 1: CPU Info & GPU Info */}
+              <div className="p-4 bg-muted/30 rounded-lg">
+                <h3 className="text-sm font-medium mb-2">CPU</h3>
+                {hardwareStats.cpu.model ? (
+                  <>
+                    <p className="text-lg font-bold">{hardwareStats.cpu.model}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {hardwareStats.cpu.cores} cores
+                      {hardwareStats.cpu.frequency_mhz && ` @ ${hardwareStats.cpu.frequency_mhz} MHz`}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold">{hardwareStats.cpu.cores} Cores</p>
+                    {hardwareStats.cpu.frequency_mhz && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {hardwareStats.cpu.frequency_mhz} MHz
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="p-4 bg-muted/30 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium">GPU</h3>
+                  <Badge variant={hardwareStats.gpu.available ? "default" : "secondary"} className="text-xs">
+                    {hardwareStats.gpu.available ? "Available" : "Not Available"}
+                  </Badge>
+                </div>
+                {hardwareStats.gpu.available && hardwareStats.gpu.devices.length > 0 ? (
+                  <>
+                    <p className="text-lg font-bold">{hardwareStats.gpu.devices[0].name}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {hardwareStats.gpu.devices[0].driver_version && hardwareStats.gpu.devices[0].cuda_version
+                        ? `Driver ${hardwareStats.gpu.devices[0].driver_version} • CUDA ${hardwareStats.gpu.devices[0].cuda_version}`
+                        : hardwareStats.gpu.devices[0].driver_version
+                        ? `Driver ${hardwareStats.gpu.devices[0].driver_version}`
+                        : hardwareStats.gpu.devices[0].cuda_version
+                        ? `CUDA ${hardwareStats.gpu.devices[0].cuda_version}`
+                        : "Version info unavailable"}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Not detected</p>
+                )}
+              </div>
+
+              {/* Row 2: CPU Usage & GPU Usage */}
+              <div className="p-4 bg-muted/30 rounded-lg">
+                <h3 className="text-sm font-medium mb-2">CPU Usage</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-2xl font-bold">{hardwareStats.cpu.usage_percent.toFixed(1)}%</span>
+                  {hardwareStats.cpu.temperature_c !== undefined && hardwareStats.cpu.temperature_c !== null && (
+                    <span className="text-xs text-muted-foreground">
+                      {hardwareStats.cpu.temperature_c.toFixed(1)}°C
+                    </span>
+                  )}
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                  <div
+                    className={`${getUsageColor(hardwareStats.cpu.usage_percent)} h-2 rounded-full transition-all duration-300`}
+                    style={{ width: `${hardwareStats.cpu.usage_percent}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-muted/30 rounded-lg">
+                <h3 className="text-sm font-medium mb-2">GPU Usage</h3>
+                {hardwareStats.gpu.available && hardwareStats.gpu.devices.length > 0 ? (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-2xl font-bold">
+                        {hardwareStats.gpu.devices[0].utilization_percent ?? 0}%
+                      </span>
+                      {hardwareStats.gpu.devices[0].temperature_c !== undefined &&
+                       hardwareStats.gpu.devices[0].temperature_c !== null && (
+                        <span className="text-xs text-muted-foreground">
+                          {hardwareStats.gpu.devices[0].temperature_c}°C
+                        </span>
+                      )}
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                      <div
+                        className={`${getUsageColor(hardwareStats.gpu.devices[0].utilization_percent ?? 0)} h-2 rounded-full transition-all duration-300`}
+                        style={{ width: `${hardwareStats.gpu.devices[0].utilization_percent ?? 0}%` }}
+                      ></div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No GPU available</p>
+                )}
+              </div>
+
+              {/* Row 3: System Memory & GPU Memory */}
+              <div className="p-4 bg-muted/30 rounded-lg">
+                <h3 className="text-sm font-medium mb-2">System Memory</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-2xl font-bold">{hardwareStats.memory.usage_percent.toFixed(1)}%</span>
+                  <span className="text-xs text-muted-foreground">
+                    {hardwareStats.memory.used_gb.toFixed(1)} / {hardwareStats.memory.total_gb.toFixed(1)} GB
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                  <div
+                    className={`${getUsageColor(hardwareStats.memory.usage_percent)} h-2 rounded-full transition-all duration-300`}
+                    style={{ width: `${hardwareStats.memory.usage_percent}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-muted/30 rounded-lg">
+                <h3 className="text-sm font-medium mb-2">GPU Memory</h3>
+                {hardwareStats.gpu.available && hardwareStats.gpu.devices.length > 0 ? (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-2xl font-bold">
+                        {hardwareStats.gpu.devices[0].memory_usage_percent?.toFixed(1) ?? '0.0'}%
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {hardwareStats.gpu.devices[0].used_memory_gb?.toFixed(1) ?? '0.0'} / {hardwareStats.gpu.devices[0].total_memory_gb?.toFixed(1) ?? '0.0'} GB
+                      </span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                      <div
+                        className={`${getUsageColor(hardwareStats.gpu.devices[0].memory_usage_percent ?? 0)} h-2 rounded-full transition-all duration-300`}
+                        style={{ width: `${hardwareStats.gpu.devices[0].memory_usage_percent ?? 0}%` }}
+                      ></div>
+                    </div>
+                    {hardwareStats.gpu.devices[0].pytorch_reserved_gb !== undefined &&
+                     hardwareStats.gpu.devices[0].pytorch_reserved_gb !== null &&
+                     hardwareStats.gpu.devices[0].pytorch_reserved_gb > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        PyTorch: {hardwareStats.gpu.devices[0].pytorch_reserved_gb.toFixed(2)} GB cached
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No GPU available</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground">No hardware statistics available</p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Task Stats Card */}
       <Card className="mb-8">
         <CardHeader>
@@ -113,15 +291,15 @@ export default function StatsPage() {
           ) : taskStats ? (
             <div className="grid grid-cols-3 gap-8">
               <div className="text-center">
-                <div className="text-4xl font-bold text-blue-600">{taskStats.running}</div>
+                <div className="text-4xl font-bold">{taskStats.running}</div>
                 <div className="text-sm text-muted-foreground mt-1">Running</div>
               </div>
               <div className="text-center">
-                <div className="text-4xl font-bold text-green-600">{taskStats.today}</div>
+                <div className="text-4xl font-bold">{taskStats.today}</div>
                 <div className="text-sm text-muted-foreground mt-1">Today</div>
               </div>
               <div className="text-center">
-                <div className="text-4xl font-bold text-purple-600">{taskStats.total}</div>
+                <div className="text-4xl font-bold">{taskStats.total}</div>
                 <div className="text-sm text-muted-foreground mt-1">Total</div>
               </div>
             </div>
@@ -135,123 +313,6 @@ export default function StatsPage() {
       <div className="mb-8">
         <TaskHistoryList />
       </div>
-
-      {/* Hardware Stats Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Hardware Resources</CardTitle>
-          <CardDescription>
-            {hardwareStats?.inference.description || "Loading hardware information..."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <Skeleton className="h-20 w-full" />
-                <Skeleton className="h-20 w-full" />
-              </div>
-              <Skeleton className="h-44 w-full" />
-            </div>
-          ) : hardwareStats ? (
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* CPU & Memory */}
-              <div className="space-y-4">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium">CPU Usage</span>
-                    <span className="text-sm text-muted-foreground">
-                      {hardwareStats.cpu.usage_percent.toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${hardwareStats.cpu.usage_percent}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {hardwareStats.cpu.cores} cores
-                    {hardwareStats.cpu.frequency_mhz &&
-                      ` @ ${hardwareStats.cpu.frequency_mhz} MHz`
-                    }
-                  </p>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium">Memory Usage</span>
-                    <span className="text-sm text-muted-foreground">
-                      {hardwareStats.memory.used_gb.toFixed(1)} / {hardwareStats.memory.total_gb.toFixed(1)} GB
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-                    <div
-                      className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${hardwareStats.memory.usage_percent}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {hardwareStats.memory.usage_percent.toFixed(1)}% used
-                  </p>
-                </div>
-              </div>
-
-              {/* GPU */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium">GPU</span>
-                  <Badge variant={hardwareStats.gpu.available ? "default" : "secondary"}>
-                    {hardwareStats.gpu.available ? "Available" : "Not Available"}
-                  </Badge>
-                </div>
-                {hardwareStats.gpu.available && hardwareStats.gpu.devices.length > 0 ? (
-                  <div className="space-y-3">
-                    {hardwareStats.gpu.devices.map((gpu) => (
-                      <div key={gpu.id} className="p-3 bg-muted/50 rounded-lg space-y-2">
-                        <div>
-                          <p className="text-sm font-medium">{gpu.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Compute {gpu.compute_capability}
-                          </p>
-                        </div>
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs">VRAM</span>
-                            <span className="text-xs text-muted-foreground">
-                              {gpu.reserved_memory_gb.toFixed(1)} / {gpu.total_memory_gb.toFixed(1)} GB
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
-                            <div
-                              className="bg-purple-600 h-1.5 rounded-full transition-all duration-300"
-                              style={{ width: `${gpu.memory_usage_percent}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                        {gpu.utilization_percent !== undefined && (
-                          <p className="text-xs text-muted-foreground">
-                            Utilization: {gpu.utilization_percent}%
-                            {gpu.temperature_c !== undefined &&
-                              ` • Temp: ${gpu.temperature_c}°C`
-                            }
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No GPU detected. AI models will run on CPU.
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <p className="text-center text-muted-foreground">No hardware statistics available</p>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

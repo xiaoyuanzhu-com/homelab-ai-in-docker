@@ -18,11 +18,12 @@ dependencies = [
     "tokenizers==0.20.3",
     "sse-starlette>=2.0.0",
     "psutil>=6.0.0",
-    "gputil>=1.4.0",
+    "nvidia-ml-py>=12.0.0",
     "accelerate>=0.20.0",
     "bitsandbytes>=0.41.0; platform_system=='Linux'",
     "paddlepaddle>=3.0.0",
-    "paddleocr>=3.0.0",
+    "paddleocr[doc-parser]>=3.0.0",
+    "paddlex[ocr]>=3.0.0",
     "mineru-vl-utils>=0.1.0",
     "einops>=0.7.0",
     "docling-core>=2.0.0",
@@ -61,3 +62,5 @@ explicit = true
 torch = { index = "pytorch-cu126" }
 torchvision = { index = "pytorch-cu126" }
 flash-attn = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.4.12/flash_attn-2.8.3%2Bcu126torch2.7-cp313-cp313-linux_x86_64.whl" }
+# Custom safetensors build with paddle framework support for PaddleOCR-VL
+safetensors = { url = "https://paddle-whl.bj.bcebos.com/nightly/cu126/safetensors/safetensors-0.6.2.dev0-cp38-abi3-linux_x86_64.whl" }
