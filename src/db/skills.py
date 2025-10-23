@@ -214,3 +214,10 @@ def list_skills(task: Optional[str] = None) -> list[Dict[str, Any]]:
         task_lower = task.lower()
         skills = [s for s in skills if any(t.lower() == task_lower for t in s["tasks"])]
     return skills
+
+
+def get_skill_dict(skill_id: str) -> Optional[Dict[str, Any]]:
+    row = get_skill(skill_id)
+    if row is None:
+        return None
+    return _row_to_skill(row)
