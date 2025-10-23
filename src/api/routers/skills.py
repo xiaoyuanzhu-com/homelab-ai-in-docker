@@ -90,15 +90,19 @@ def _skill_cache_dir(hf_model: str) -> Path:
     """
     Get the cache directory for a HuggingFace model.
 
-    Now relies on HF_HOME environment variable (set to data/models in main.py).
-    HuggingFace will use its standard cache structure: models--{org}--{model}/snapshots/{hash}/
+    Downloads to data/models/{org}/{model} for hfd compatibility.
+    HuggingFace libraries will find models here using HF_HOME.
 
-    This function returns the HF_HOME path, but actual resolution is handled by HF libraries.
+    Args:
+        hf_model: HuggingFace model ID (e.g., "Qwen/Qwen3-Embedding-0.6B")
+
+    Returns:
+        Path to model directory (e.g., data/models/Qwen/Qwen3-Embedding-0.6B)
     """
     from ...config import get_data_dir
-    # Return the HF_HOME directory (data/models)
-    # HuggingFace will create models--{org}--{model} subdirectories automatically
-    return get_data_dir() / "models"
+    cache_root = get_data_dir() / "models"
+    parts = hf_model.split("/")
+    return cache_root.joinpath(*parts)
 
 
 @router.get("/skills", response_model=SkillsResponse)
@@ -123,7 +127,7 @@ async def _download_skill_with_progress(
 
     logger = logging.getLogger(__name__)
 
-    # Get HF_HOME directory (data/models) - HuggingFace will manage subdirectories
+    # Get download directory: data/models/{org}/{model}
     cache_dir = _skill_cache_dir(hf_model)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -132,8 +136,6 @@ async def _download_skill_with_progress(
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
-    # Set HF_HOME to use our data/models directory
-    env["HF_HOME"] = str(cache_dir)
     hf_endpoint = get_hf_endpoint()
     hf_username = get_hf_username()
     hf_token = get_hf_token()
@@ -142,17 +144,19 @@ async def _download_skill_with_progress(
     logger.info(f"HF endpoint: {hf_endpoint}")
     logger.info(f"HF username: {'[configured]' if hf_username else '[not set]'}")
     logger.info(f"HF token: {'[configured]' if hf_token else '[not set]'}")
-    logger.info(f"HF_HOME directory: {cache_dir}")
+    logger.info(f"Download directory: {cache_dir}")
 
     import shlex
 
-    # Use hfd without --local-dir, let it use HF_HOME cache structure
+    # Use hfd with --local-dir to download to data/models/{org}/{model}
     cmd_parts = [
         f"HF_ENDPOINT={hf_endpoint}",
         "stdbuf",
         "-oL",
         "hfd",
         hf_model,
+        "--local-dir",
+        str(cache_dir),
     ]
     if hf_username and hf_token:
         cmd_parts.extend(["--hf_username", hf_username, "--hf_token", hf_token])

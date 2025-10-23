@@ -189,13 +189,20 @@ def get_model(model_name: str):
         _current_model_config = model_config
 
     if _model_cache is None or _processor_cache is None:
-        # Load model directly by ID - HuggingFace automatically checks HF_HOME cache (data/models)
-        model_path = _current_model_name
-        logger.info(f"Loading model '{_current_model_name}' (HF_HOME cache lookup)")
-        extra_kwargs = {}
+        # Check for local download at data/models/{org}/{model}
+        from ...config import get_data_dir, get_hf_endpoint
+        local_model_dir = get_data_dir() / "models" / _current_model_name
+
+        if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+            model_path = str(local_model_dir)
+            logger.info(f"Using locally downloaded model from {model_path}")
+            extra_kwargs = {"local_files_only": True}
+        else:
+            model_path = _current_model_name
+            logger.info(f"Model not found locally, will download from HuggingFace: {model_path}")
+            extra_kwargs = {}
 
         # Set HuggingFace endpoint for model loading
-        from ...config import get_hf_endpoint
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
 
         try:
@@ -473,12 +480,19 @@ async def _process_diarization(request: TranscriptionRequest, request_id: str, s
         torchcodec_stub.ensure_torchcodec()
         from pyannote.audio import Pipeline
         from ...db.settings import get_setting
-        from ...config import get_hf_endpoint
+        from ...config import get_hf_endpoint, get_data_dir
 
-        # Load model directly by ID - HuggingFace automatically checks HF_HOME cache (data/models)
-        model_path = request.model
-        logger.info(f"Loading model '{request.model}' (HF_HOME cache lookup)")
-        pipeline_kwargs = {}
+        # Check for local download at data/models/{org}/{model}
+        local_model_dir = get_data_dir() / "models" / request.model
+
+        if local_model_dir.exists() and (local_model_dir / "config.yaml").exists():
+            model_path = str(local_model_dir)
+            logger.info(f"Using locally downloaded model from {model_path}")
+            pipeline_kwargs = {"local_files_only": True}
+        else:
+            model_path = request.model
+            logger.info(f"Model not found locally, will download from HuggingFace: {model_path}")
+            pipeline_kwargs = {}
 
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
         hf_token = get_setting("hf_token") or os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")

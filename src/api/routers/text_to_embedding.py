@@ -94,8 +94,8 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
     """
     Get or load the embedding model.
 
-    Uses HuggingFace cache (HF_HOME=data/models) for automatic model resolution.
-    Models are cached in standard HF format: data/models/models--{org}--{model}/snapshots/{hash}/
+    Models downloaded via skills API are stored at: data/models/{org}/{model}
+    Falls back to downloading from HuggingFace if not found locally.
 
     Args:
         model_name: Skill ID of the model to load (optional)
@@ -123,11 +123,18 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
         # Set HuggingFace endpoint for model loading
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
 
-        # Load model directly by ID - HuggingFace will automatically:
-        # 1. Check HF_HOME cache (data/models) for existing download
-        # 2. Download if not found (using HF_HOME as cache location)
-        logger.info(f"Loading model '{target_model}' (HF_HOME cache lookup)")
-        _model_cache = SentenceTransformer(target_model)
+        # Check for local download at data/models/{org}/{model}
+        local_model_dir = get_data_dir() / "models" / target_model
+        if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+            # Load from local directory
+            model_path = str(local_model_dir)
+            logger.info(f"Using locally downloaded model from {model_path}")
+        else:
+            # Fall back to model ID (will download from HuggingFace)
+            model_path = target_model
+            logger.info(f"Model not found locally, will download from HuggingFace: {target_model}")
+
+        _model_cache = SentenceTransformer(model_path)
         _current_model_name = target_model
 
     # Update last access time

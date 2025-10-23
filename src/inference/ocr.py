@@ -323,10 +323,18 @@ class OCRInferenceEngine:
 
             logger.info(f"Loading MinerU2.5 model '{self.model_id}'...")
 
-            # Load model directly by ID - HuggingFace automatically checks HF_HOME cache (data/models)
-            model_path = self.model_id
-            logger.info(f"Loading model '{self.model_id}' (HF_HOME cache lookup)")
-            extra_kwargs = {}
+            # Check for local download at data/models/{org}/{model}
+            from ...config import get_data_dir
+            local_model_dir = get_data_dir() / "models" / self.model_id
+
+            if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+                model_path = str(local_model_dir)
+                logger.info(f"Using locally downloaded model from {model_path}")
+                extra_kwargs = {"local_files_only": True}
+            else:
+                model_path = self.model_id
+                logger.info(f"Model not found locally, will download from HuggingFace: {model_path}")
+                extra_kwargs = {}
 
             # Load model with auto device mapping
             model = Qwen2VLForConditionalGeneration.from_pretrained(
@@ -371,19 +379,17 @@ class OCRInferenceEngine:
 
             logger.info(f"Loading DeepSeek-OCR model '{self.model_id}'...")
 
-            # Check if model is already downloaded locally via hfd
-            from src.config import get_data_dir
-            local_model_dir = get_data_dir() / "skills" / self.model_id
+            # Check for local download at data/models/{org}/{model}
+            from ...config import get_data_dir
+            local_model_dir = get_data_dir() / "models" / self.model_id
 
-            # Determine which path to use for loading
             if local_model_dir.exists() and (local_model_dir / "config.json").exists():
                 model_path = str(local_model_dir)
-                logger.info(f"Using locally downloaded skill from {model_path}")
-                # Use local_files_only to prevent re-downloading
+                logger.info(f"Using locally downloaded model from {model_path}")
                 extra_kwargs = {"local_files_only": True}
             else:
                 model_path = self.model_id
-                logger.info(f"Model not found locally, will download from HuggingFace: {self.model_id}")
+                logger.info(f"Model not found locally, will download from HuggingFace: {model_path}")
                 extra_kwargs = {}
 
             # Try to use flash attention if available, fallback to eager
@@ -475,10 +481,18 @@ class OCRInferenceEngine:
 
             logger.info(f"Loading Granite Docling model '{self.model_id}'...")
 
-            # Load model directly by ID - HuggingFace automatically checks HF_HOME cache (data/models)
-            model_path = self.model_id
-            logger.info(f"Loading model '{self.model_id}' (HF_HOME cache lookup)")
-            extra_kwargs = {}
+            # Check for local download at data/models/{org}/{model}
+            from ...config import get_data_dir
+            local_model_dir = get_data_dir() / "models" / self.model_id
+
+            if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+                model_path = str(local_model_dir)
+                logger.info(f"Using locally downloaded model from {model_path}")
+                extra_kwargs = {"local_files_only": True}
+            else:
+                model_path = self.model_id
+                logger.info(f"Model not found locally, will download from HuggingFace: {model_path}")
+                extra_kwargs = {}
 
             # Determine device and attention implementation
             device = "cuda" if torch.cuda.is_available() else "cpu"

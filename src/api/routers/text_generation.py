@@ -183,10 +183,18 @@ def get_model(model_name: str):
         _current_model_config = model_config
 
     if _model_cache is None or _tokenizer_cache is None:
-        # Load model directly by ID - HuggingFace automatically checks HF_HOME cache (data/models)
-        model_path = _current_model_name
-        logger.info(f"Loading model '{_current_model_name}' (HF_HOME cache lookup)")
-        extra_kwargs = {}
+        # Check for local download at data/models/{org}/{model}
+        from ...config import get_data_dir
+        local_model_dir = get_data_dir() / "models" / _current_model_name
+
+        if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+            model_path = str(local_model_dir)
+            logger.info(f"Using locally downloaded model from {model_path}")
+            extra_kwargs = {"local_files_only": True}
+        else:
+            model_path = _current_model_name
+            logger.info(f"Model not found locally, will download from HuggingFace: {model_path}")
+            extra_kwargs = {}
 
         # Set HuggingFace endpoint for model loading
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
