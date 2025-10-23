@@ -73,9 +73,9 @@ export default function ImageOCRPage() {
           throw new Error("Failed to fetch skills");
         }
         const data = await response.json();
-        // Filter for downloaded skills only in Try tab
+        // Filter for ready skills only in Try tab
         const downloadedSkills = data.skills.filter(
-          (s: SkillInfo) => s.status === "downloaded"
+          (s: SkillInfo) => s.status === "ready"
         );
         setAvailableModels(downloadedSkills);
         // Set first downloaded skill as default

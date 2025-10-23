@@ -49,9 +49,9 @@ export default function EmbeddingPage() {
         const response = await fetch("/api/skills?task=feature-extraction");
         if (!response.ok) throw new Error("Failed to fetch skills");
         const data = await response.json();
-        // Filter for downloaded skills only (task filter already applied)
+        // Filter for ready skills only (task filter already applied)
         const downloadedModels = data.skills.filter(
-          (m: EmbeddingModel) => m.status === "downloaded"
+          (m: EmbeddingModel) => m.status === "ready"
         );
         setAvailableModels(downloadedModels);
         // Select first downloaded model by default

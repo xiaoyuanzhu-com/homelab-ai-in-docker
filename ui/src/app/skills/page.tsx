@@ -82,7 +82,7 @@ export default function ModelsPage() {
           toast.info(message);
         } else if (data.type === "complete") {
           eventSource.close();
-          toast.success("Skill downloaded successfully!");
+          toast.success("Skill is ready!");
           fetchSkills();
           setDownloadingSkills(prev => {
             const newSet = new Set(prev);
@@ -286,8 +286,8 @@ export default function ModelsPage() {
                         </Button>
                       </div>
                     )}
-                    {skill.status === "downloaded" && (
-                      <Badge variant="default" className="bg-green-600">Downloaded</Badge>
+                    {skill.status === "ready" && (
+                      <Badge variant="default" className="bg-green-600">Ready</Badge>
                     )}
                     {skill.status === "failed" && (
                       <Badge
@@ -333,7 +333,7 @@ export default function ModelsPage() {
                           </Button>
                         </>
                       )}
-                      {skill.status === "downloaded" && skill.requires_download && (
+                      {skill.status === "ready" && skill.requires_download && (
                         <Button
                           variant="ghost"
                           size="sm"

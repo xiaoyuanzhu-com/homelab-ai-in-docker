@@ -14,7 +14,7 @@ class SkillStatus(str, Enum):
     INIT = "init"
     DOWNLOADING = "downloading"
     FAILED = "failed"
-    DOWNLOADED = "downloaded"
+    READY = "ready"
 
 
 def init_skills_table() -> None:
@@ -130,7 +130,7 @@ def upsert_skill(
                 size_mb,
                 parameters_m,
                 gpu_memory_mb,
-                (initial_status or (SkillStatus.INIT if requires_download else SkillStatus.DOWNLOADED)).value,
+                (initial_status or (SkillStatus.INIT if requires_download else SkillStatus.READY)).value,
             ),
         )
 

@@ -14,6 +14,7 @@ import torch
 from ..models.text_to_embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
 from ...config import get_data_dir, get_hf_endpoint
+from ...db.skills import get_skill_dict
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +95,13 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
     Get or load the embedding model.
 
     Args:
-        model_name: Name of the model to load (optional)
+        model_name: Skill ID of the model to load (optional)
 
     Returns:
         Loaded SentenceTransformer model
 
     Raises:
-        HTTPException: If model not found or not downloaded
+        HTTPException: If skill not found or not downloaded
     """
     global _model_cache, _current_model_name, _last_access_time
 
@@ -111,21 +112,26 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
 
     # Load model if not cached or if different model requested
     if _model_cache is None or target_model != _current_model_name:
-        # Use the downloaded models directory (preserves HuggingFace structure)
-        # Path: data/models/sentence-transformers/all-MiniLM-L6-v2
-        model_dir = get_data_dir() / "models" / target_model
+        # Get skill info from database
+        skill = get_skill_dict(target_model)
+        if skill is None:
+            raise ValueError(f"Skill '{target_model}' not found in database")
+
+        # Use the downloaded skills directory
+        # Path: data/skills/{skill_id}
+        model_dir = get_data_dir() / "skills" / target_model
 
         # Set HuggingFace endpoint for model loading
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
 
-        # Check if model exists locally
+        # Check if skill exists locally
         if model_dir.exists() and (model_dir / "config.json").exists():
             # Load from local directory
-            logger.info(f"Using locally downloaded model from {model_dir}")
+            logger.info(f"Using locally downloaded skill from {model_dir}")
             model_path = str(model_dir)
         else:
             # Fallback to downloading from HuggingFace
-            logger.info(f"Model not found locally, will download from HuggingFace: {target_model}")
+            logger.info(f"Skill not found locally, will download from HuggingFace: {target_model}")
             model_path = target_model
 
         # Load model (from local path or HuggingFace)

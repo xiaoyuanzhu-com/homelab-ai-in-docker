@@ -218,12 +218,12 @@ def get_model(model_name: str):
         # Check if model is already downloaded locally via hfd
         from ...config import get_data_dir
         from pathlib import Path
-        local_model_dir = get_data_dir() / "models" / _current_model_name
+        local_model_dir = get_data_dir() / "skills" / _current_model_name
 
         # Determine which path to use for loading
         if local_model_dir.exists() and (local_model_dir / "config.json").exists():
             model_path = str(local_model_dir)
-            logger.info(f"Using locally downloaded model from {model_path}")
+            logger.info(f"Using locally downloaded skill from {model_path}")
             # Use local_files_only to prevent re-downloading
             extra_kwargs = {"local_files_only": True}
         else:

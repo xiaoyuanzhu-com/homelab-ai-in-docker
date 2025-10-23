@@ -168,7 +168,7 @@ async def lifespan(app: FastAPI):
                 parameters_m=skill.get("parameters_m"),
                 gpu_memory_mb=skill.get("gpu_memory_mb"),
                 initial_status=(
-                    SkillStatus.DOWNLOADED if not skill.get("requires_download", True) else SkillStatus.INIT
+                    SkillStatus.READY if not skill.get("requires_download", True) else SkillStatus.INIT
                 ),
             )
             skill_count += 1

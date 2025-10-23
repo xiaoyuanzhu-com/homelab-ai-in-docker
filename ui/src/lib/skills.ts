@@ -9,7 +9,7 @@ export interface SkillInfo {
   supports_markdown?: boolean;
   requires_quantization?: boolean;
   requires_download: boolean;
-  status: "init" | "downloading" | "failed" | "downloaded";
+  status: "init" | "downloading" | "failed" | "ready";
   hf_model?: string | null;
   reference_url?: string | null;
   size_mb?: number | null;
@@ -24,4 +24,4 @@ export interface SkillsResponse {
 }
 
 export const isSkillReady = (skill: SkillInfo): boolean =>
-  !skill.requires_download || skill.status === "downloaded";
+  !skill.requires_download || skill.status === "ready";

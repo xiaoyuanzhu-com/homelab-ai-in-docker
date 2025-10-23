@@ -87,7 +87,7 @@ def _serialize_skill(skill: Dict[str, Any]) -> SkillInfo:
 
 
 def _skill_cache_dir(hf_model: str) -> Path:
-    cache_root = get_data_dir() / "models"
+    cache_root = get_data_dir() / "skills"
     parts = hf_model.split("/")
     return cache_root.joinpath(*parts)
 
@@ -268,7 +268,7 @@ async def _download_skill_with_progress(
             return
 
         final_size_mb = await compute_dir_size_mb()
-        update_skill_status(skill_id, SkillStatus.DOWNLOADED, downloaded_size_mb=final_size_mb)
+        update_skill_status(skill_id, SkillStatus.READY, downloaded_size_mb=final_size_mb)
         yield DownloadProgressEvent(
             type="complete",
             percent=100,
@@ -299,8 +299,8 @@ async def download_skill(skill: str, request: Request):
     if not hf_model:
         raise HTTPException(status_code=400, detail=f"Skill '{skill}' is missing hf_model metadata")
 
-    if skill_info.get("status") == SkillStatus.DOWNLOADED.value:
-        raise HTTPException(status_code=400, detail=f"Skill '{skill}' is already downloaded")
+    if skill_info.get("status") == SkillStatus.READY.value:
+        raise HTTPException(status_code=400, detail=f"Skill '{skill}' is already ready")
 
     process = active_downloads.get(skill)
     if process and process.poll() is None:
@@ -324,7 +324,7 @@ async def delete_skill_assets(skill_id: str):
 
     hf_model = skill_info.get("hf_model")
     if not hf_model:
-        update_skill_status(skill_id, SkillStatus.DOWNLOADED)
+        update_skill_status(skill_id, SkillStatus.READY)
         return {
             "skill_id": skill_id,
             "status": "skip",

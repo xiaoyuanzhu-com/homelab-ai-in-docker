@@ -98,9 +98,9 @@ export default function AutomaticSpeechRecognitionPage() {
           throw new Error("Failed to fetch skills");
         }
         const data = await response.json();
-        // Filter for downloaded skills only in Try tab
+        // Filter for ready skills only in Try tab
         const downloadedModels = data.skills.filter(
-          (s: SkillInfo) => m.status === "downloaded"
+          (s: SkillInfo) => s.status === "ready"
         );
         setAvailableModels(downloadedModels);
         // Set first downloaded model as default

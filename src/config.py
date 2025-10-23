@@ -36,21 +36,21 @@ def get_data_dir() -> Path:
 
 def get_model_cache_dir(service: str, model_name: str) -> Path:
     """
-    Get the cache directory for a specific model.
+    Get the cache directory for a specific skill.
 
-    Uses unified model storage structure: data/models/{model_id}
-    This matches the download location used by the models API.
+    Uses unified skill storage structure: data/skills/{skill_id}
+    This matches the download location used by the skills API.
 
     Args:
         service: Service name (deprecated, kept for compatibility)
-        model_name: Model identifier (e.g., 'sentence-transformers/all-MiniLM-L6-v2')
+        model_name: Skill identifier (e.g., 'sentence-transformers/all-MiniLM-L6-v2')
 
     Returns:
-        Path to model cache directory
+        Path to skill cache directory
     """
-    # Use unified models directory structure to match download location
-    # Path: data/models/sentence-transformers/all-MiniLM-L6-v2
-    cache_dir = get_data_dir() / "models" / model_name
+    # Use unified skills directory structure to match download location
+    # Path: data/skills/sentence-transformers/all-MiniLM-L6-v2
+    cache_dir = get_data_dir() / "skills" / model_name
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     return cache_dir

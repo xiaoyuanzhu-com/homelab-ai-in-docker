@@ -47,9 +47,10 @@ def get_model(model_name: str):
     from pyannote.audio import Model, Inference
     from ...db.settings import get_setting
     from ...config import get_data_dir, get_hf_endpoint
+    from ...db.skills import get_skill_dict
 
-    # Check for local model
-    local_model_dir = get_data_dir() / "models" / model_name
+    # Check for local skill
+    local_model_dir = get_data_dir() / "skills" / model_name
     if local_model_dir.exists() and any(local_model_dir.glob("*.bin")):
         model_path = str(local_model_dir)
         logger.info(f"Using locally downloaded model from {model_path}")

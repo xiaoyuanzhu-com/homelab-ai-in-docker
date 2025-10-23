@@ -325,12 +325,12 @@ class OCRInferenceEngine:
 
             # Check if model is already downloaded locally via hfd
             from src.config import get_data_dir
-            local_model_dir = get_data_dir() / "models" / self.model_id
+            local_model_dir = get_data_dir() / "skills" / self.model_id
 
             # Determine which path to use for loading
             if local_model_dir.exists() and (local_model_dir / "config.json").exists():
                 model_path = str(local_model_dir)
-                logger.info(f"Using locally downloaded model from {model_path}")
+                logger.info(f"Using locally downloaded skill from {model_path}")
                 extra_kwargs = {"local_files_only": True}
             else:
                 model_path = self.model_id
@@ -382,12 +382,12 @@ class OCRInferenceEngine:
 
             # Check if model is already downloaded locally via hfd
             from src.config import get_data_dir
-            local_model_dir = get_data_dir() / "models" / self.model_id
+            local_model_dir = get_data_dir() / "skills" / self.model_id
 
             # Determine which path to use for loading
             if local_model_dir.exists() and (local_model_dir / "config.json").exists():
                 model_path = str(local_model_dir)
-                logger.info(f"Using locally downloaded model from {model_path}")
+                logger.info(f"Using locally downloaded skill from {model_path}")
                 # Use local_files_only to prevent re-downloading
                 extra_kwargs = {"local_files_only": True}
             else:
@@ -486,12 +486,12 @@ class OCRInferenceEngine:
 
             # Check if model is already downloaded locally via hfd
             from src.config import get_data_dir
-            local_model_dir = get_data_dir() / "models" / self.model_id
+            local_model_dir = get_data_dir() / "skills" / self.model_id
 
             # Determine which path to use for loading
             if local_model_dir.exists() and (local_model_dir / "config.json").exists():
                 model_path = str(local_model_dir)
-                logger.info(f"Using locally downloaded model from {model_path}")
+                logger.info(f"Using locally downloaded skill from {model_path}")
                 extra_kwargs = {"local_files_only": True}
             else:
                 model_path = self.model_id

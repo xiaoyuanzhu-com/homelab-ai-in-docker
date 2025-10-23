@@ -12,8 +12,8 @@ import { ModelSelector } from "@/components/try";
 
 interface EmbeddingModel {
   id: string;
-  name: string;
-  team: string;
+  label: string;
+  provider: string;
   status: string;
   dimensions: number;
 }
@@ -78,7 +78,7 @@ export function TextEmbeddingInputOutput({
 
   const modelOptions = availableModels.map((model) => ({
     value: model.id,
-    label: `${model.name} (${model.team}) - ${model.dimensions}d`,
+    label: `${model.label} (${model.provider}) - ${model.dimensions}d`,
   }));
 
   const rawRequestData = requestPayload ?? { texts: textList, model: selectedModel };
