@@ -48,6 +48,16 @@ interface ModelInfo {
   error_message?: string;
 }
 
+interface ASRRequestBody {
+  audio: string;
+  model: string;
+  output_format: "transcription" | "diarization";
+  language?: string;
+  return_timestamps?: boolean;
+  min_speakers?: number;
+  max_speakers?: number;
+}
+
 export default function AutomaticSpeechRecognitionPage() {
   const [activeTab, setActiveTab] = useState("try");
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -225,17 +235,7 @@ export default function AutomaticSpeechRecognitionPage() {
         const base64Data = (reader.result as string).split(",")[1];
 
         try {
-          interface RequestPayload {
-            audio: string;
-            model: string;
-            output_format: "transcription" | "diarization";
-            language?: string;
-            return_timestamps?: boolean;
-            min_speakers?: number;
-            max_speakers?: number;
-          }
-
-          const requestBody: RequestPayload = {
+          const requestBody: ASRRequestBody = {
             audio: base64Data,
             model: selectedModel,
             output_format: outputFormat,
