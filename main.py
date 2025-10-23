@@ -46,9 +46,18 @@ if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
 # This suppresses pyannote.audio reproducibility warnings
 try:
     import torch
+
     if torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+        # Prefer new TF32 configuration API to avoid deprecation warnings (PyTorch 2.9+)
+        try:
+            torch.backends.cuda.matmul.fp32_precision = "tf32"
+        except AttributeError:
+            torch.backends.cuda.matmul.allow_tf32 = True
+
+        try:
+            torch.backends.cudnn.conv.fp32_precision = "tf32"
+        except AttributeError:
+            torch.backends.cudnn.allow_tf32 = True
 except ImportError:
     pass  # torch not installed, skip
 
