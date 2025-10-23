@@ -67,7 +67,7 @@ class OCRWorkerManager:
         env = os.environ.copy()
         env.setdefault("PYTHONUNBUFFERED", "1")
         # Reduce CUDA memory fragmentation; see PyTorch CUDA memory management docs
-        env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+        env.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
         proc = subprocess.Popen(cmd, env=env)
         worker = _Worker(

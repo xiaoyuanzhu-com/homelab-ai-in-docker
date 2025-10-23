@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertCircle } from "lucide-react";
 import { TryLayout } from "@/components/try/try-layout";
-import { ModelSelector } from "@/components/try/model-selector";
+import { ModelSelector } from "@/components/try";
 import { ImageUpload } from "@/components/inputs";
 
 interface CaptionResult {

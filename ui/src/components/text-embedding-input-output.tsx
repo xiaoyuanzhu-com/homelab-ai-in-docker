@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle } from "lucide-react";
 import { TryLayout } from "@/components/try/try-layout";
-import { ModelSelector } from "@/components/try/model-selector";
+import { ModelSelector } from "@/components/try";
 
 interface EmbeddingModel {
   id: string;

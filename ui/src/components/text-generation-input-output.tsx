@@ -9,7 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertCircle } from "lucide-react";
 import { TryLayout } from "@/components/try/try-layout";
-import { ModelSelector } from "@/components/try/model-selector";
+import { ModelSelector } from "@/components/try";
 import type { RawPayloadProps } from "@/components/try/raw-payload";
 
 interface GenerationResult {
