@@ -305,6 +305,25 @@
       "gpu_memory_mb": null
     },
     {
+      "id": "crawl4ai/async-webcrawler",
+      "label": "Crawl4AI AsyncWebCrawler",
+      "provider": "Crawl4AI",
+      "tasks": [
+        "web-crawling"
+      ],
+      "architecture": "crawl4ai",
+      "default_prompt": null,
+      "platform_requirements": "Included with container; Playwright browsers pre-installed at build time.",
+      "supports_markdown": true,
+      "requires_quantization": false,
+      "requires_download": false,
+      "hf_model": null,
+      "reference_url": "https://github.com/unclecode/crawl4ai",
+      "size_mb": null,
+      "parameters_m": null,
+      "gpu_memory_mb": null
+    },
+    {
       "id": "Qwen/Qwen3-0.6B",
       "label": "Qwen3-0.6B",
       "provider": "Qwen",

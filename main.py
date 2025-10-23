@@ -26,21 +26,13 @@ from src.api.routers import (
 )
 from src.db.skills import init_skills_table, upsert_skill, SkillStatus
 
-# Configure data directories for crawl4ai and playwright
+# Configure data directories for model caching
 # Use environment variables if set, otherwise default to /haid/data
 HAID_DATA_DIR = Path(os.getenv("HAID_DATA_DIR", "/haid/data"))
 
 # Set HuggingFace home directory for model caching (replaces deprecated TRANSFORMERS_CACHE)
 if "HF_HOME" not in os.environ:
     os.environ["HF_HOME"] = str(HAID_DATA_DIR / "models")
-
-# Set crawl4ai base directory
-if "CRAWL4AI_BASE_DIRECTORY" not in os.environ:
-    os.environ["CRAWL4AI_BASE_DIRECTORY"] = str(HAID_DATA_DIR / "crawl4ai")
-
-# Set playwright browsers path
-if "PLAYWRIGHT_BROWSERS_PATH" not in os.environ:
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(HAID_DATA_DIR / "playwright")
 
 # Configure PyTorch TF32 for better performance on Ampere+ GPUs
 # This suppresses pyannote.audio reproducibility warnings
@@ -150,12 +142,6 @@ async def lifespan(app: FastAPI):
     # Initialize history storage (creates request_history table)
     from src.storage.history import history_storage
     # history_storage.__init__() already called on import, table created
-
-    # Ensure Playwright browsers are installed for crawl4ai
-    # This runs installation in background if needed, non-blocking
-    logger.info("Checking Playwright installation status...")
-    from src.services.playwright_installer import ensure_playwright_installed
-    asyncio.create_task(ensure_playwright_installed())
 
     # Load skills manifest
     skills_manifest_path = Path(__file__).parent / "src" / "api" / "skills" / "skills_manifest.json"
