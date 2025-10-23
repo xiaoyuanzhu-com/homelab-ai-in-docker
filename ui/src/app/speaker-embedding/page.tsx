@@ -32,12 +32,12 @@ interface ComparisonResult {
   processing_time_ms: number;
 }
 
-interface ModelInfo {
+interface SkillInfo {
   id: string;
-  name: string;
-  team: string;
-  type: string;
-  task: string;
+  label: string;
+  provider: string;
+  tasks: string[];
+
   size_mb: number;
   parameters_m: number;
   gpu_memory_mb: number;
@@ -57,22 +57,22 @@ export default function SpeakerEmbeddingPage() {
   const [embeddingResult, setEmbeddingResult] = useState<EmbeddingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>("pyannote/embedding");
-  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [availableModels, setAvailableModels] = useState<SkillInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [metric, setMetric] = useState<string>("cosine");
 
   useEffect(() => {
-    // Fetch available models
+    // Fetch available skills
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/models?task=speaker-embedding");
+        const response = await fetch("/api/skills?task=speaker-embedding");
         if (!response.ok) {
-          throw new Error("Failed to fetch models");
+          throw new Error("Failed to fetch skills");
         }
         const data = await response.json();
-        // Filter for downloaded models only in Try tab
-        const downloadedModels = data.models.filter(
-          (m: ModelInfo) => m.status === "downloaded"
+        // Filter for downloaded skills only in Try tab
+        const downloadedModels = data.skills.filter(
+          (s: SkillInfo) => m.status === "downloaded"
         );
         setAvailableModels(downloadedModels);
         // Set first downloaded model as default
@@ -81,7 +81,7 @@ export default function SpeakerEmbeddingPage() {
         }
       } catch (err) {
         console.error("Error fetching models:", err);
-        toast.error("Failed to load available models");
+        toast.error("Failed to load available skills");
       } finally {
         setModelsLoading(false);
       }
@@ -211,9 +211,9 @@ export default function SpeakerEmbeddingPage() {
     }
   };
 
-  const modelOptions = availableModels.map((model) => ({
+  const modelOptions = availableModels.map((skill) => ({
     value: model.id,
-    label: model.parameters_m ? `${model.name} (${model.parameters_m}M params)` : model.name,
+    label: model.parameters_m ? `${skill.label} (${model.parameters_m}M params)` : skill.label,
   }));
 
   const formatFileSummary = (file: File | null) => {
@@ -249,7 +249,7 @@ export default function SpeakerEmbeddingPage() {
           loading={modelsLoading}
           disabled={loading}
           placeholder="Select a model"
-          emptyMessage="No speaker embedding models downloaded. Visit the Models tab to install one."
+          emptyMessage="No speaker embedding skills downloaded. Visit the Models tab to install one."
         />
       </div>
 
@@ -361,7 +361,7 @@ export default function SpeakerEmbeddingPage() {
           loading={modelsLoading}
           disabled={loading}
           placeholder="Select a model"
-          emptyMessage="No speaker embedding models downloaded. Visit the Models tab to install one."
+          emptyMessage="No speaker embedding skills downloaded. Visit the Models tab to install one."
         />
       </div>
 
@@ -556,7 +556,7 @@ export default function SpeakerEmbeddingPage() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-4">
-                Please visit the <a href="/models" className="text-primary hover:underline">Models page</a> to download speaker embedding models.
+                Please visit the <a href="/models" className="text-primary hover:underline">Skills page</a> to download speaker embedding models.
               </p>
             </CardContent>
           </Card>

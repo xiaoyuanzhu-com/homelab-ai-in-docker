@@ -25,7 +25,7 @@ import torch
 from ..models.image_captioning import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
 from ...config import get_model_cache_dir
-from ...db.models import get_model as get_model_from_db, get_all_models
+from ...db.skills import get_skill_dict, list_skills
 
 logger = logging.getLogger(__name__)
 
@@ -50,60 +50,45 @@ _idle_cleanup_task: Optional[asyncio.Task] = None
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
     """
-    Get model configuration from database.
+    Get skill configuration from database.
 
     Args:
-        model_id: Model identifier
+        model_id: Skill identifier
 
     Returns:
-        Model configuration dictionary
+        Skill configuration dictionary
 
     Raises:
-        ValueError: If model not found in database
+        ValueError: If skill not found in database
     """
-    db_model = get_model_from_db(model_id)
+    skill = get_skill_dict(model_id)
 
-    if db_model is None:
-        raise ValueError(f"Model '{model_id}' not found in database")
+    if skill is None:
+        raise ValueError(f"Skill '{model_id}' not found in database")
 
-    # Convert sqlite3.Row to dict
-    return {
-        "id": db_model["id"],
-        "name": db_model["name"],
-        "team": db_model["team"],
-        "task": db_model["task"],
-        "architecture": db_model["architecture"],
-        "default_prompt": db_model["default_prompt"],
-        "platform_requirements": db_model["platform_requirements"],
-        "requires_quantization": bool(db_model["requires_quantization"]),
-        "size_mb": db_model["size_mb"],
-        "parameters_m": db_model["parameters_m"],
-        "gpu_memory_mb": db_model["gpu_memory_mb"],
-        "link": db_model["link"],
-    }
+    return skill
 
 
 def get_available_models() -> list[str]:
     """
-    Load available caption models from the database.
+    Load available caption skills from the database.
 
     Returns:
-        List of model IDs that can be used
+        List of skill IDs that can be used
     """
-    all_models = get_all_models()
-    # Filter for image captioning models only
-    return [model["id"] for model in all_models if model["task"] == "image-captioning"]
+    caption_skills = list_skills(task="image-captioning")
+    return [skill["id"] for skill in caption_skills]
 
 
 def validate_model(model_name: str) -> None:
     """
-    Validate that the model is supported.
+    Validate that the skill is supported.
 
     Args:
-        model_name: Model identifier to validate
+        model_name: Skill identifier to validate
 
     Raises:
-        ValueError: If model is not supported
+        ValueError: If skill is not supported
     """
     available = get_available_models()
     if model_name not in available:

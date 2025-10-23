@@ -6,16 +6,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 
-export interface ModelOption {
+export interface SkillOption {
   value: string;
   label: string;
   description?: string;
 }
 
-interface ModelSelectorProps {
+interface SkillSelectorProps {
   value: string;
   onChange?: (value: string) => void;
-  options: ModelOption[];
+  options: SkillOption[];
   loading?: boolean;
   disabled?: boolean;
   placeholder?: string;
@@ -23,16 +23,16 @@ interface ModelSelectorProps {
   emptyContent?: ReactNode;
 }
 
-export function ModelSelector({
+export function SkillSelector({
   value,
   onChange,
   options,
   loading,
   disabled,
-  placeholder = "Select a model",
-  emptyMessage = "No models available. Download a model first.",
+  placeholder = "Select a skill",
+  emptyMessage = "No skills available. Download a skill first.",
   emptyContent,
-}: ModelSelectorProps) {
+}: SkillSelectorProps) {
   if (loading) {
     return <Skeleton className="h-10 w-full" />;
   }

@@ -17,8 +17,8 @@ interface EmbeddingResult {
 
 interface EmbeddingModel {
   id: string;
-  name: string;
-  team: string;
+  label: string;
+  provider: string;
   status: string;
   dimensions: number;
 }
@@ -46,11 +46,11 @@ export default function EmbeddingPage() {
     // Load available models
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/models?task=feature-extraction");
-        if (!response.ok) throw new Error("Failed to fetch models");
+        const response = await fetch("/api/skills?task=feature-extraction");
+        if (!response.ok) throw new Error("Failed to fetch skills");
         const data = await response.json();
-        // Filter for downloaded models only (task filter already applied)
-        const downloadedModels = data.models.filter(
+        // Filter for downloaded skills only (task filter already applied)
+        const downloadedModels = data.skills.filter(
           (m: EmbeddingModel) => m.status === "downloaded"
         );
         setAvailableModels(downloadedModels);
@@ -59,7 +59,7 @@ export default function EmbeddingPage() {
           setSelectedModel(downloadedModels[0].id);
         }
       } catch (err) {
-        console.error("Failed to fetch models:", err);
+        console.error("Failed to fetch skills:", err);
       } finally {
         setModelsLoading(false);
       }

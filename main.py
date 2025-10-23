@@ -21,11 +21,9 @@ from src.api.routers import (
     speaker_embedding,
     history,
     skills,
-    models,
     hardware,
     settings,
 )
-from src.db.models import init_db, upsert_model
 from src.db.skills import init_skills_table, upsert_skill, SkillStatus
 
 # Configure data directories for crawl4ai and playwright
@@ -137,9 +135,8 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up application...")
 
-    # Initialize database schema (models, history, download_logs, and settings tables in haid.db)
+    # Initialize database schema (skills, history, download_logs, and settings tables in haid.db)
     logger.info("Initializing database...")
-    init_db()
     init_skills_table()
 
     # Initialize download logs table
@@ -160,41 +157,7 @@ async def lifespan(app: FastAPI):
     from src.services.playwright_installer import ensure_playwright_installed
     asyncio.create_task(ensure_playwright_installed())
 
-    # Load models manifest and upsert into database
-    logger.info("Loading models manifest...")
-    manifest_path = Path(__file__).parent / "src" / "api" / "models" / "models_manifest.json"
-
-    if manifest_path.exists():
-        with open(manifest_path, "r") as f:
-            manifest = json.load(f)
-
-        # Upsert all models from manifest
-        model_count = 0
-        for model_type, models_list in manifest.items():
-            for model_info in models_list:
-                upsert_model(
-                    model_id=model_info["id"],
-                    name=model_info["name"],
-                    team=model_info["team"],
-                    model_type=model_type,
-                    task=model_info["task"],
-                    size_mb=model_info["size_mb"],
-                    parameters_m=model_info["parameters_m"],
-                    gpu_memory_mb=model_info["gpu_memory_mb"],
-                    link=model_info["link"],
-                    architecture=model_info.get("architecture"),
-                    default_prompt=model_info.get("default_prompt"),
-                    platform_requirements=model_info.get("platform_requirements"),
-                    requires_quantization=model_info.get("requires_quantization", False),
-                    supports_markdown=model_info.get("supports_markdown", False),
-                )
-                model_count += 1
-
-        logger.info(f"Loaded {model_count} models from manifest into database")
-    else:
-        logger.warning(f"Models manifest not found at {manifest_path}")
-
-    # Load skills manifest (new format)
+    # Load skills manifest
     skills_manifest_path = Path(__file__).parent / "src" / "api" / "skills" / "skills_manifest.json"
     if skills_manifest_path.exists():
         with open(skills_manifest_path, "r") as f:
@@ -325,7 +288,6 @@ app.include_router(automatic_speech_recognition.router)
 app.include_router(speaker_embedding.router)
 app.include_router(history.router)
 app.include_router(skills.router)
-app.include_router(models.router)
 app.include_router(hardware.router)
 app.include_router(settings.router)
 

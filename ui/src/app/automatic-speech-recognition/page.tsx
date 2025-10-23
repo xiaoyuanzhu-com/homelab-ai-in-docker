@@ -33,12 +33,12 @@ interface TranscriptionResult {
   num_speakers?: number;
 }
 
-interface ModelInfo {
+interface SkillInfo {
   id: string;
-  name: string;
-  team: string;
-  type: string;
-  task: string;
+  label: string;
+  provider: string;
+  tasks: string[];
+
   size_mb: number;
   parameters_m: number;
   gpu_memory_mb: number;
@@ -65,7 +65,7 @@ export default function AutomaticSpeechRecognitionPage() {
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>("");
-  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [availableModels, setAvailableModels] = useState<SkillInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [language, setLanguage] = useState<string>("");
   const [outputFormat, setOutputFormat] = useState<"transcription" | "diarization">("transcription");
@@ -90,17 +90,17 @@ export default function AutomaticSpeechRecognitionPage() {
       setIsRecordingSupported(supported);
     }
 
-    // Fetch available models
+    // Fetch available skills
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/models?task=automatic-speech-recognition");
+        const response = await fetch("/api/skills?task=automatic-speech-recognition");
         if (!response.ok) {
-          throw new Error("Failed to fetch models");
+          throw new Error("Failed to fetch skills");
         }
         const data = await response.json();
-        // Filter for downloaded models only in Try tab
-        const downloadedModels = data.models.filter(
-          (m: ModelInfo) => m.status === "downloaded"
+        // Filter for downloaded skills only in Try tab
+        const downloadedModels = data.skills.filter(
+          (s: SkillInfo) => m.status === "downloaded"
         );
         setAvailableModels(downloadedModels);
         // Set first downloaded model as default
@@ -109,7 +109,7 @@ export default function AutomaticSpeechRecognitionPage() {
         }
       } catch (err) {
         console.error("Error fetching models:", err);
-        toast.error("Failed to load available models");
+        toast.error("Failed to load available skills");
       } finally {
         setModelsLoading(false);
       }
@@ -287,9 +287,9 @@ export default function AutomaticSpeechRecognitionPage() {
     }
   };
 
-  const modelOptions = availableModels.map((model) => ({
+  const modelOptions = availableModels.map((skill) => ({
     value: model.id,
-    label: `${model.name} (${model.parameters_m}M params)`,
+    label: `${skill.label} (${model.parameters_m}M params)`,
   }));
 
   const rawRequestPayload = {
@@ -318,7 +318,7 @@ export default function AutomaticSpeechRecognitionPage() {
           options={modelOptions}
           loading={modelsLoading}
           disabled={loading}
-          emptyMessage="No ASR models downloaded. Visit the Models page to install one."
+          emptyMessage="No ASR skills downloaded. Visit the Skills page to install one."
         />
       </div>
 
@@ -572,7 +572,7 @@ export default function AutomaticSpeechRecognitionPage() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-4">
-                Please visit the <a href="/models" className="text-primary hover:underline">Models page</a> to download ASR models.
+                Please visit the <a href="/models" className="text-primary hover:underline">Skills page</a> to download ASR models.
               </p>
             </CardContent>
           </Card>

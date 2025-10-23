@@ -14,12 +14,12 @@ interface CaptionResult {
   processing_time_ms: number;
 }
 
-interface ModelInfo {
+interface SkillInfo {
   id: string;
-  name: string;
-  team: string;
-  type: string;
-  task: string;
+  label: string;
+  provider: string;
+  tasks: string[];
+
   architecture: string;
   default_prompt: string | null;
   size_mb: number;
@@ -41,7 +41,7 @@ export default function ImageCaptionPage() {
   const [error, setError] = useState<string | null>(null);
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
   const [selectedModel, setSelectedModel] = useState<string>("");
-  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [availableModels, setAvailableModels] = useState<SkillInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [prompt, setPrompt] = useState<string>("");
 
@@ -53,17 +53,17 @@ export default function ImageCaptionPage() {
   }, []);
 
   useEffect(() => {
-    // Fetch available models
+    // Fetch available skills
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/models?task=image-captioning");
+        const response = await fetch("/api/skills?task=image-captioning");
         if (!response.ok) {
-          throw new Error("Failed to fetch models");
+          throw new Error("Failed to fetch skills");
         }
         const data = await response.json();
-        // Filter for downloaded models only in Try tab
-        const downloadedModels = data.models.filter(
-          (m: ModelInfo) => m.status === "downloaded"
+        // Filter for downloaded skills only in Try tab
+        const downloadedModels = data.skills.filter(
+          (s: SkillInfo) => m.status === "downloaded"
         );
         setAvailableModels(downloadedModels);
         // Set first downloaded model as default
@@ -77,7 +77,7 @@ export default function ImageCaptionPage() {
         }
       } catch (err) {
         console.error("Error fetching models:", err);
-        toast.error("Failed to load available models");
+        toast.error("Failed to load available skills");
       } finally {
         setModelsLoading(false);
       }
