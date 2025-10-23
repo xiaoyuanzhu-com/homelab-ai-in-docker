@@ -287,7 +287,7 @@
     },
     {
       "id": "paddleocr/pp-ocrv5",
-      "label": "PaddleOCR PP-OCRv5",
+      "label": "PP-OCRv5",
       "provider": "PaddlePaddle",
       "tasks": [
         "image-ocr"
@@ -306,7 +306,7 @@
     },
     {
       "id": "crawl4ai/async-webcrawler",
-      "label": "Crawl4AI AsyncWebCrawler",
+      "label": "Crawl4AI",
       "provider": "Crawl4AI",
       "tasks": [
         "web-crawling"
