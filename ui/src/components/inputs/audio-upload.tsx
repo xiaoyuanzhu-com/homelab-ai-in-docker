@@ -9,6 +9,7 @@ interface AudioUploadProps {
   onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
   disabled?: boolean;
   accept?: string;
+  helperText?: string;
 }
 
 export function AudioUpload({
@@ -18,6 +19,7 @@ export function AudioUpload({
   onChange,
   disabled,
   accept = "audio/*",
+  helperText,
 }: AudioUploadProps) {
   return (
     <div className="space-y-2">
@@ -32,6 +34,9 @@ export function AudioUpload({
       />
       {fileName ? (
         <p className="text-xs text-muted-foreground">Selected: {fileName}</p>
+      ) : null}
+      {helperText ? (
+        <p className="text-xs text-muted-foreground">{helperText}</p>
       ) : null}
     </div>
   );

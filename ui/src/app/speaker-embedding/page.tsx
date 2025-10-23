@@ -1,13 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Volume2, Upload, Loader2 } from "lucide-react";
+import { Volume2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { TryLayout, ModelSelector } from "@/components/try";
+import { AudioUpload } from "@/components/inputs";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface EmbeddingResult {
   request_id: string;
@@ -206,6 +211,239 @@ export default function SpeakerEmbeddingPage() {
     }
   };
 
+  const modelOptions = availableModels.map((model) => ({
+    value: model.id,
+    label: model.parameters_m ? `${model.name} (${model.parameters_m}M params)` : model.name,
+  }));
+
+  const formatFileSummary = (file: File | null) => {
+    if (!file) return null;
+    const sizeKb = Math.max(1, Math.round(file.size / 1024));
+    return `${file.name} (${sizeKb}KB)`;
+  };
+
+  const compareRequestPayload = {
+    model: selectedModel || null,
+    metric,
+    audio1: formatFileSummary(audioFile1),
+    audio2: formatFileSummary(audioFile2),
+  };
+
+  const compareResponsePayload = comparisonResult;
+
+  const extractRequestPayload = {
+    model: selectedModel || null,
+    audio: formatFileSummary(singleAudioFile),
+  };
+
+  const extractResponsePayload = embeddingResult;
+
+  const compareInput = (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="compare-model">Model</Label>
+        <ModelSelector
+          value={selectedModel}
+          onChange={setSelectedModel}
+          options={modelOptions}
+          loading={modelsLoading}
+          disabled={loading}
+          placeholder="Select a model"
+          emptyMessage="No speaker embedding models downloaded. Visit the Models tab to install one."
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="metric">Distance Metric</Label>
+        <Select value={metric} onValueChange={setMetric} disabled={loading}>
+          <SelectTrigger id="metric">
+            <SelectValue placeholder="Select metric" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="cosine">Cosine (Recommended)</SelectItem>
+            <SelectItem value="euclidean">Euclidean</SelectItem>
+            <SelectItem value="cityblock">Manhattan (Cityblock)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <AudioUpload
+        id="compare-audio-1"
+        label="First Speaker Audio"
+        onChange={(e) => handleFileChange(e, setAudioFile1)}
+        disabled={loading}
+        fileName={audioFile1?.name}
+        helperText="Supports mp3, mp4, wav, webm, m4a."
+        accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
+      />
+
+      <AudioUpload
+        id="compare-audio-2"
+        label="Second Speaker Audio"
+        onChange={(e) => handleFileChange(e, setAudioFile2)}
+        disabled={loading}
+        fileName={audioFile2?.name}
+        helperText="Supports mp3, mp4, wav, webm, m4a."
+        accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
+      />
+    </div>
+  );
+
+  const comparisonInsight = comparisonResult ? (
+    <div className="space-y-4">
+      <div className="p-6 bg-muted rounded-lg">
+        <div className="text-center space-y-4">
+          <div>
+            <div className="text-sm text-muted-foreground">Similarity Score</div>
+            <div className="text-4xl font-bold text-primary">
+              {(comparisonResult.similarity * 100).toFixed(1)}%
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div className="text-muted-foreground">Distance</div>
+              <div className="font-semibold">{comparisonResult.distance.toFixed(4)}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Metric</div>
+              <div className="font-semibold capitalize">{comparisonResult.metric}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+        <div>
+          <span className="font-semibold">Model:</span> {comparisonResult.model}
+        </div>
+        <div>
+          <span className="font-semibold">Processing Time:</span> {comparisonResult.processing_time_ms}ms
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const compareOutput = (
+    <div className="space-y-4">
+      {loading && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Comparing audio...
+        </div>
+      )}
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {comparisonInsight}
+
+      {!loading && !error && !comparisonResult && (
+        <p className="text-muted-foreground text-sm text-center py-6">
+          Provide two audio clips and run the comparison to see similarity metrics here.
+        </p>
+      )}
+    </div>
+  );
+
+  const extractInput = (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="extract-model">Model</Label>
+        <ModelSelector
+          value={selectedModel}
+          onChange={setSelectedModel}
+          options={modelOptions}
+          loading={modelsLoading}
+          disabled={loading}
+          placeholder="Select a model"
+          emptyMessage="No speaker embedding models downloaded. Visit the Models tab to install one."
+        />
+      </div>
+
+      <AudioUpload
+        id="extract-audio"
+        label="Speaker Audio"
+        onChange={(e) => handleFileChange(e, setSingleAudioFile)}
+        disabled={loading}
+        fileName={singleAudioFile?.name}
+        helperText="Supports mp3, mp4, wav, webm, m4a."
+        accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
+      />
+    </div>
+  );
+
+  const embeddingPreview = embeddingResult?.embedding
+    ? embeddingResult.embedding
+        .slice(0, 16)
+        .map((value) => value.toFixed(4))
+        .join(", ") +
+      (embeddingResult.embedding.length > 16 ? " …" : "")
+    : "";
+
+  const extractOutput = (
+    <div className="space-y-4">
+      {loading && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Processing audio...
+        </div>
+      )}
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {embeddingResult && !error && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
+            <div>
+              <span className="font-semibold">Dimension:</span> {embeddingResult.dimension}
+            </div>
+            <div>
+              <span className="font-semibold">Processing Time:</span> {embeddingResult.processing_time_ms}ms
+            </div>
+            {embeddingResult.duration !== undefined && (
+              <div>
+                <span className="font-semibold">Duration:</span> {embeddingResult.duration.toFixed(2)}s
+              </div>
+            )}
+            <div>
+              <span className="font-semibold">Model:</span> {embeddingResult.model}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Embedding Preview</Label>
+            <Textarea
+              value={embeddingPreview}
+              readOnly
+              className="min-h-[200px] font-mono text-sm"
+              placeholder="Embedding vector preview"
+            />
+            <p className="text-xs text-muted-foreground">
+              Showing the first {Math.min(16, embeddingResult.embedding.length)} values out of {embeddingResult.embedding.length}.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!loading && !error && !embeddingResult && (
+        <p className="text-muted-foreground text-sm text-center py-6">
+          Upload an audio clip and run extraction to view embedding details here.
+        </p>
+      )}
+    </div>
+  );
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
       <div className="mb-6">
@@ -225,280 +463,89 @@ export default function SpeakerEmbeddingPage() {
           <TabsTrigger value="models">Models</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="compare" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Speaker Comparison</CardTitle>
-              <CardDescription>
-                Compare two audio files to determine if they contain the same speaker
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Model Selection */}
-              <div className="space-y-2">
-                <Label htmlFor="model">Model</Label>
-                {modelsLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading models...
-                  </div>
-                ) : availableModels.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">
-                    No models downloaded. Please download a model from the Models tab.
-                  </div>
-                ) : (
-                  <Select value={selectedModel} onValueChange={setSelectedModel}>
-                    <SelectTrigger id="model">
-                      <SelectValue placeholder="Select a model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableModels.map((model) => (
-                        <SelectItem key={model.id} value={model.id}>
-                          {model.name} ({model.parameters_m}M params)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              {/* Metric Selection */}
-              <div className="space-y-2">
-                <Label htmlFor="metric">Distance Metric</Label>
-                <Select value={metric} onValueChange={setMetric}>
-                  <SelectTrigger id="metric">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cosine">Cosine (Recommended)</SelectItem>
-                    <SelectItem value="euclidean">Euclidean</SelectItem>
-                    <SelectItem value="cityblock">Manhattan (Cityblock)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Audio File 1 */}
-              <div className="space-y-2">
-                <Label htmlFor="audio1">First Speaker Audio</Label>
-                <input
-                  id="audio1"
-                  type="file"
-                  accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
-                  onChange={(e) => handleFileChange(e, setAudioFile1)}
-                  className="hidden"
-                />
+        <TabsContent value="compare" className="mt-6">
+          <TryLayout
+            input={{
+              title: "Speaker Comparison",
+              description: "Compare two audio clips to determine if they contain the same speaker",
+              children: compareInput,
+              footer: (
                 <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => document.getElementById("audio1")?.click()}
+                  onClick={handleCompare}
+                  disabled={!audioFile1 || !audioFile2 || !selectedModel || loading}
                   className="w-full"
-                  disabled={loading}
                 >
-                  <Upload className="h-4 w-4 mr-2" />
-                  {audioFile1 ? audioFile1.name : "Choose First Audio File"}
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Comparing...
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="h-4 w-4 mr-2" />
+                      Compare Speakers
+                    </>
+                  )}
                 </Button>
-              </div>
-
-              {/* Audio File 2 */}
-              <div className="space-y-2">
-                <Label htmlFor="audio2">Second Speaker Audio</Label>
-                <input
-                  id="audio2"
-                  type="file"
-                  accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
-                  onChange={(e) => handleFileChange(e, setAudioFile2)}
-                  className="hidden"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => document.getElementById("audio2")?.click()}
-                  className="w-full"
-                  disabled={loading}
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  {audioFile2 ? audioFile2.name : "Choose Second Audio File"}
-                </Button>
-              </div>
-
-              {/* Compare Button */}
-              <Button
-                onClick={handleCompare}
-                disabled={!audioFile1 || !audioFile2 || !selectedModel || loading}
-                className="w-full"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Comparing...
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="h-4 w-4 mr-2" />
-                    Compare Speakers
-                  </>
-                )}
-              </Button>
-
-              {/* Error Display */}
-              {error && (
-                <div className="p-4 bg-destructive/10 text-destructive rounded-lg text-sm">
-                  {error}
-                </div>
-              )}
-
-              {/* Comparison Result */}
-              {comparisonResult && (
-                <div className="space-y-4 mt-6">
-                  <div className="p-6 bg-muted rounded-lg">
-                    <div className="text-center space-y-4">
-                      <div>
-                        <div className="text-sm text-muted-foreground">Similarity Score</div>
-                        <div className="text-4xl font-bold text-primary">
-                          {(comparisonResult.similarity * 100).toFixed(1)}%
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <div className="text-muted-foreground">Distance</div>
-                          <div className="font-semibold">{comparisonResult.distance.toFixed(4)}</div>
-                        </div>
-                        <div>
-                          <div className="text-muted-foreground">Metric</div>
-                          <div className="font-semibold capitalize">{comparisonResult.metric}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                    <div>
-                      <span className="font-semibold">Model:</span> {comparisonResult.model}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Processing Time:</span> {comparisonResult.processing_time_ms}ms
-                    </div>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              ),
+              rawPayload: {
+                label: "View Raw Request",
+                payload: compareRequestPayload,
+              },
+            }}
+            output={{
+              title: "Results",
+              description: "Similarity metrics",
+              children: compareOutput,
+              rawPayload: {
+                label: "View Raw Response",
+                payload: compareResponsePayload,
+              },
+            }}
+          />
         </TabsContent>
 
-        <TabsContent value="extract" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Extract Embedding</CardTitle>
-              <CardDescription>
-                Extract speaker embedding vector from an audio file
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Model Selection */}
-              <div className="space-y-2">
-                <Label htmlFor="extract-model">Model</Label>
-                {modelsLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading models...
-                  </div>
-                ) : availableModels.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">
-                    No models downloaded. Please download a model from the Models tab.
-                  </div>
-                ) : (
-                  <Select value={selectedModel} onValueChange={setSelectedModel}>
-                    <SelectTrigger id="extract-model">
-                      <SelectValue placeholder="Select a model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableModels.map((model) => (
-                        <SelectItem key={model.id} value={model.id}>
-                          {model.name} ({model.parameters_m}M params)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              {/* Audio File */}
-              <div className="space-y-2">
-                <Label htmlFor="single-audio">Audio File</Label>
-                <input
-                  id="single-audio"
-                  type="file"
-                  accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
-                  onChange={(e) => handleFileChange(e, setSingleAudioFile)}
-                  className="hidden"
-                />
+        <TabsContent value="extract" className="mt-6">
+          <TryLayout
+            input={{
+              title: "Extract Embedding",
+              description: "Generate a speaker embedding vector from audio",
+              children: extractInput,
+              footer: (
                 <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => document.getElementById("single-audio")?.click()}
+                  onClick={handleExtract}
+                  disabled={!singleAudioFile || !selectedModel || loading}
                   className="w-full"
-                  disabled={loading}
                 >
-                  <Upload className="h-4 w-4 mr-2" />
-                  {singleAudioFile ? singleAudioFile.name : "Choose Audio File"}
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Extracting...
+                    </>
+                  ) : (
+                    <>
+                      <Volume2 className="h-4 w-4 mr-2" />
+                      Extract Embedding
+                    </>
+                  )}
                 </Button>
-              </div>
-
-              {/* Extract Button */}
-              <Button
-                onClick={handleExtract}
-                disabled={!singleAudioFile || !selectedModel || loading}
-                className="w-full"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Extracting...
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="h-4 w-4 mr-2" />
-                    Extract Embedding
-                  </>
-                )}
-              </Button>
-
-              {/* Error Display */}
-              {error && (
-                <div className="p-4 bg-destructive/10 text-destructive rounded-lg text-sm">
-                  {error}
-                </div>
-              )}
-
-              {/* Embedding Result */}
-              {embeddingResult && (
-                <div className="space-y-4 mt-6">
-                  <div className="space-y-2">
-                    <Label>Embedding Vector</Label>
-                    <div className="p-4 bg-muted rounded-lg">
-                      <div className="text-xs font-mono break-all max-h-40 overflow-y-auto">
-                        [{embeddingResult.embedding.map(v => v.toFixed(4)).join(", ")}]
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                    <div>
-                      <span className="font-semibold">Dimension:</span> {embeddingResult.dimension}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Model:</span> {embeddingResult.model}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Processing Time:</span> {embeddingResult.processing_time_ms}ms
-                    </div>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              ),
+              rawPayload: {
+                label: "View Raw Request",
+                payload: extractRequestPayload,
+              },
+            }}
+            output={{
+              title: "Embedding",
+              description: "Vector details",
+              children: extractOutput,
+              rawPayload: {
+                label: "View Raw Response",
+                payload: extractResponsePayload,
+              },
+            }}
+          />
         </TabsContent>
-
         <TabsContent value="models" className="mt-6">
           <Card>
             <CardHeader>

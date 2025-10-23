@@ -432,7 +432,7 @@ export function TaskHistoryList() {
     setError(null);
 
     try {
-      const response = await fetch("/api/history/all?limit=50");
+      const response = await fetch("/api/history/all?limit=10");
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
