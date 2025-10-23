@@ -329,6 +329,47 @@ Operational Notes
 - Return job ID immediately, poll for results
 - Useful for large batch operations or browser crawls
 
+## Frontend UI Architecture & Guidelines
+
+The Next.js UI (see `ui/`) is structured around a small set of reusable primitives that keep every task page consistent and make history playback trivial.
+
+### Core Building Blocks
+
+- `ui/src/components/try/`
+  - `try-layout.tsx`: two-column grid (side-by-side from `md` breakpoints up) that renders Input/Output panels.
+  - `try-panel.tsx`: card shell used by both sides; accepts content, footer actions, and an optional raw payload toggle.
+  - `raw-payload.tsx`: shared collapsible for “View Raw Request/Response”. Always include this for observability.
+  - `model-selector.tsx`: dropdown wrapper that standardises loading/empty states for model selection.
+- `ui/src/components/inputs/`
+  - `image-upload.tsx`: drag-and-drop capable uploader with preview support (set `hideInput` to reuse preview in history mode).
+  - `audio-upload.tsx`, `audio-recorder-controls.tsx`, `audio-player.tsx`: modular audio input primitives used by ASR and speaker embedding pages.
+- Task-specific input/output components (e.g., `text-generation-input-output.tsx`, `image-caption-input-output.tsx`) compose the above primitives and expose a `mode` prop (`"try" | "history"`) so the same UI can render read-only history entries.
+
+### Page Conventions
+
+1. Every “Try” tab should render its task component inside `TryLayout`, passing Input/Output descriptors and wiring the raw payload props.
+2. History views reuse the same components with `mode="history"`, populating `requestPayload`/`responsePayload` for the raw view.
+3. Keep action buttons (generate, upload, compare, etc.) in the `footer` property of the input panel so they stay aligned across pages.
+4. Prefer the shared upload/select controls over inline `<input>` elements to ensure accessibility and consistent styling.
+- For image uploads, drag or click is supported automatically; supply `helperText` to describe accepted formats.
+- For audio uploads, `AudioRecorderControls` handles recording availability and device messaging.
+5. Task history is centralised via `ui/src/components/task-history.tsx` and displayed on the Status page. The component fetches the latest 10 entries, offers per-service filtering, and expands entries using the registered task renderers.
+
+### Layout & Responsiveness
+
+- `TryLayout` uses `grid-cols-1` on mobile and `md:grid-cols-2` for desktop screens to honour the desired left/right layout.
+- Page containers typically use `max-w-6xl` with `px-4` padding; maintain this for new pages.
+- Avoid fixed heights where possible; when scrollable sections are required (e.g. task history), wrap them in `ScrollArea` with an explicit height to prevent overlap with subsequent sections.
+
+### Adding a New Task Page
+
+1. Create a `<TaskName>InputOutput` component that accepts state props, implements both `try` and `history` modes, and exports the raw payload objects.
+2. On the page, wire up data fetching/actions, then render `<TaskNameInputOutput>` inside the `Try` tab.
+3. Register a renderer in `task-history.tsx` so history playback works with zero additional UI.
+4. If uploads are needed, prefer the primitives in `inputs/`; extend them if new media types are introduced.
+
+Following these guidelines keeps every task page visually consistent, reduces per-page duplication, and ensures history playback remains a first-class feature.
+
 ## Development Setup
 
 ```bash
