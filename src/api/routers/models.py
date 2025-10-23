@@ -25,6 +25,8 @@ class ModelInfo(BaseModel):
     team: str
     type: str
     task: str
+    architecture: Optional[str] = None
+    supports_markdown: bool = False
     size_mb: int
     parameters_m: int
     gpu_memory_mb: int
@@ -70,6 +72,12 @@ async def list_all_models(task: Optional[str] = None) -> ModelsResponse:
         if task and db_model["task"].lower() != task.lower():
             continue
 
+        # Handle supports_markdown which might not exist in older databases
+        try:
+            supports_markdown = bool(db_model["supports_markdown"])
+        except (KeyError, IndexError):
+            supports_markdown = False
+
         models.append(
             ModelInfo(
                 id=db_model["id"],
@@ -77,6 +85,8 @@ async def list_all_models(task: Optional[str] = None) -> ModelsResponse:
                 team=db_model["team"],
                 type=db_model["type"],
                 task=db_model["task"],
+                architecture=db_model["architecture"],
+                supports_markdown=supports_markdown,
                 size_mb=db_model["size_mb"],
                 parameters_m=db_model["parameters_m"],
                 gpu_memory_mb=db_model["gpu_memory_mb"],
