@@ -183,6 +183,7 @@ async def lifespan(app: FastAPI):
                     default_prompt=model_info.get("default_prompt"),
                     platform_requirements=model_info.get("platform_requirements"),
                     requires_quantization=model_info.get("requires_quantization", False),
+                    supports_markdown=model_info.get("supports_markdown", False),
                 )
                 model_count += 1
 

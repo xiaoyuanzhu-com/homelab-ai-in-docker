@@ -28,6 +28,7 @@ interface ModelInfo {
   type: string;
   task: string;
   architecture: string;
+  supports_markdown: boolean;
   size_mb: number;
   parameters_m: number;
   gpu_memory_mb: number;
@@ -97,8 +98,8 @@ export default function ImageOCRPage() {
     if (!selectedModel) return false;
     const model = availableModels.find((m) => m.id === selectedModel);
     if (!model) return false;
-    // Granite Docling, MinerU, and DeepSeek support markdown
-    return ["granite-docling", "mineru", "deepseek"].includes(model.architecture);
+    // Check the explicit supports_markdown property from the model
+    return model.supports_markdown === true;
   };
 
   const copyToClipboard = async () => {
@@ -385,7 +386,7 @@ export default function ImageOCRPage() {
                 <ul className="space-y-2 text-sm">
                   <li><code className="bg-muted px-2 py-1 rounded">image</code> (string, required) - Base64-encoded image data</li>
                   <li><code className="bg-muted px-2 py-1 rounded">model</code> (string, required) - Model ID to use for OCR</li>
-                  <li><code className="bg-muted px-2 py-1 rounded">output_format</code> (string, optional) - Output format: &quot;text&quot; (default) or &quot;markdown&quot; (supported by Granite Docling, MinerU, DeepSeek)</li>
+                  <li><code className="bg-muted px-2 py-1 rounded">output_format</code> (string, optional) - Output format: &quot;text&quot; (default) or &quot;markdown&quot; (supported by PaddleOCR-VL, Granite Docling, MinerU, DeepSeek)</li>
                   <li><code className="bg-muted px-2 py-1 rounded">language</code> (string, optional) - Language hint for OCR (e.g., &quot;en&quot;, &quot;zh&quot;, &quot;auto&quot;)</li>
                 </ul>
               </div>

@@ -17,7 +17,7 @@ class OCRRequest(BaseModel):
     )
     output_format: Optional[Literal["text", "markdown"]] = Field(
         default="text",
-        description="Output format: 'text' for plain text, 'markdown' for structured markdown (supported by Granite Docling, MinerU, DeepSeek)",
+        description="Output format: 'text' for plain text, 'markdown' for structured markdown (supported by PaddleOCR-VL, Granite Docling, MinerU, DeepSeek)",
     )
 
 

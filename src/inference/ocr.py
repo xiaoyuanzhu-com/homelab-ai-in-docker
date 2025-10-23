@@ -1,10 +1,219 @@
 """Unified OCR inference module supporting multiple architectures."""
 
+import importlib
 import logging
 from typing import Any, Dict, Optional
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+_PADDLEOCR_VL_DTYPE_PATCHED = False
+_PADDLEOCR_VL_CLASS = None
+
+
+def _ensure_paddleocr_vl_dtype_patch() -> bool:
+    """
+    Ensure PaddleOCR-VL checkpoints in bfloat16 can load on float32 targets.
+
+    Recent PaddleOCR-VL releases publish bfloat16 weights (especially via
+    HuggingFace). When PaddleX constructs the DocVLM models on CPU it expects
+    float32 tensors and the stock loader does not promote bfloat16 tensors,
+    leading to assertions such as:
+        AssertionError: Variable dtype not match, Variable [...] need tensor
+        with dtype paddle.float32 but load tensor with dtype paddle.bfloat16
+
+    We monkey-patch PaddleX's `_convert_state_dict_dtype_and_shape` helper so
+    checkpoints are promoted to the destination dtype when needed.
+
+    Returns:
+        bool: True if the patch was applied (or already active), False otherwise.
+    """
+    global _PADDLEOCR_VL_DTYPE_PATCHED
+
+    if _PADDLEOCR_VL_DTYPE_PATCHED:
+        return True
+
+    module_candidates = [
+        # PaddleX ≥3.0 ships its loader here.
+        "paddlex.inference.models.common.vlm.transformers.model_utils",
+        # Older preview builds used PaddleOCR's bundled copy.
+        "paddleocr._pipelines.utils.model_utils",
+    ]
+
+    for module_name in module_candidates:
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+
+        if getattr(module, "_haid_dtype_patch_applied", False):
+            _PADDLEOCR_VL_DTYPE_PATCHED = True
+            return True
+
+        convert_fn = getattr(module, "_convert_state_dict_dtype_and_shape", None)
+        load_fn = getattr(module, "_load_state_dict_into_model", None)
+        load_state_fn = getattr(module, "load_state_dict", None)
+        if convert_fn is None:
+            continue
+
+        try:
+            import paddle
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.debug("Paddle not available for PaddleOCR-VL dtype patch: %s", exc)
+            return False
+
+        def _patched_convert(state_dict, model_to_load, _orig=convert_fn):
+            try:
+                reference_state = model_to_load.state_dict()
+            except Exception:  # pragma: no cover - fallback to original
+                return _orig(state_dict, model_to_load)
+
+            for param_name, ref_tensor in reference_state.items():
+                candidate = state_dict.get(param_name)
+                if candidate is None:
+                    continue
+                if not isinstance(candidate, paddle.Tensor):
+                    continue
+                if candidate.dtype != ref_tensor.dtype:
+                    try:
+                        converted = paddle.cast(candidate, dtype=ref_tensor.dtype)
+                    except Exception as cast_err:
+                        logger.warning(
+                            "PaddleOCR-VL dtype patch failed to cast %s from %s to %s: %s",
+                            param_name,
+                            candidate.dtype,
+                            ref_tensor.dtype,
+                            cast_err,
+                        )
+                    else:
+                        if str(candidate.dtype).lower().find("bfloat16") != -1:
+                            logger.debug(
+                                "PaddleOCR-VL dtype patch promoting %s from %s to %s",
+                                param_name,
+                                candidate.dtype,
+                                ref_tensor.dtype,
+                            )
+                        state_dict[param_name] = converted
+            return _orig(state_dict, model_to_load)
+
+        module._convert_state_dict_dtype_and_shape = _patched_convert
+        if load_state_fn is not None:
+            orig_load_state = load_state_fn
+
+            def _patched_load_state_dict(*args, _orig=orig_load_state, **kwargs):
+                state_dict = _orig(*args, **kwargs)
+                try:
+                    for key, value in list(state_dict.items()):
+                        if not isinstance(value, paddle.Tensor):
+                            continue
+                        if str(value.dtype).lower().find("bfloat16") != -1:
+                            try:
+                                state_dict[key] = paddle.cast(value, paddle.float32)
+                                logger.debug(
+                                    "PaddleOCR-VL dtype patch promoting %s from %s to float32 (load_state)",
+                                    key,
+                                    value.dtype,
+                                )
+                            except Exception as cast_err:
+                                logger.warning(
+                                    "PaddleOCR-VL dtype load_state patch failed to cast %s: %s",
+                                    key,
+                                    cast_err,
+                                )
+                except Exception as err:
+                    logger.debug(
+                        "PaddleOCR-VL dtype load_state patch skipped due to: %s",
+                        err,
+                    )
+                return state_dict
+
+            module.load_state_dict = _patched_load_state_dict
+        if load_fn is not None:
+            orig_load_fn = load_fn
+
+            def _patched_load(model_to_load, state_dict, start_prefix, *args, _orig=orig_load_fn, **kwargs):
+                try:
+                    reference_state = model_to_load.state_dict()
+                except Exception:
+                    reference_state = None
+
+                try:
+                    for key, value in list(state_dict.items()):
+                        if not isinstance(value, paddle.Tensor):
+                            continue
+                        target_dtype = None
+                        if reference_state and key in reference_state:
+                            target_dtype = reference_state[key].dtype
+                        if target_dtype is None:
+                            target_dtype = paddle.float32
+                        if value.dtype != target_dtype:
+                            try:
+                                if str(value.dtype).lower().find("bfloat16") != -1:
+                                    logger.debug(
+                                        "PaddleOCR-VL dtype patch promoting %s from %s to %s (load wrapper)",
+                                        key,
+                                        value.dtype,
+                                        target_dtype,
+                                    )
+                                state_dict[key] = paddle.cast(value, target_dtype)
+                            except Exception as cast_err:
+                                logger.warning(
+                                    "PaddleOCR-VL dtype load wrapper failed to cast %s from %s to %s: %s",
+                                    key,
+                                    value.dtype,
+                                    target_dtype,
+                                    cast_err,
+                                )
+                except Exception as err:
+                    logger.debug("PaddleOCR-VL dtype load wrapper skipped due to: %s", err)
+
+                return _orig(model_to_load, state_dict, start_prefix, *args, **kwargs)
+
+            module._load_state_dict_into_model = _patched_load
+
+        module._haid_dtype_patch_applied = True
+        _PADDLEOCR_VL_DTYPE_PATCHED = True
+        logger.debug(
+            "Patched PaddleOCR-VL dtype conversion hook via module '%s'.", module_name
+        )
+        return True
+
+    logger.debug(
+        "Unable to locate PaddleOCR-VL dtype conversion hook; proceeding without patch."
+    )
+    return False
+
+
+def _resolve_paddleocr_vl_class():
+    """
+    Locate the PaddleOCR-VL wrapper class across PaddleOCR releases.
+
+    Returns:
+        type: The PaddleOCR-VL class exported by the installed PaddleOCR build.
+
+    Raises:
+        ImportError: If the class cannot be located.
+    """
+    global _PADDLEOCR_VL_CLASS
+
+    if _PADDLEOCR_VL_CLASS is not None:
+        return _PADDLEOCR_VL_CLASS
+
+    try:
+        module = importlib.import_module("paddleocr")
+    except ImportError as exc:
+        raise RuntimeError("PaddleOCR is not installed.") from exc
+
+    for attr_name in ("PaddleOCRVL", "DocVLM"):
+        candidate = getattr(module, attr_name, None)
+        if candidate is not None:
+            _PADDLEOCR_VL_CLASS = candidate
+            return candidate
+
+    raise RuntimeError(
+        "Unable to locate PaddleOCR-VL/DocVLM class in installed paddleocr package."
+    )
 
 
 class OCRInferenceEngine:
@@ -58,26 +267,46 @@ class OCRInferenceEngine:
     def _load_paddleocr(self) -> None:
         """Load PaddleOCR model."""
         try:
-            from paddleocr import PaddleOCR
+            # Determine if this is PaddleOCR-VL (Vision-Language model) or legacy PaddleOCR
+            # PaddleOCR-VL supports markdown output via save_to_markdown() method
+            is_vl_model = "PaddleOCR-VL" in self.model_id or "paddleocr-vl" in self.model_id.lower()
 
-            logger.info(f"Loading PaddleOCR model '{self.model_id}'...")
+            if is_vl_model:
+                patched = _ensure_paddleocr_vl_dtype_patch()
+                if patched:
+                    logger.debug("PaddleOCR-VL dtype compatibility patch enabled.")
 
-            # Determine language: request param > model config > default 'ch'
-            lang = self.language or self.model_config.get("language", "ch")
-
-            # Check GPU availability
-            try:
-                import paddle
-                has_gpu = (
-                    paddle.device.is_compiled_with_cuda()
-                    and paddle.device.cuda.device_count() > 0
+                paddleocr_vl_cls = _resolve_paddleocr_vl_class()
+                logger.info(
+                    "Loading PaddleOCR-VL model '%s' using %s...",
+                    self.model_id,
+                    paddleocr_vl_cls.__name__,
                 )
-                device = "gpu:0" if has_gpu else "cpu"
-            except Exception:
-                device = "cpu"
 
-            self.model = PaddleOCR(lang=lang, device=device)
-            logger.info(f"PaddleOCR loaded with lang={lang}, device={device}")
+                # PaddleOCR-VL models provide built-in multilingual support and
+                # expose markdown-friendly outputs via the paddlex pipeline.
+                self.model = paddleocr_vl_cls()
+                logger.info("PaddleOCR-VL loaded successfully (supports markdown output)")
+            else:
+                from paddleocr import PaddleOCR
+                logger.info(f"Loading legacy PaddleOCR model '{self.model_id}'...")
+
+                # Determine language: request param > model config > default 'ch'
+                lang = self.language or self.model_config.get("language", "ch")
+
+                # Check GPU availability
+                try:
+                    import paddle
+                    has_gpu = (
+                        paddle.device.is_compiled_with_cuda()
+                        and paddle.device.cuda.device_count() > 0
+                    )
+                    device = "gpu:0" if has_gpu else "cpu"
+                except Exception:
+                    device = "cpu"
+
+                self.model = PaddleOCR(lang=lang, device=device)
+                logger.info(f"Legacy PaddleOCR loaded with lang={lang}, device={device}")
 
         except ImportError:
             raise RuntimeError(
@@ -338,22 +567,67 @@ class OCRInferenceEngine:
         import tempfile
         import os
 
-        # PaddleOCR expects file path
+        # Determine if this is PaddleOCR-VL or legacy PaddleOCR
+        is_vl_model = "PaddleOCR-VL" in self.model_id or "paddleocr-vl" in self.model_id.lower()
+
+        # Both APIs expect file path
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
             image.save(tmp_file.name)
             tmp_path = tmp_file.name
 
         try:
-            result = self.model.predict(tmp_path)
+            if is_vl_model:
+                # PaddleOCR-VL: Use predict() method which returns result objects
+                output = self.model.predict(tmp_path)
 
-            # Parse results
-            extracted_text = []
-            if result and len(result) > 0:
-                page_result = result[0]
-                if "rec_texts" in page_result:
-                    extracted_text = page_result["rec_texts"]
+                if self.output_format == "markdown":
+                    # Extract markdown content from result objects
+                    markdown_texts = []
+                    for res in output:
+                        # Access the markdown property which returns a dict with markdown_texts
+                        md_info = res.markdown
+                        if isinstance(md_info, dict) and "markdown_texts" in md_info:
+                            # markdown_texts can be a list or string
+                            md_content = md_info["markdown_texts"]
+                            if isinstance(md_content, list):
+                                markdown_texts.extend(md_content)
+                            else:
+                                markdown_texts.append(str(md_content))
+                        elif isinstance(md_info, str):
+                            markdown_texts.append(md_info)
 
-            return "\n".join(extracted_text) if extracted_text else ""
+                    return "\n\n".join(markdown_texts) if markdown_texts else ""
+                else:
+                    # Text format: Extract text from JSON structure
+                    all_text = []
+                    for res in output:
+                        json_data = res.json
+                        if isinstance(json_data, dict):
+                            # Try to extract text from common fields
+                            if "text" in json_data:
+                                all_text.append(json_data["text"])
+                            elif "content" in json_data:
+                                all_text.append(json_data["content"])
+                        elif isinstance(json_data, str):
+                            all_text.append(json_data)
+
+                    return "\n".join(all_text) if all_text else ""
+            else:
+                # Legacy PaddleOCR: Use ocr() method
+                result = self.model.ocr(tmp_path, cls=True)
+
+                # Parse results from legacy format
+                # Result format: [[[bbox, (text, confidence)], ...]]
+                extracted_text = []
+                if result and len(result) > 0:
+                    page_result = result[0]
+                    if page_result:
+                        for line in page_result:
+                            if len(line) >= 2:
+                                text = line[1][0] if isinstance(line[1], tuple) else line[1]
+                                extracted_text.append(text)
+
+                return "\n".join(extracted_text) if extracted_text else ""
 
         finally:
             if os.path.exists(tmp_path):

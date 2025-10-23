@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, ChevronUp, RefreshCcw } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -488,7 +487,7 @@ export function TaskHistoryList() {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 overflow-hidden">
+      <CardContent>
         {loading && (
           <div className="space-y-3">
             {[...Array(3)].map((_, index) => (
@@ -510,9 +509,8 @@ export function TaskHistoryList() {
         )}
 
         {!loading && !error && filteredHistory.length > 0 && (
-          <ScrollArea className="h-[520px] pr-4">
-            <div className="space-y-3">
-              {filteredHistory.map((entry) => {
+          <div className="space-y-3">
+            {filteredHistory.map((entry) => {
                 const isExpanded = expandedId === entry.request_id;
                 const renderer = TASK_RENDERERS[entry.service];
                 return (
@@ -575,8 +573,7 @@ export function TaskHistoryList() {
                   </Collapsible>
                 );
               })}
-            </div>
-          </ScrollArea>
+          </div>
         )}
       </CardContent>
     </Card>

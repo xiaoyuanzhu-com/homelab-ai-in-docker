@@ -33,6 +33,7 @@ def init_db():
                 default_prompt TEXT,
                 platform_requirements TEXT,
                 requires_quantization INTEGER DEFAULT 0,
+                supports_markdown INTEGER DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'init',
                 downloaded_size_mb INTEGER,
                 error_message TEXT,
@@ -40,6 +41,12 @@ def init_db():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Migration: Add supports_markdown column if it doesn't exist
+        try:
+            conn.execute("SELECT supports_markdown FROM models LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE models ADD COLUMN supports_markdown INTEGER DEFAULT 0")
 
         # Create index on status for faster queries
         conn.execute("""
@@ -62,6 +69,7 @@ def upsert_model(
     default_prompt: Optional[str] = None,
     platform_requirements: Optional[str] = None,
     requires_quantization: bool = False,
+    supports_markdown: bool = False,
 ) -> None:
     """
     Insert or update model metadata from manifest.
@@ -72,8 +80,9 @@ def upsert_model(
             INSERT INTO models (
                 id, name, team, type, task, size_mb,
                 parameters_m, gpu_memory_mb, link, architecture,
-                default_prompt, platform_requirements, requires_quantization
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                default_prompt, platform_requirements, requires_quantization,
+                supports_markdown
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 team = excluded.team,
@@ -87,9 +96,11 @@ def upsert_model(
                 default_prompt = excluded.default_prompt,
                 platform_requirements = excluded.platform_requirements,
                 requires_quantization = excluded.requires_quantization,
+                supports_markdown = excluded.supports_markdown,
                 updated_at = CURRENT_TIMESTAMP
         """, (model_id, name, team, model_type, task, size_mb, parameters_m, gpu_memory_mb, link,
-              architecture, default_prompt, platform_requirements, 1 if requires_quantization else 0))
+              architecture, default_prompt, platform_requirements, 1 if requires_quantization else 0,
+              1 if supports_markdown else 0))
 
 
 def get_all_models():
