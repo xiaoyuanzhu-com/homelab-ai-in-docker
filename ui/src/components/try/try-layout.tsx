@@ -13,7 +13,7 @@ export function TryLayout({ input, output, className }: TryLayoutProps) {
   return (
     <div
       className={cn(
-        "grid gap-6 grid-cols-1 lg:grid-cols-[minmax(0,1fr),minmax(0,1fr)]",
+        "grid gap-6 grid-cols-1 md:grid-cols-2",
         className,
       )}
     >

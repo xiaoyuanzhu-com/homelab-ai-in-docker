@@ -7,7 +7,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { MarkdownDoc } from "@/components/markdown-doc";
 import { CrawlInputOutput } from "@/components/crawl-input-output";
-import { CrawlHistory } from "@/components/crawl-history";
 
 const crawlDoc = `# API Reference
 
@@ -160,7 +159,6 @@ export default function CrawlPage() {
           <TabsList className="mb-6">
             <TabsTrigger value="try">Try</TabsTrigger>
             <TabsTrigger value="doc">Doc</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
 
           {/* Try Tab */}
@@ -189,10 +187,6 @@ export default function CrawlPage() {
             </Card>
           </TabsContent>
 
-          {/* History Tab */}
-          <TabsContent value="history">
-            <CrawlHistory />
-          </TabsContent>
         </Tabs>
       </div>
     </TooltipProvider>

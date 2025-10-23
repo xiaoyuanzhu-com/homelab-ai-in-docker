@@ -461,7 +461,7 @@ export function TaskHistoryList() {
   };
 
   return (
-    <Card>
+    <Card className="flex flex-col">
       <CardHeader>
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -488,7 +488,7 @@ export function TaskHistoryList() {
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 overflow-hidden">
         {loading && (
           <div className="space-y-3">
             {[...Array(3)].map((_, index) => (
@@ -510,7 +510,7 @@ export function TaskHistoryList() {
         )}
 
         {!loading && !error && filteredHistory.length > 0 && (
-          <ScrollArea className="max-h-[640px] pr-4">
+          <ScrollArea className="h-[520px] pr-4">
             <div className="space-y-3">
               {filteredHistory.map((entry) => {
                 const isExpanded = expandedId === entry.request_id;
