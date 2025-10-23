@@ -12,7 +12,19 @@ Python-based REST API service packaged as a Docker container, providing inferenc
   - sentence-transformers for efficient embedding models
   - Playwright/Selenium for browser automation
 - **Web UI**: Simple HTML/JS admin interface served by FastAPI
-- **Containerization**: Docker with optional NVIDIA GPU support
+- **Containerization**: Docker with NVIDIA GPU support
+
+### GPU Dependencies (Locked Versions)
+
+**Python 3.13 + PyTorch 2.7.0 + CUDA 12.6 + flash-attn 2.8.3**
+
+These versions are locked together for compatibility:
+- PyTorch 2.7 removed CUDA 12.4 support (requires 12.6+)
+- flash-attn 2.8.3 pre-built wheel from [mjun0812/flash-attention-prebuild-wheels](https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/tag/v0.4.12)
+- Pre-built wheels avoid compilation (faster builds, no nvcc required)
+- Configured via `[tool.uv.index]` and `[tool.uv.sources]` in pyproject.toml
+
+**Note:** These are verified stable versions. Upgrading requires checking wheel availability for the Python/PyTorch/CUDA combination.
 
 ## API Design
 
