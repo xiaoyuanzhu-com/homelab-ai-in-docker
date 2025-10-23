@@ -35,12 +35,8 @@ docker run -d \
   --name homelab-ai \
   ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest
 
-# Or run without GPU (CPU-only)
-docker run -d \
-  -p 8000:8000 \
-  -v $(pwd)/data:/haid/data \
-  --name homelab-ai \
-  ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest
+# Note: Image is built with CUDA support
+# For CPU-only, use local development setup instead
 ```
 
 **Option 2: Build locally**
@@ -52,25 +48,18 @@ docker-compose up -d
 # Or build manually
 docker build -t homelab-ai .
 
-# Run with GPU support
+# Run with GPU support (required)
 docker run -d \
   -p 8000:8000 \
   -v $(pwd)/data:/haid/data \
   --gpus all \
   --name homelab-ai \
   homelab-ai
-
-# Or run without GPU (CPU-only)
-docker run -d \
-  -p 8000:8000 \
-  -v $(pwd)/data:/haid/data \
-  --name homelab-ai \
-  homelab-ai
 ```
 
 The API will be available at `http://localhost:8000`
 
-> **Note:** The docker-compose.yml configuration includes GPU support by default. If you don't have a GPU or NVIDIA Container Toolkit installed, remove the `deploy` section from docker-compose.yml to run in CPU-only mode.
+> **Note:** The Docker image and docker-compose.yml are configured for NVIDIA GPU environments. The image includes CUDA 12.4 PyTorch and flash-attn pre-installed. For CPU-only usage, consider using local development setup instead.
 
 ## Install Scenarios (Linux)
 
@@ -84,23 +73,17 @@ These are streamlined install paths for common Linux setups.
 - Run with GPU acceleration:
   - `docker run -d -p 8000:8000 -v $(pwd)/data:/haid/data --gpus all --name homelab-ai ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest`
   - Or `docker-compose up -d` (compose includes GPU config by default).
-- Auto‑acceleration:
-  - If a GPU is detected and the base torch is CPU‑only, you can opt‑in to auto‑upgrade to a CUDA PyTorch wheel at runtime by setting `HAID_AUTO_TORCH_CUDA=on`. Example:
-    - `docker run -d -p 8000:8000 -v $(pwd)/data:/haid/data --gpus all -e HAID_AUTO_TORCH_CUDA=on --name homelab-ai ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest`
-    - Optional: choose channel (default `cu121`): `-e HAID_TORCH_CUDA_CHANNEL=cu118|cu121`
-  - Flash‑Attention: entrypoint attempts a best‑effort `flash-attn==2.7.3` install when CUDA is available; otherwise it skips. The app uses `flash_attention_2` automatically when present.
+- GPU acceleration:
+  - The Docker image includes CUDA 12.4-enabled PyTorch and flash-attn pre-installed for optimal performance.
+  - No runtime configuration needed - GPU acceleration is ready out of the box.
 
 ### 2) Linux without NVIDIA/CUDA (Docker)
 
-- No GPU required; CPU‑only mode works out of the box.
-- Run without `--gpus`:
+- **Note:** The Docker image is built with CUDA 12.4 support and assumes GPU availability.
+- For CPU-only environments, it's recommended to use local development setup (see option 3 below) to avoid downloading unnecessary CUDA libraries.
+- If you still want to use the Docker image without GPU:
   - `docker run -d -p 8000:8000 -v $(pwd)/data:/haid/data --name homelab-ai ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest`
-  - For docker‑compose, remove the `deploy.resources.reservations.devices` section if present.
-- Performance notes:
-  - DeepSeek‑OCR falls back to eager attention on CPU.
-  - Granite‑Docling uses SDPA on CPU.
-  - PaddleOCR runs on CPU if no GPU is available.
-  - The same image works in CPU‑only mode; no flags needed.
+  - The image will work but may have slower startup and larger size due to included CUDA dependencies.
 
 ### 3) Linux from Source with uv (No Docker)
 
@@ -111,8 +94,9 @@ These are streamlined install paths for common Linux setups.
 - Run:
   - `uv run python main.py` (or `python main.py` if activated)
 - GPU optional:
-  - Install a CUDA build of PyTorch matching your system if you want GPU: see PyTorch installation guides for the correct `--index-url` and versions.
-  - Flash‑Attention is optional and requires a local CUDA toolkit (nvcc) to build. If you need it, install manually: `uv pip install --no-build-isolation flash-attn==2.7.3`. If it fails, the app continues to work without it.
+  - For GPU support: `uv pip install --extra-index-url https://download.pytorch.org/whl/cu124 -e .[gpu]`
+  - This installs CUDA 12.4 PyTorch and flash-attn (requires CUDA toolkit installed on your system)
+  - Without GPU extra, the app runs in CPU-only mode using the base PyTorch from pyproject.toml.
 
 Data & caches
 - Models and history store under `./data` in Docker (mounted to `/haid/data`).

@@ -34,11 +34,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Optional GPU acceleration for DeepSeek-OCR and Granite Docling
-# Note:
-# - flash-attn requires a CUDA-enabled PyTorch and typically a build toolchain
-# - We keep this in an optional extra and also attempt a best-effort install in Docker entrypoint
+# GPU acceleration (NVIDIA CUDA 12.4)
+# Includes CUDA-enabled PyTorch and flash-attn for optimal performance
+# Docker setup assumes GPU availability and installs this by default
 gpu = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
     "flash-attn==2.7.3; platform_system=='Linux'",
 ]
 

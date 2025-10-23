@@ -42,8 +42,11 @@ RUN curl -L https://gist.githubusercontent.com/padeoe/697678ab8e528b85a2a7bddafe
 # Copy dependency files
 COPY pyproject.toml ./
 
-# Install Python dependencies (--no-cache to reduce image size)
-RUN uv pip install --system --no-cache -r pyproject.toml
+# Install Python dependencies with GPU support (--no-cache to reduce image size)
+# Using PyTorch CUDA 12.4 index for GPU acceleration
+RUN uv pip install --system --no-cache -r pyproject.toml && \
+    uv pip install --system --no-cache --extra-index-url https://download.pytorch.org/whl/cu124 \
+    -e .[gpu]
 
 # Install playwright browsers for crawl4ai (--no-cache to reduce image size)
 RUN uv pip install --system --no-cache playwright && \
@@ -70,10 +73,5 @@ EXPOSE 12310
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:12310/api/health || exit 1
 
-# Add entrypoint for best-effort GPU accel setup (flash-attn)
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Run the application via entrypoint
-ENTRYPOINT ["/entrypoint.sh"]
+# Run the application
 CMD ["python", "main.py"]
