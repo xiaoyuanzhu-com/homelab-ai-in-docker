@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from enum import Enum
-from typing import Dict, Optional, Sequence, Iterable
+from typing import Any, Dict, Optional, Sequence, Iterable
 
 from .db_config import get_db
 
@@ -170,3 +170,47 @@ def update_skill_status(
             """,
             (status.value, downloaded_size_mb, error_message, skill_id),
         )
+
+
+def _deserialize_tasks(raw: Optional[str]) -> list[str]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return data
+    except json.JSONDecodeError:
+        pass
+    return []
+
+
+def _row_to_skill(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "label": row["label"],
+        "provider": row["provider"],
+        "tasks": _deserialize_tasks(row["tasks"]),
+        "architecture": row["architecture"],
+        "default_prompt": row["default_prompt"],
+        "platform_requirements": row["platform_requirements"],
+        "supports_markdown": bool(row["supports_markdown"]),
+        "requires_quantization": bool(row["requires_quantization"]),
+        "requires_download": bool(row["requires_download"]),
+        "hf_model": row["hf_model"],
+        "reference_url": row["reference_url"],
+        "size_mb": row["size_mb"],
+        "parameters_m": row["parameters_m"],
+        "gpu_memory_mb": row["gpu_memory_mb"],
+        "status": row["status"],
+        "downloaded_size_mb": row["downloaded_size_mb"],
+        "error_message": row["error_message"],
+    }
+
+
+def list_skills(task: Optional[str] = None) -> list[Dict[str, Any]]:
+    rows = get_all_skills()
+    skills = [_row_to_skill(row) for row in rows]
+    if task:
+        task_lower = task.lower()
+        skills = [s for s in skills if any(t.lower() == task_lower for t in s["tasks"])]
+    return skills

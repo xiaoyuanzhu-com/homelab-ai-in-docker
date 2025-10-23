@@ -20,6 +20,7 @@ from src.api.routers import (
     automatic_speech_recognition,
     speaker_embedding,
     history,
+    skills,
     models,
     hardware,
     settings,
@@ -323,6 +324,7 @@ app.include_router(image_ocr.router)
 app.include_router(automatic_speech_recognition.router)
 app.include_router(speaker_embedding.router)
 app.include_router(history.router)
+app.include_router(skills.router)
 app.include_router(models.router)
 app.include_router(hardware.router)
 app.include_router(settings.router)
