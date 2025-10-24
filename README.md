@@ -31,6 +31,26 @@ AI capabilities wrapped in API, specially crafted for homelab.
   </tr>
 </table>
 
+## Installation
+
+```yaml
+services:
+  api:
+    image: ghcr.io/xiaoyuanzhu-com/homelab-ai-in-docker:latest
+    restart: unless-stopped
+    ports:
+      - "12310:12310"
+    volumes:
+      - ./data:/haid/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+```
+
 ## Supported Tasks
 
 | | |
