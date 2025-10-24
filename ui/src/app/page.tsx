@@ -12,18 +12,17 @@ import {
   MessageSquare,
   Languages,
   Camera,
-  Video,
   Volume2,
   Target,
-  Brain,
   TrendingUp,
-  Table2,
-  GitBranch,
   Layers,
   FileImage,
-  Boxes,
-  Zap,
-  Loader2
+  Loader2,
+  Scan,
+  UserCircle,
+  Monitor,
+  ArrowUpDown,
+  Shuffle
 } from "lucide-react";
 
 interface Task {
@@ -63,31 +62,10 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
-        id: "text-classification",
-        title: "Text Classification",
-        description: "Assign categories to text data",
-        icon: <FileText className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "token-classification",
-        title: "Token Classification",
-        description: "Assign labels to individual tokens",
-        icon: <Target className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "question-answering",
-        title: "Question Answering",
-        description: "Answer questions from a context",
-        icon: <MessageSquare className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "zero-shot-classification",
-        title: "Zero Shot Classification",
-        description: "Classify text without training data",
-        icon: <Zap className="h-5 w-5" />,
+        id: "text-ranking",
+        title: "Text Ranking",
+        description: "Rank and rerank text passages by relevance",
+        icon: <ArrowUpDown className="h-5 w-5" />,
         available: false
       },
       {
@@ -95,27 +73,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         title: "Translation",
         description: "Translate text between languages",
         icon: <Languages className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "summarization",
-        title: "Summarization",
-        description: "Create summaries of long documents",
-        icon: <FileText className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "fill-mask",
-        title: "Fill Mask",
-        description: "Predict masked words in text",
-        icon: <Brain className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "sentence-similarity",
-        title: "Sentence Similarity",
-        description: "Compare sentence similarity",
-        icon: <GitBranch className="h-5 w-5" />,
         available: false
       }
     ]
@@ -141,13 +98,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
-        id: "image-classification",
-        title: "Image Classification",
-        description: "Assign labels to images",
-        icon: <ImageIcon className="h-5 w-5" />,
-        available: false
-      },
-      {
         id: "object-detection",
         title: "Object Detection",
         description: "Detect objects in images",
@@ -162,6 +112,27 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: false
       },
       {
+        id: "face-detection",
+        title: "Face Detection",
+        description: "Detect faces in images",
+        icon: <Scan className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "face-recognition",
+        title: "Face Recognition",
+        description: "Identify and verify faces",
+        icon: <UserCircle className="h-5 w-5" />,
+        available: false
+      },
+      {
+        id: "screen-parsing",
+        title: "Screen Parsing",
+        description: "Extract structured data from screenshots",
+        icon: <Monitor className="h-5 w-5" />,
+        available: false
+      },
+      {
         id: "text-to-image",
         title: "Text to Image",
         description: "Generate images from text",
@@ -173,20 +144,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         title: "Image to Image",
         description: "Transform images",
         icon: <Camera className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "unconditional-image-generation",
-        title: "Unconditional Image Generation",
-        description: "Generate images without conditioning",
-        icon: <Boxes className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "zero-shot-image-classification",
-        title: "Zero Shot Image Classification",
-        description: "Classify images without training",
-        icon: <Zap className="h-5 w-5" />,
         available: false
       }
     ]
@@ -212,13 +169,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
-        id: "audio-classification",
-        title: "Audio Classification",
-        description: "Classify audio recordings",
-        icon: <Volume2 className="h-5 w-5" />,
-        available: false
-      },
-      {
         id: "text-to-speech",
         title: "Text to Speech",
         description: "Synthesize speech from text",
@@ -231,13 +181,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
     id: "video",
     title: "Video",
     tasks: [
-      {
-        id: "video-classification",
-        title: "Video Classification",
-        description: "Classify videos",
-        icon: <Video className="h-5 w-5" />,
-        available: false
-      },
       {
         id: "video-object-tracking",
         title: "Video Object Tracking",
@@ -259,31 +202,10 @@ const TASK_CATEGORIES: TaskCategory[] = [
     title: "Multimodal",
     tasks: [
       {
-        id: "document-question-answering",
-        title: "Document Question Answering",
-        description: "Answer questions about documents",
-        icon: <FileText className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "visual-question-answering",
-        title: "Visual Question Answering",
-        description: "Answer questions about images",
-        icon: <MessageSquare className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "image-text-to-text",
-        title: "Image Text to Text",
-        description: "Generate text from image and text",
-        icon: <FileImage className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "table-question-answering",
-        title: "Table Question Answering",
-        description: "Answer questions about tabular data",
-        icon: <Table2 className="h-5 w-5" />,
+        id: "any-to-any",
+        title: "Any to Any",
+        description: "Convert between any modalities: text, image, audio, video",
+        icon: <Shuffle className="h-5 w-5" />,
         available: false
       }
     ]
@@ -301,24 +223,10 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
-        id: "tabular-classification",
-        title: "Tabular Classification",
-        description: "Classify tabular data",
-        icon: <Table2 className="h-5 w-5" />,
-        available: false
-      },
-      {
         id: "tabular-regression",
         title: "Tabular Regression",
         description: "Predict continuous values",
         icon: <TrendingUp className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "reinforcement-learning",
-        title: "Reinforcement Learning",
-        description: "Train agents through interaction",
-        icon: <Brain className="h-5 w-5" />,
         available: false
       }
     ]
