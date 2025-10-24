@@ -1,14 +1,15 @@
 # Homelab AI in Docker
 
-AI capabilities wrapped in a RESTful API, specially crafted for homelab.
+AI capabilities wrapped in API, specially crafted for homelab.
 
 ## Features
 
-- RESTful API in Docker for easy deployment
-- Developer friendly and LLM friendly
+- Out-of-the-box RESTful API in Docker
 - Best performance models for hardwares from low to high
-- Runs on CPU-only or low GPU memory hardware
-- Auto-unloads idle models to share GPU across tasks
+- Smart pooling for shared GPU use across tasks
+- Built-in observability for model usage and performance
+- Python and AI wrapped in a stateless service, choose your app tech stack freely
+- Developer friendly and LLM friendly
 
 ## Supported Tasks
 
