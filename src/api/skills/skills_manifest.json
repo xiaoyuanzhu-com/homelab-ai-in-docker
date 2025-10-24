@@ -280,7 +280,7 @@
       ],
       "architecture": "mineru",
       "default_prompt": null,
-      "supports_markdown": true,
+      "supports_markdown": false,
       "requires_quantization": false,
       "requires_download": true,
       "hf_model": "opendatalab/MinerU2.5-2509-1.2B",

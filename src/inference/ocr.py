@@ -667,6 +667,7 @@ class OCRInferenceEngine:
         logger.info(f"MinerU extracted {len(extracted_blocks)} blocks")
 
         # Parse ContentBlock objects into text
+        # Note: MinerU does not support markdown output format natively
         texts = []
         for block in extracted_blocks:
             # ContentBlock has .type and .content attributes
@@ -682,17 +683,12 @@ class OCRInferenceEngine:
             # For text blocks, use content directly
             if block_type == 'text':
                 texts.append(block_content)
-            # For table blocks, content is HTML (convert or include as-is)
+            # For table blocks, content is HTML
             elif block_type == 'table':
-                if self.output_format == 'markdown':
-                    # For markdown output, include the HTML table
-                    texts.append(block_content)
-                else:
-                    # For plain text, you might want to strip HTML tags or skip
-                    texts.append(block_content)
+                texts.append(block_content)
             # For equation blocks, content is LaTeX
             elif block_type == 'equation':
-                texts.append(f"$${block_content}$$")
+                texts.append(f"[LaTeX: {block_content}]")
 
         logger.info(f"MinerU extracted {len(texts)} content blocks with text")
         return "\n\n".join(texts) if texts else ""
