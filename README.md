@@ -4,10 +4,50 @@ AI capabilities wrapped in a RESTful API, specially crafted for homelab.
 
 ## Features
 
-- **Smart Web Scraping**: Crawl URLs with JavaScript rendering support, extract clean Markdown content
-- **Text Embedding**: Convert text to vectors for semantic search and similarity matching
-- **Image Captioning**: Generate natural language descriptions from images
-- **Image OCR**: Extract text from images (runs in an isolated per‑model worker with a 5s idle shutdown to reliably free GPU memory)
+- RESTful API in Docker for easy deployment
+- Developer friendly and LLM friendly
+- Best performance models for hardwares from low to high
+- Runs on CPU-only or low GPU memory hardware
+- Auto-unloads idle models to share GPU across tasks
+
+## Supported Tasks
+
+| | |
+|------|--------|
+| Text Generation (LLM) | ✅ |
+| Feature Extraction (Text Embedding) | ✅ |
+| Image Captioning | ✅ |
+| Image OCR | ✅ |
+| Automatic Speech Recognition | ✅ |
+| Web Crawling | ✅ |
+| Speaker Embedding | Not yet |
+| Text Classification | Not yet |
+| Token Classification | Not yet |
+| Question Answering | Not yet |
+| Zero Shot Classification | Not yet |
+| Translation | Not yet |
+| Summarization | Not yet |
+| Fill Mask | Not yet |
+| Sentence Similarity | Not yet |
+| Image Classification | Not yet |
+| Object Detection | Not yet |
+| Image Segmentation | Not yet |
+| Text to Image | Not yet |
+| Image to Image | Not yet |
+| Unconditional Image Generation | Not yet |
+| Zero Shot Image Classification | Not yet |
+| Audio Classification | Not yet |
+| Text to Speech | Not yet |
+| Video Classification | Not yet |
+| Video Object Tracking | Not yet |
+| Video to Text | Not yet |
+| Document Question Answering | Not yet |
+| Visual Question Answering | Not yet |
+| Image Text to Text | Not yet |
+| Table Question Answering | Not yet |
+| Tabular Classification | Not yet |
+| Tabular Regression | Not yet |
+| Reinforcement Learning | Not yet |
 
 ## Quick Start
 
