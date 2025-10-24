@@ -109,7 +109,7 @@ def upsert_skill(
                 parameters_m = excluded.parameters_m,
                 gpu_memory_mb = excluded.gpu_memory_mb,
                 status = CASE
-                    WHEN skills.status IN ('downloading') THEN skills.status
+                    WHEN skills.status IN ('downloading', 'ready') THEN skills.status
                     ELSE excluded.status
                 END,
                 updated_at = CURRENT_TIMESTAMP
