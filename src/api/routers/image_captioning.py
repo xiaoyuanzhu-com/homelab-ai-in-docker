@@ -386,11 +386,14 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
 
             # When a model is dispatched with Accelerate (device_map="auto"),
             # different submodules can live on different devices (CPU/GPU).
-            # In that case, inputs should generally remain on CPU and the
-            # dispatch hooks will move them to the correct device internally.
-            # Only move inputs to a single device when the model is on one.
-            hf_device_map = getattr(model, "hf_device_map", None) or getattr(model, "device_map", None)
-            if not hf_device_map:
+            # We need to move inputs to the device of the first layer.
+            # Reference: https://huggingface.co/docs/accelerate/en/concept_guides/big_model_inference
+            if hasattr(model, 'hf_device_map') and model.hf_device_map:
+                # Get first layer's device from the device map
+                first_device = model.hf_device_map[next(iter(model.hf_device_map))]
+                inputs = {k: v.to(first_device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+            else:
+                # Model on single device - use model's device
                 model_device = next(model.parameters()).device
                 inputs = {k: v.to(model_device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
 
