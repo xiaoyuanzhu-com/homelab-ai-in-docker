@@ -324,7 +324,7 @@ class OCRInferenceEngine:
             logger.info(f"Loading MinerU2.5 model '{self.model_id}'...")
 
             # Check for local download at data/models/{org}/{model}
-            from ...config import get_data_dir
+            from src.config import get_data_dir
             local_model_dir = get_data_dir() / "models" / self.model_id
 
             if local_model_dir.exists() and (local_model_dir / "config.json").exists():
@@ -380,7 +380,7 @@ class OCRInferenceEngine:
             logger.info(f"Loading DeepSeek-OCR model '{self.model_id}'...")
 
             # Check for local download at data/models/{org}/{model}
-            from ...config import get_data_dir
+            from src.config import get_data_dir
             local_model_dir = get_data_dir() / "models" / self.model_id
 
             if local_model_dir.exists() and (local_model_dir / "config.json").exists():
@@ -482,7 +482,7 @@ class OCRInferenceEngine:
             logger.info(f"Loading Granite Docling model '{self.model_id}'...")
 
             # Check for local download at data/models/{org}/{model}
-            from ...config import get_data_dir
+            from src.config import get_data_dir
             local_model_dir = get_data_dir() / "models" / self.model_id
 
             if local_model_dir.exists() and (local_model_dir / "config.json").exists():
@@ -824,15 +824,22 @@ class OCRInferenceEngine:
         # Process inputs
         inputs = self.processor(text=prompt, images=[image], return_tensors="pt")
 
-        # Move inputs only when the model is not dispatched across devices
-        hf_device_map = getattr(self.model, "hf_device_map", None) or getattr(self.model, "device_map", None)
-        if not hf_device_map:
-            device = next(self.model.parameters()).device
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+        # Move inputs to the model's device
+        # For device_map="auto", get the first device; otherwise get the model's device
+        device = next(self.model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
 
         # Generate output
+        # Using max_new_tokens=2048 as a reasonable default for most OCR tasks
+        # (official docs show max support of 8192, but most OCR doesn't need that much)
+        # Using temperature=0.0 for deterministic outputs as recommended by official docs
         with torch.no_grad():
-            generated_ids = self.model.generate(**inputs, max_new_tokens=4096)
+            generated_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=2048,
+                temperature=0.0,
+                do_sample=False
+            )
 
         # Decode output
         generated_text = self.processor.batch_decode(

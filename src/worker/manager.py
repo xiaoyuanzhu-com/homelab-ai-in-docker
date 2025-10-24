@@ -167,10 +167,26 @@ class OCRWorkerManager:
         payload = _json.dumps({"image": image_b64, "output_format": output_format}).encode()
 
         def _do_request():
+            import json
+            from urllib.error import HTTPError
             req = urlrequest.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-            with urlrequest.urlopen(req, timeout=60) as resp:
-                import json
-                return json.loads(resp.read().decode())
+            try:
+                with urlrequest.urlopen(req, timeout=300) as resp:
+                    return json.loads(resp.read().decode())
+            except TimeoutError as e:
+                raise TimeoutError(
+                    f"OCR inference timed out after 300 seconds for model '{model_id}'. "
+                    "This may happen on first run when the model is loading, or with very large/complex images."
+                ) from e
+            except HTTPError as e:
+                # Try to extract error message from worker response
+                try:
+                    error_body = e.read().decode()
+                    error_data = json.loads(error_body)
+                    error_msg = error_data.get("detail", str(e))
+                except:
+                    error_msg = f"Worker returned HTTP {e.code}: {e.reason}"
+                raise RuntimeError(f"OCR worker error: {error_msg}") from e
 
         data = await asyncio.to_thread(_do_request)
         w.last_active = time.time()

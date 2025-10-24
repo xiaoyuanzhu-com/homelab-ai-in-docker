@@ -134,8 +134,19 @@ export default function ImageOCRPage() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail?.message || `HTTP error! status: ${response.status}`);
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.detail?.message) {
+            errorMessage = errorData.detail.message;
+          } else if (typeof errorData.detail === 'string') {
+            errorMessage = errorData.detail;
+          }
+        } catch {
+          // If JSON parsing fails, use the default error message
+          console.error('Failed to parse error response as JSON');
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();

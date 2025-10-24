@@ -397,6 +397,17 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
                 "request_id": request_id,
             },
         )
+    except TimeoutError as e:
+        error_msg = "OCR request timed out. The model may be loading for the first time or the image is too complex. Please try again."
+        logger.error(f"OCR timeout for request {request_id}: {str(e)}")
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "code": "TIMEOUT",
+                "message": error_msg,
+                "request_id": request_id,
+            },
+        )
     except Exception as e:
         error_msg = f"Failed to perform OCR: {str(e)}"
         logger.error(f"OCR failed for request {request_id}: {error_msg}", exc_info=True)
