@@ -65,37 +65,39 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchStats = () => {
-      // Fetch hardware stats
-      fetch("/api/hardware")
-        .then((res) => res.json())
-        .then((data) => {
-          if (!data.error) {
-            setHardwareStats(data);
-          }
-        })
-        .catch((err) => {
-          console.error("Failed to fetch hardware stats:", err);
-        })
-        .finally(() => setLoading(false));
+    let timeoutId: NodeJS.Timeout | null = null;
 
-      // Fetch task stats
-      fetch("/api/history/stats")
-        .then((res) => res.json())
-        .then((data) => {
-          setTaskStats(data);
-        })
-        .catch((err) => {
-          console.error("Failed to fetch task stats:", err);
-        });
+    const fetchStats = async () => {
+      try {
+        // Fetch hardware stats
+        const hardwareRes = await fetch("/api/hardware");
+        const hardwareData = await hardwareRes.json();
+        if (!hardwareData.error) {
+          setHardwareStats(hardwareData);
+        }
+
+        // Fetch task stats
+        const taskRes = await fetch("/api/history/stats");
+        const taskData = await taskRes.json();
+        setTaskStats(taskData);
+      } catch (err) {
+        console.error("Failed to fetch stats:", err);
+      } finally {
+        setLoading(false);
+        // Schedule next refresh 1 second after completion (idle time)
+        timeoutId = setTimeout(fetchStats, 1000);
+      }
     };
 
+    // Start initial fetch
     fetchStats();
 
-    // Refresh stats every 5 seconds
-    const interval = setInterval(fetchStats, 5000);
-
-    return () => clearInterval(interval);
+    // Cleanup: clear timeout on unmount
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, []);
 
   return (
