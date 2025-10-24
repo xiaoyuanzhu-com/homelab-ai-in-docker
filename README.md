@@ -11,6 +11,10 @@ AI capabilities wrapped in API, specially crafted for homelab.
 - Python and AI wrapped in a stateless service, choose your app tech stack freely
 - Developer friendly and LLM friendly
 
+## Screenshots
+
+Coming soon - UI screenshots showcasing the API interface and model management.
+
 ## Supported Tasks
 
 | | |
