@@ -9,16 +9,13 @@ import {
   Image as ImageIcon,
   Type,
   FileText,
-  MessageSquare,
   Languages,
-  Camera,
   Volume2,
   Target,
   TrendingUp,
   Layers,
   FileImage,
   Loader2,
-  Scan,
   UserCircle,
   Monitor,
   ArrowUpDown,
@@ -112,13 +109,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: false
       },
       {
-        id: "face-detection",
-        title: "Face Detection",
-        description: "Detect faces in images",
-        icon: <Scan className="h-5 w-5" />,
-        available: false
-      },
-      {
         id: "face-recognition",
         title: "Face Recognition",
         description: "Identify and verify faces",
@@ -137,13 +127,6 @@ const TASK_CATEGORIES: TaskCategory[] = [
         title: "Text to Image",
         description: "Generate images from text",
         icon: <FileImage className="h-5 w-5" />,
-        available: false
-      },
-      {
-        id: "image-to-image",
-        title: "Image to Image",
-        description: "Transform images",
-        icon: <Camera className="h-5 w-5" />,
         available: false
       }
     ]
