@@ -653,24 +653,49 @@ class OCRInferenceEngine:
                 os.unlink(tmp_path)
 
     def _predict_mineru(self, image: Image.Image) -> str:
-        """Run MinerU2.5 prediction."""
-        # MinerU uses two-step extraction
+        """Run MinerU2.5 prediction.
+
+        Returns ContentBlock objects with:
+        - type: 'text', 'image', 'table', or 'equation'
+        - content: recognized text/HTML/LaTeX (None for images)
+        - bbox: normalized bounding box [xmin, ymin, xmax, ymax]
+        - angle: rotation angle (0, 90, 180, 270, or None)
+        """
+        # MinerU uses two-step extraction, returns List[ContentBlock]
         extracted_blocks = self.model.two_step_extract(image)
 
-        # Parse extracted blocks into text
-        # The format depends on MinerU's output structure
-        if isinstance(extracted_blocks, list):
-            texts = []
-            for block in extracted_blocks:
-                if isinstance(block, dict) and "text" in block:
-                    texts.append(block["text"])
-                elif isinstance(block, str):
-                    texts.append(block)
-            return "\n".join(texts)
-        elif isinstance(extracted_blocks, str):
-            return extracted_blocks
-        else:
-            return str(extracted_blocks)
+        logger.info(f"MinerU extracted {len(extracted_blocks)} blocks")
+
+        # Parse ContentBlock objects into text
+        texts = []
+        for block in extracted_blocks:
+            # ContentBlock has .type and .content attributes
+            block_type = getattr(block, 'type', None)
+            block_content = getattr(block, 'content', None)
+
+            logger.debug(f"MinerU block type: {block_type}, content length: {len(str(block_content)) if block_content else 0}")
+
+            # Skip image blocks (content is None)
+            if block_content is None:
+                continue
+
+            # For text blocks, use content directly
+            if block_type == 'text':
+                texts.append(block_content)
+            # For table blocks, content is HTML (convert or include as-is)
+            elif block_type == 'table':
+                if self.output_format == 'markdown':
+                    # For markdown output, include the HTML table
+                    texts.append(block_content)
+                else:
+                    # For plain text, you might want to strip HTML tags or skip
+                    texts.append(block_content)
+            # For equation blocks, content is LaTeX
+            elif block_type == 'equation':
+                texts.append(f"$${block_content}$$")
+
+        logger.info(f"MinerU extracted {len(texts)} content blocks with text")
+        return "\n\n".join(texts) if texts else ""
 
     def _predict_deepseek(self, image: Image.Image) -> str:
         """Run DeepSeek-OCR prediction."""
