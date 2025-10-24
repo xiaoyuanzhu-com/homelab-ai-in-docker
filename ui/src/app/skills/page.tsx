@@ -4,7 +4,17 @@ import React, { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Download, Trash2, ExternalLink, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Download, Trash2, ExternalLink, RefreshCw, ChevronDown, ChevronUp, Play } from "lucide-react";
 import { toast } from "sonner";
 import { getTaskDisplayName } from "@/lib/tasks";
 import { SkillInfo, SkillsResponse } from "@/lib/skills";
@@ -20,6 +30,7 @@ export default function ModelsPage() {
   const [downloadingSkills, setDownloadingSkills] = useState<Set<string>>(new Set());
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   const [skillLogs, setSkillLogs] = useState<Record<string, LogEntry[]>>({});
+  const [skillToDelete, setSkillToDelete] = useState<SkillInfo | null>(null);
 
   const fetchSkills = async () => {
     try {
@@ -120,9 +131,11 @@ export default function ModelsPage() {
     }
   };
 
-  const handleDelete = async (skillId: string) => {
+  const confirmDelete = async () => {
+    if (!skillToDelete) return;
+
     try {
-      const encodedId = encodeURIComponent(skillId);
+      const encodedId = encodeURIComponent(skillToDelete.id);
       const response = await fetch(`/api/skills/${encodedId}`, {
         method: "DELETE",
       });
@@ -134,6 +147,8 @@ export default function ModelsPage() {
     } catch (error) {
       console.error("Failed to delete skill:", error);
       toast.error("Failed to delete skill");
+    } finally {
+      setSkillToDelete(null);
     }
   };
 
@@ -325,7 +340,7 @@ export default function ModelsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDelete(skill.id)}
+                            onClick={() => setSkillToDelete(skill)}
                             className="h-8 px-2"
                             title="Delete"
                           >
@@ -333,15 +348,35 @@ export default function ModelsPage() {
                           </Button>
                         </>
                       )}
-                      {skill.status === "ready" && skill.requires_download && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(skill.id)}
-                          className="h-8 px-2"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                      {skill.status === "ready" && (
+                        <>
+                          {skill.requires_download && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSkillToDelete(skill)}
+                              className="h-8 px-2"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              // Navigate to the task page for this skill
+                              const primaryTask = skill.tasks[0];
+                              if (primaryTask) {
+                                window.location.href = `/${primaryTask}`;
+                              }
+                            }}
+                            className="h-8 px-2"
+                            title="Run this skill"
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                        </>
                       )}
                       {skill.status === "failed" && (
                         <>
@@ -357,7 +392,7 @@ export default function ModelsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDelete(skill.id)}
+                            onClick={() => setSkillToDelete(skill)}
                             className="h-8 px-2"
                             title="Delete"
                           >
@@ -394,6 +429,27 @@ export default function ModelsPage() {
           </TableBody>
         </Table>
       </div>
+
+      <AlertDialog open={skillToDelete !== null} onOpenChange={(open) => !open && setSkillToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Skill</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>{skillToDelete?.label}</strong>?
+              {skillToDelete?.downloaded_size_mb && (
+                <> This will remove <strong>{skillToDelete.downloaded_size_mb} MB</strong> of downloaded data.</>
+              )}
+              {" "}You can download it again later if needed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
