@@ -1,17 +1,14 @@
 "use client";
-
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { AlertCircle, ChevronDown, Info } from "lucide-react";
-import { MarkdownDoc } from "@/components/markdown-doc";
+import { Textarea } from "@/components/ui/textarea";
+import { AlertCircle, Info } from "lucide-react";
 import { TryLayout } from "@/components/try/try-layout";
 
 interface CrawlResult {
@@ -19,7 +16,7 @@ interface CrawlResult {
   url: string;
   title: string | null;
   markdown: string;
-  fetch_time_ms: number;
+  processing_time_ms: number;
   success: boolean;
 }
 
@@ -63,7 +60,6 @@ export function CrawlInputOutput({
   responsePayload,
 }: CrawlInputOutputProps) {
   const isEditable = mode === "try";
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && isEditable && onSend) {
@@ -97,64 +93,54 @@ export function CrawlInputOutput({
         />
       </div>
 
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <CollapsibleTrigger asChild>
-          <Button variant="outline" size="sm" className="w-full justify-between">
-            <span>Advanced Options</span>
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="pt-4 space-y-4">
-          <div className="flex items-center justify-between space-x-2">
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="wait-for-js" className="cursor-pointer">
-                Wait for JavaScript
-              </Label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className="h-4 w-4 text-muted-foreground" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="max-w-xs">
-                    Wait for JavaScript to execute before capturing content. Useful for dynamic sites.
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <Switch
-              id="wait-for-js"
-              checked={waitForJs}
-              onCheckedChange={onWaitForJsChange}
-              disabled={!isEditable}
-            />
-          </div>
+      <div className="flex items-center justify-between space-x-2">
+        <div className="flex items-center space-x-2">
+          <Label htmlFor="wait-for-js" className="cursor-pointer">
+            Wait for JavaScript
+          </Label>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="h-4 w-4 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-xs">
+                Wait for JavaScript to execute before capturing content. Useful for dynamic sites.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <Switch
+          id="wait-for-js"
+          checked={waitForJs}
+          onCheckedChange={onWaitForJsChange}
+          disabled={!isEditable}
+        />
+      </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="chrome-cdp-url">Remote Chrome URL</Label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className="h-4 w-4 text-muted-foreground" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="max-w-xs">
-                    Optional Chrome DevTools Protocol (CDP) URL for remote browser. Example: http://172.16.2.2:9223
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <Input
-              id="chrome-cdp-url"
-              type="url"
-              placeholder="http://172.16.2.2:9223 (optional)"
-              value={chromeCdpUrl || ""}
-              onChange={(e) => onChromeCdpUrlChange?.(e.target.value)}
-              readOnly={!isEditable}
-              className={!isEditable ? "bg-muted" : ""}
-            />
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+      <div className="space-y-2">
+        <div className="flex items-center space-x-2">
+          <Label htmlFor="chrome-cdp-url">Remote Chrome URL</Label>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="h-4 w-4 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-xs">
+                Optional Chrome DevTools Protocol (CDP) URL for remote browser. Example: http://172.16.2.2:9223
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <Input
+          id="chrome-cdp-url"
+          type="url"
+          placeholder="http://172.16.2.2:9223 (optional)"
+          value={chromeCdpUrl || ""}
+          onChange={(e) => onChromeCdpUrlChange?.(e.target.value)}
+          readOnly={!isEditable}
+          className={!isEditable ? "bg-muted" : ""}
+        />
+      </div>
     </div>
   );
 
@@ -183,28 +169,32 @@ export function CrawlInputOutput({
             <Badge variant={result.success ? "default" : "destructive"}>
               {result.success ? "Success" : "Failed"}
             </Badge>
-            <span className="text-sm text-muted-foreground">
-              {result.fetch_time_ms}ms
-            </span>
+            {result.processing_time_ms !== undefined && (
+              <span className="text-sm text-muted-foreground">
+                {result.processing_time_ms}ms
+              </span>
+            )}
           </div>
 
           {result.title && (
-            <div>
+            <div className="space-y-2">
               <Label>Title</Label>
-              <p className="text-sm mt-1">{result.title}</p>
+              <p className="text-sm">{result.title}</p>
             </div>
           )}
 
-          <div>
+          <div className="space-y-2">
             <Label>Markdown Content</Label>
-            <div className="mt-2 border rounded-lg">
-              <MarkdownDoc content={result.markdown} />
-            </div>
+            <Textarea
+              value={result.markdown}
+              readOnly
+              className="font-mono text-sm min-h-[400px] resize-y"
+            />
           </div>
 
-          <div>
+          <div className="space-y-2">
             <Label>Request ID</Label>
-            <p className="text-xs text-muted-foreground font-mono mt-1">
+            <p className="text-xs text-muted-foreground font-mono">
               {result.request_id}
             </p>
           </div>

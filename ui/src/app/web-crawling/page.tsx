@@ -10,7 +10,7 @@ interface CrawlResult {
   url: string;
   title: string | null;
   markdown: string;
-  fetch_time_ms: number;
+  processing_time_ms: number;
   success: boolean;
 }
 
@@ -59,7 +59,7 @@ export default function CrawlPage() {
       const data = await response.json();
       setResult(data);
       toast.success("Crawl completed successfully!", {
-        description: `Processed in ${data.fetch_time_ms}ms`,
+        description: `Processed in ${data.processing_time_ms}ms`,
       });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Failed to crawl URL";
