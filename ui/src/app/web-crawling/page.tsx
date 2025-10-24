@@ -1,18 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { CrawlInputOutput } from "@/components/crawl-input-output";
-
-interface CrawlResult {
-  request_id: string;
-  url: string;
-  title: string | null;
-  markdown: string;
-  processing_time_ms: number;
-  success: boolean;
-}
+import { CrawlResult } from "@/types/api";
 
 export default function CrawlPage() {
   const [url, setUrl] = useState("");

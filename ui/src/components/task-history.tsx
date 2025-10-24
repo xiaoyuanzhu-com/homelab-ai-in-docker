@@ -204,7 +204,7 @@ function renderCrawl(entry: TaskHistoryEntry) {
             typeof entry.response.markdown === "string"
               ? (entry.response.markdown as string)
               : "",
-          fetch_time_ms:
+          processing_time_ms:
             typeof entry.response.processing_time_ms === "number"
               ? (entry.response.processing_time_ms as number)
               : 0,

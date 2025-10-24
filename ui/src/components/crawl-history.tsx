@@ -8,24 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { CrawlInputOutput } from "@/components/crawl-input-output";
-
-interface HistoryEntry {
-  service: string;
-  timestamp: string;
-  request_id: string;
-  status: string;
-  request: Record<string, unknown>;
-  response: Record<string, unknown>;
-}
-
-interface CrawlResult {
-  request_id: string;
-  url: string;
-  title: string | null;
-  markdown: string;
-  fetch_time_ms: number;
-  success: boolean;
-}
+import { CrawlResult, HistoryEntry } from "@/types/api";
 
 export function CrawlHistory() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -82,9 +65,9 @@ export function CrawlHistory() {
               typeof entry.response.markdown === "string"
                 ? (entry.response.markdown as string)
                 : "",
-            fetch_time_ms:
-              typeof entry.response.fetch_time_ms === "number"
-                ? (entry.response.fetch_time_ms as number)
+            processing_time_ms:
+              typeof entry.response.processing_time_ms === "number"
+                ? (entry.response.processing_time_ms as number)
                 : 0,
             success:
               typeof entry.response.success === "boolean"
@@ -161,9 +144,9 @@ export function CrawlHistory() {
                             )}
                           </div>
                           <div className="flex items-center gap-3 text-sm">
-                            {typeof entry.response.fetch_time_ms === "number" && (
+                            {typeof entry.response.processing_time_ms === "number" && (
                               <span className="text-muted-foreground">
-                                {entry.response.fetch_time_ms}ms
+                                {entry.response.processing_time_ms}ms
                               </span>
                             )}
                             <span className="text-muted-foreground truncate flex-1">

@@ -10,15 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Textarea } from "@/components/ui/textarea";
 import { AlertCircle, Info } from "lucide-react";
 import { TryLayout } from "@/components/try/try-layout";
-
-interface CrawlResult {
-  request_id: string;
-  url: string;
-  title: string | null;
-  markdown: string;
-  processing_time_ms: number;
-  success: boolean;
-}
+import { CrawlResult } from "@/types/api";
 
 interface CrawlInputOutputProps {
   mode: "try" | "history";
