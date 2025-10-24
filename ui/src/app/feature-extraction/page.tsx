@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { TextEmbeddingInputOutput } from "@/components/text-embedding-input-output";
@@ -21,7 +21,7 @@ interface EmbeddingModel {
   dimensions: number;
 }
 
-export default function EmbeddingPage() {
+function EmbeddingContent() {
   const searchParams = useSearchParams();
   const [texts, setTexts] = useState("");
   const [loading, setLoading] = useState(false);
@@ -125,5 +125,13 @@ export default function EmbeddingPage() {
         onSend={handleEmbed}
       />
     </div>
+  );
+}
+
+export default function EmbeddingPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8"><div>Loading...</div></div>}>
+      <EmbeddingContent />
+    </Suspense>
   );
 }

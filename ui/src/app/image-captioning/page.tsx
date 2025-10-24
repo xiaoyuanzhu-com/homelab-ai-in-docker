@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { ImageCaptionInputOutput } from "@/components/image-caption-input-output";
@@ -28,7 +28,7 @@ interface SkillInfo {
   error_message?: string;
 }
 
-export default function ImageCaptionPage() {
+function ImageCaptionContent() {
   const searchParams = useSearchParams();
   const [, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
@@ -68,7 +68,9 @@ export default function ImageCaptionPage() {
         } else if (downloadedModels.length > 0) {
           // Set first downloaded model as default
           modelToSelect = downloadedModels[0];
-          setSelectedModel(modelToSelect.id);
+          if (modelToSelect) {
+            setSelectedModel(modelToSelect.id);
+          }
         }
 
         // Set default prompt if model requires it
@@ -177,5 +179,13 @@ export default function ImageCaptionPage() {
         onPromptChange={setPrompt}
       />
     </div>
+  );
+}
+
+export default function ImageCaptionPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8"><div>Loading...</div></div>}>
+      <ImageCaptionContent />
+    </Suspense>
   );
 }

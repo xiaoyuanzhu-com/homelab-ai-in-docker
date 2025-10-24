@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -41,7 +41,7 @@ interface SkillInfo {
   error_message?: string;
 }
 
-export default function ImageOCRPage() {
+function ImageOCRContent() {
   const searchParams = useSearchParams();
   const [, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
@@ -353,5 +353,13 @@ export default function ImageOCRPage() {
         }}
       />
     </div>
+  );
+}
+
+export default function ImageOCRPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8"><div>Loading...</div></div>}>
+      <ImageOCRContent />
+    </Suspense>
   );
 }

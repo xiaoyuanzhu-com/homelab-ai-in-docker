@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { TextGenerationInputOutput } from "@/components/text-generation-input-output";
@@ -29,7 +29,7 @@ interface SkillInfo {
   error_message?: string;
 }
 
-export default function TextGenerationPage() {
+function TextGenerationContent() {
   const searchParams = useSearchParams();
   const [prompt, setPrompt] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -150,5 +150,13 @@ export default function TextGenerationPage() {
         onTopPChange={setTopP}
       />
     </div>
+  );
+}
+
+export default function TextGenerationPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8"><div>Loading...</div></div>}>
+      <TextGenerationContent />
+    </Suspense>
   );
 }

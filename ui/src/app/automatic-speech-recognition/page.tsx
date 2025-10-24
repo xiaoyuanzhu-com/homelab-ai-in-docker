@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -58,7 +58,7 @@ interface ASRRequestBody {
   max_speakers?: number;
 }
 
-export default function AutomaticSpeechRecognitionPage() {
+function AutomaticSpeechRecognitionContent() {
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("try");
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -586,5 +586,13 @@ export default function AutomaticSpeechRecognitionPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+export default function AutomaticSpeechRecognitionPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8 max-w-6xl"><div>Loading...</div></div>}>
+      <AutomaticSpeechRecognitionContent />
+    </Suspense>
   );
 }

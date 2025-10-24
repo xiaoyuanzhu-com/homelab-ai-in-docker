@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -47,7 +47,7 @@ interface SkillInfo {
   error_message?: string;
 }
 
-export default function SpeakerEmbeddingPage() {
+function SpeakerEmbeddingContent() {
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("compare");
   const [audioFile1, setAudioFile1] = useState<File | null>(null);
@@ -570,5 +570,13 @@ export default function SpeakerEmbeddingPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+export default function SpeakerEmbeddingPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8 max-w-6xl"><div>Loading...</div></div>}>
+      <SpeakerEmbeddingContent />
+    </Suspense>
   );
 }
