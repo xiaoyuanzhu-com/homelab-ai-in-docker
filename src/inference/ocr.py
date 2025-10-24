@@ -475,7 +475,7 @@ class OCRInferenceEngine:
     def _load_granite_docling(self) -> None:
         """Load IBM Granite Docling model."""
         try:
-            from transformers import AutoProcessor, AutoModelForVision2Seq
+            from transformers import AutoProcessor, AutoModelForImageTextToText
             import torch
             from pathlib import Path
 
@@ -513,7 +513,7 @@ class OCRInferenceEngine:
             self.processor = AutoProcessor.from_pretrained(model_path, **extra_kwargs)
 
             # Load model with appropriate settings
-            self.model = AutoModelForVision2Seq.from_pretrained(
+            self.model = AutoModelForImageTextToText.from_pretrained(
                 model_path,
                 torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
                 _attn_implementation=attn_impl,
