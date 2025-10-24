@@ -4,16 +4,32 @@ AI capabilities wrapped in API, specially crafted for homelab.
 
 ## Features
 
-- Out-of-the-box RESTful API in Docker
-- Best performance models for hardwares from low to high
-- Smart pooling for shared GPU use across tasks
-- Built-in observability for model usage and performance
-- Python and AI wrapped in a stateless service, choose your app tech stack freely
+- RESTful API in Docker
+- Curated models spanning low-end to high-end hardware
+- Smart pooling and queue to manage GPU contention
+- Python and AI wrapped, choose your app tech stack freely
+- Built-in observability
 - Developer friendly and LLM friendly
 
 ## Screenshots
 
-Coming soon - UI screenshots showcasing the API interface and model management.
+<table>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/home.png" alt="Home Page"/></td>
+    <td width="33%"><img src="docs/screenshots/skills.png" alt="Skills Management"/></td>
+    <td width="33%"><img src="docs/screenshots/status.png" alt="System Status"/></td>
+  </tr>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/text-generation.png" alt="Text Generation"/></td>
+    <td width="33%"><img src="docs/screenshots/feature-extraction.png" alt="Text Embedding"/></td>
+    <td width="33%"><img src="docs/screenshots/image-captioning.png" alt="Image Captioning"/></td>
+  </tr>
+  <tr>
+    <td width="33%"><img src="docs/screenshots/image-ocr.png" alt="Image OCR"/></td>
+    <td width="33%"><img src="docs/screenshots/asr.png" alt="Speech Recognition"/></td>
+    <td width="33%"><img src="docs/screenshots/web-crawling.png" alt="Web Crawling"/></td>
+  </tr>
+</table>
 
 ## Supported Tasks
 
