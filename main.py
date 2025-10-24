@@ -167,6 +167,7 @@ async def lifespan(app: FastAPI):
                 size_mb=skill.get("size_mb"),
                 parameters_m=skill.get("parameters_m"),
                 gpu_memory_mb=skill.get("gpu_memory_mb"),
+                dimensions=skill.get("dimensions"),
                 initial_status=(
                     SkillStatus.READY if not skill.get("requires_download", True) else SkillStatus.INIT
                 ),

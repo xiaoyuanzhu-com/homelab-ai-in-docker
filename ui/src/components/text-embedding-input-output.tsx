@@ -78,7 +78,9 @@ export function TextEmbeddingInputOutput({
 
   const modelOptions = availableModels.map((model) => ({
     value: model.id,
-    label: `${model.label} (${model.provider}) - ${model.dimensions}d`,
+    label: model.dimensions
+      ? `${model.label} (${model.provider}) - ${model.dimensions}d`
+      : `${model.label} (${model.provider})`,
   }));
 
   const rawRequestData = requestPayload ?? { texts: textList, model: selectedModel };

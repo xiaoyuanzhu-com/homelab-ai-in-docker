@@ -38,6 +38,7 @@ def init_skills_table() -> None:
                 size_mb INTEGER,
                 parameters_m INTEGER,
                 gpu_memory_mb INTEGER,
+                dimensions INTEGER,
                 status TEXT NOT NULL DEFAULT 'init',
                 downloaded_size_mb INTEGER,
                 error_message TEXT,
@@ -53,6 +54,13 @@ def init_skills_table() -> None:
             ON skills(status)
             """
         )
+
+        # Add dimensions column if it doesn't exist (for existing databases)
+        try:
+            conn.execute("ALTER TABLE skills ADD COLUMN dimensions INTEGER")
+        except Exception:
+            # Column already exists
+            pass
 
 
 def _tasks_to_json(tasks: Sequence[str]) -> str:
@@ -76,6 +84,7 @@ def upsert_skill(
     size_mb: Optional[int] = None,
     parameters_m: Optional[int] = None,
     gpu_memory_mb: Optional[int] = None,
+    dimensions: Optional[int] = None,
     initial_status: Optional[SkillStatus] = None,
 ) -> None:
     """
@@ -91,8 +100,8 @@ def upsert_skill(
                 id, label, provider, tasks, architecture, default_prompt,
                 platform_requirements, supports_markdown, requires_quantization,
                 requires_download, hf_model, reference_url, size_mb, parameters_m,
-                gpu_memory_mb, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gpu_memory_mb, dimensions, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 label = excluded.label,
                 provider = excluded.provider,
@@ -108,6 +117,7 @@ def upsert_skill(
                 size_mb = excluded.size_mb,
                 parameters_m = excluded.parameters_m,
                 gpu_memory_mb = excluded.gpu_memory_mb,
+                dimensions = excluded.dimensions,
                 status = CASE
                     WHEN skills.status IN ('downloading', 'ready') THEN skills.status
                     ELSE excluded.status
@@ -130,6 +140,7 @@ def upsert_skill(
                 size_mb,
                 parameters_m,
                 gpu_memory_mb,
+                dimensions,
                 (initial_status or (SkillStatus.INIT if requires_download else SkillStatus.READY)).value,
             ),
         )
@@ -201,6 +212,7 @@ def _row_to_skill(row: sqlite3.Row) -> Dict[str, Any]:
         "size_mb": row["size_mb"],
         "parameters_m": row["parameters_m"],
         "gpu_memory_mb": row["gpu_memory_mb"],
+        "dimensions": row["dimensions"],
         "status": row["status"],
         "downloaded_size_mb": row["downloaded_size_mb"],
         "error_message": row["error_message"],

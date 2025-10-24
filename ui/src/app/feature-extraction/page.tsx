@@ -1,11 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { TextEmbeddingInputOutput } from "@/components/text-embedding-input-output";
-import { EmbeddingHistory } from "@/components/embedding-history";
 
 interface EmbeddingResult {
   request_id: string;
@@ -24,23 +21,13 @@ interface EmbeddingModel {
 }
 
 export default function EmbeddingPage() {
-  const [activeTab, setActiveTab] = useState("try");
-
   const [texts, setTexts] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<EmbeddingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
   const [availableModels, setAvailableModels] = useState<EmbeddingModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [modelsLoading, setModelsLoading] = useState(true);
-
-  useEffect(() => {
-    // Infer API base URL from current window location
-    if (typeof window !== "undefined") {
-      setApiBaseUrl(window.location.origin);
-    }
-  }, []);
 
   useEffect(() => {
     // Load available models
@@ -66,10 +53,6 @@ export default function EmbeddingPage() {
     };
     fetchModels();
   }, [selectedModel]);
-
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-  };
 
   const handleEmbed = async () => {
     const textList = texts.split("\n").filter((t) => t.trim());
@@ -120,101 +103,19 @@ export default function EmbeddingPage() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="mb-6">
-          <TabsTrigger value="try">Try</TabsTrigger>
-          <TabsTrigger value="doc">Doc</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-        </TabsList>
-
-        {/* Try Tab */}
-        <TabsContent value="try">
-          <TextEmbeddingInputOutput
-            mode="try"
-            texts={texts}
-            onTextsChange={setTexts}
-            selectedModel={selectedModel}
-            onModelChange={setSelectedModel}
-            availableModels={availableModels}
-            modelsLoading={modelsLoading}
-            result={result}
-            loading={loading}
-            error={error}
-            onSend={handleEmbed}
-          />
-        </TabsContent>
-
-        {/* API Tab */}
-        <TabsContent value="doc">
-          <Card>
-            <CardHeader>
-              <CardTitle>API Reference</CardTitle>
-              <CardDescription>HTTP endpoint details and examples</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Endpoint</h3>
-                <div className="bg-muted p-4 rounded-lg">
-                  <code className="text-sm">POST /api/text-to-embedding</code>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Request Body</h3>
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`{
-  "texts": [
-    "The quick brown fox",
-    "jumps over the lazy dog"
-  ],
-  "model": "all-MiniLM-L6-v2"
-}`}
-                </pre>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Parameters</h3>
-                <ul className="space-y-2 text-sm">
-                  <li><code className="bg-muted px-2 py-1 rounded">texts</code> (array[string], required) - List of texts to embed</li>
-                  <li><code className="bg-muted px-2 py-1 rounded">model</code> (string, optional) - Model name (default: all-MiniLM-L6-v2)</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Response</h3>
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`{
-  "request_id": "uuid",
-  "embeddings": [
-    [0.1234, -0.5678, ...],
-    [0.9012, -0.3456, ...]
-  ],
-  "dimensions": 384,
-  "model_used": "all-MiniLM-L6-v2",
-  "processing_time_ms": 45
-}`}
-                </pre>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2">cURL Example</h3>
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`curl -X POST ${apiBaseUrl}/api/text-to-embedding \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "texts": ["Hello world", "Semantic search"]
-  }'`}
-                </pre>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* History Tab */}
-        <TabsContent value="history">
-          <EmbeddingHistory availableModels={availableModels} />
-        </TabsContent>
-      </Tabs>
+      <TextEmbeddingInputOutput
+        mode="try"
+        texts={texts}
+        onTextsChange={setTexts}
+        selectedModel={selectedModel}
+        onModelChange={setSelectedModel}
+        availableModels={availableModels}
+        modelsLoading={modelsLoading}
+        result={result}
+        loading={loading}
+        error={error}
+        onSend={handleEmbed}
+      />
     </div>
   );
 }

@@ -17,6 +17,7 @@
       "size_mb": 90,
       "parameters_m": 22,
       "gpu_memory_mb": 256,
+      "dimensions": 384,
       "platform_requirements": null
     },
     {
@@ -36,6 +37,7 @@
       "size_mb": 1340,
       "parameters_m": 335,
       "gpu_memory_mb": 2048,
+      "dimensions": 1024,
       "platform_requirements": null
     },
     {
@@ -131,6 +133,7 @@
       "size_mb": 1340,
       "parameters_m": 335,
       "gpu_memory_mb": 2048,
+      "dimensions": 1024,
       "platform_requirements": null
     },
     {
@@ -207,6 +210,7 @@
       "size_mb": 1340,
       "parameters_m": 335,
       "gpu_memory_mb": 2048,
+      "dimensions": 1024,
       "platform_requirements": null
     },
     {
@@ -226,6 +230,7 @@
       "size_mb": 1150,
       "parameters_m": 570,
       "gpu_memory_mb": 1536,
+      "dimensions": 1024,
       "platform_requirements": null
     },
     {
@@ -359,6 +364,7 @@
       "size_mb": 1200,
       "parameters_m": 600,
       "gpu_memory_mb": 1536,
+      "dimensions": 1024,
       "platform_requirements": null
     },
     {

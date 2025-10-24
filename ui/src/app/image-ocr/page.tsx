@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,26 +41,16 @@ interface SkillInfo {
 }
 
 export default function ImageOCRPage() {
-  const [activeTab, setActiveTab] = useState("try");
-
   const [, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<OCRResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [availableModels, setAvailableModels] = useState<SkillInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [outputFormat, setOutputFormat] = useState<"text" | "markdown">("text");
   const [viewMode, setViewMode] = useState<"raw" | "rendered">("rendered");
-
-  useEffect(() => {
-    // Infer API base URL from current window location
-    if (typeof window !== "undefined") {
-      setApiBaseUrl(window.location.origin);
-    }
-  }, []);
 
   useEffect(() => {
     // Fetch available skills
@@ -92,10 +80,6 @@ export default function ImageOCRPage() {
 
     fetchSkills();
   }, []);
-
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-  };
 
   // Check if selected model supports markdown
   const supportsMarkdown = () => {
@@ -310,137 +294,45 @@ export default function ImageOCRPage() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="mb-6">
-          <TabsTrigger value="try">Try</TabsTrigger>
-          <TabsTrigger value="doc">Doc</TabsTrigger>
-        </TabsList>
-
-        {/* Try Tab */}
-        <TabsContent value="try" className="mt-6">
-          <TryLayout
-            input={{
-              title: "Input",
-              description: "Upload an image to extract text",
-              children: inputContent,
-              footer: (
-                <Button
-                  onClick={handleOCR}
-                  disabled={!imagePreview || !selectedModel || loading}
-                  className="w-full"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Extracting...
-                    </>
-                  ) : (
-                    <>
-                      <FileText className="mr-2 h-4 w-4" />
-                      Extract Text
-                    </>
-                  )}
-                </Button>
-              ),
-              rawPayload: {
-                label: "View Raw Request",
-                payload: requestPayload,
-              },
-            }}
-            output={{
-              title: "Output",
-              description: "Extracted text from the image",
-              children: outputContent,
-              rawPayload: {
-                label: "View Raw Response",
-                payload: responsePayload,
-              },
-            }}
-          />
-        </TabsContent>
-
-        {/* API Tab */}
-        <TabsContent value="doc">
-          <Card>
-            <CardHeader>
-              <CardTitle>API Reference</CardTitle>
-              <CardDescription>HTTP endpoint details and examples</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Endpoint</h3>
-                <div className="bg-muted p-4 rounded-lg">
-                  <code className="text-sm">POST /api/image-ocr</code>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Request Body</h3>
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`{
-  "image": "base64_encoded_image_data",
-  "model": "ibm-granite/granite-docling-258M",
-  "output_format": "markdown"
-}`}
-                </pre>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Parameters</h3>
-                <ul className="space-y-2 text-sm">
-                  <li><code className="bg-muted px-2 py-1 rounded">image</code> (string, required) - Base64-encoded image data</li>
-                  <li><code className="bg-muted px-2 py-1 rounded">model</code> (string, required) - Model ID to use for OCR</li>
-                  <li><code className="bg-muted px-2 py-1 rounded">output_format</code> (string, optional) - Output format: &quot;text&quot; (default) or &quot;markdown&quot; (supported by Granite Docling, MinerU, DeepSeek)</li>
-                  <li><code className="bg-muted px-2 py-1 rounded">language</code> (string, optional) - Language hint for OCR (e.g., &quot;en&quot;, &quot;zh&quot;, &quot;auto&quot;)</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Response</h3>
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`{
-  "request_id": "uuid",
-  "text": "# Document Title\\n\\nExtracted text from the image...",
-  "model": "ibm-granite/granite-docling-258M",
-  "output_format": "markdown",
-  "processing_time_ms": 456
-}`}
-                </pre>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Python Example</h3>
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
-{`import base64
-import requests
-
-# Read and encode image
-with open("document.jpg", "rb") as f:
-    image_data = base64.b64encode(f.read()).decode()
-
-# Send request with markdown output
-response = requests.post(
-    "${apiBaseUrl}/api/image-ocr",
-    json={
-        "image": image_data,
-        "model": "ibm-granite/granite-docling-258M",
-        "output_format": "markdown"  # or "text" for plain text
-    }
-)
-
-result = response.json()
-print(result["text"])
-
-# Save markdown to file
-if result["output_format"] == "markdown":
-    with open("output.md", "w") as f:
-        f.write(result["text"])`}
-                </pre>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      <TryLayout
+        input={{
+          title: "Input",
+          description: "Upload an image to extract text",
+          children: inputContent,
+          footer: (
+            <Button
+              onClick={handleOCR}
+              disabled={!imagePreview || !selectedModel || loading}
+              className="w-full"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Extracting...
+                </>
+              ) : (
+                <>
+                  <FileText className="mr-2 h-4 w-4" />
+                  Extract Text
+                </>
+              )}
+            </Button>
+          ),
+          rawPayload: {
+            label: "View Raw Request",
+            payload: requestPayload,
+          },
+        }}
+        output={{
+          title: "Output",
+          description: "Extracted text from the image",
+          children: outputContent,
+          rawPayload: {
+            label: "View Raw Response",
+            payload: responsePayload,
+          },
+        }}
+      />
     </div>
   );
 }
