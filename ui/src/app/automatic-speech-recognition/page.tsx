@@ -2,8 +2,6 @@
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -60,7 +58,6 @@ interface ASRRequestBody {
 
 function AutomaticSpeechRecognitionContent() {
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState("try");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
@@ -510,7 +507,7 @@ function AutomaticSpeechRecognitionContent() {
   );
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
+    <div className="container mx-auto px-4 py-8">
       <div className="mb-6">
         <h1 className="text-3xl font-bold mb-2 flex items-center gap-2">
           <Volume2 className="h-8 w-8" />
@@ -521,77 +518,52 @@ function AutomaticSpeechRecognitionContent() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="try">Try It</TabsTrigger>
-          <TabsTrigger value="models">Models</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="try" className="mt-6">
-          <TryLayout
-            input={{
-              title: "Audio Processing",
-              description: "Configure transcription and provide audio",
-              children: inputPanel,
-              footer: (
-                <Button
-                  onClick={handleTranscribe}
-                  disabled={!hasAudioInput || !selectedModel || loading}
-                  className="w-full"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      {outputFormat === "diarization" ? "Processing..." : "Transcribing..."}
-                    </>
-                  ) : (
-                    <>
-                      <Volume2 className="h-4 w-4 mr-2" />
-                      {outputFormat === "diarization" ? "Analyze Speakers" : "Transcribe Audio"}
-                    </>
-                  )}
-                </Button>
-              ),
-              rawPayload: {
-                label: "View Raw Request",
-                payload: rawRequestPayload,
-              },
-            }}
-            output={{
-              title: "Results",
-              description: outputFormat === "diarization" ? "Speaker analysis" : "Transcription result",
-              children: outputContent,
-              rawPayload: {
-                label: "View Raw Response",
-                payload: rawResponsePayload,
-              },
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="models" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Available Models</CardTitle>
-              <CardDescription>
-                Whisper models for automatic speech recognition
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-4">
-                Please visit the <a href="/models" className="text-primary hover:underline">Skills page</a> to download ASR models.
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      <TryLayout
+        input={{
+          title: "Audio Processing",
+          description: "Configure transcription and provide audio",
+          children: inputPanel,
+          footer: (
+            <Button
+              onClick={handleTranscribe}
+              disabled={!hasAudioInput || !selectedModel || loading}
+              className="w-full"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  {outputFormat === "diarization" ? "Processing..." : "Transcribing..."}
+                </>
+              ) : (
+                <>
+                  <Volume2 className="h-4 w-4 mr-2" />
+                  {outputFormat === "diarization" ? "Analyze Speakers" : "Transcribe Audio"}
+                </>
+              )}
+            </Button>
+          ),
+          rawPayload: {
+            label: "View Raw Request",
+            payload: rawRequestPayload,
+          },
+        }}
+        output={{
+          title: "Results",
+          description: outputFormat === "diarization" ? "Speaker analysis" : "Transcription result",
+          children: outputContent,
+          rawPayload: {
+            label: "View Raw Response",
+            payload: rawResponsePayload,
+          },
+        }}
+      />
     </div>
   );
 }
 
 export default function AutomaticSpeechRecognitionPage() {
   return (
-    <Suspense fallback={<div className="container mx-auto px-4 py-8 max-w-6xl"><div>Loading...</div></div>}>
+    <Suspense fallback={<div className="container mx-auto px-4 py-8"><div>Loading...</div></div>}>
       <AutomaticSpeechRecognitionContent />
     </Suspense>
   );
