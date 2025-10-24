@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // Increase proxy timeout for long-running operations (e.g., OCR model loading)
+  experimental: {
+    proxyTimeout: 300_000, // 300 seconds (5 minutes)
+  },
   // Only use rewrites in development mode
   // In production, FastAPI will serve the static files and handle API requests
   ...(process.env.NODE_ENV === "development" && {
