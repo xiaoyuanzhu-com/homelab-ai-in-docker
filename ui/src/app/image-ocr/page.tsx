@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,6 +42,7 @@ interface SkillInfo {
 }
 
 export default function ImageOCRPage() {
+  const searchParams = useSearchParams();
   const [, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -66,8 +68,14 @@ export default function ImageOCRPage() {
           (s: SkillInfo) => s.status === "ready"
         );
         setAvailableModels(downloadedSkills);
-        // Set first downloaded skill as default
-        if (downloadedSkills.length > 0) {
+
+        // Check if skill query param is provided
+        const skillParam = searchParams.get("skill");
+        if (skillParam && downloadedSkills.some((s: SkillInfo) => s.id === skillParam)) {
+          // Pre-select the skill from query param if it exists and is ready
+          setSelectedModel(skillParam);
+        } else if (downloadedSkills.length > 0) {
+          // Otherwise set first downloaded skill as default
           setSelectedModel(downloadedSkills[0].id);
         }
       } catch (err) {
@@ -79,7 +87,7 @@ export default function ImageOCRPage() {
     };
 
     fetchSkills();
-  }, []);
+  }, [searchParams]);
 
   // Check if selected model supports markdown
   const supportsMarkdown = () => {

@@ -365,10 +365,11 @@ export default function ModelsPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              // Navigate to the task page for this skill
+                              // Navigate to the task page for this skill with skill ID as query param
                               const primaryTask = skill.tasks[0];
                               if (primaryTask) {
-                                window.location.href = `/${primaryTask}`;
+                                const encodedSkillId = encodeURIComponent(skill.id);
+                                window.location.href = `/${primaryTask}?skill=${encodedSkillId}`;
                               }
                             }}
                             className="h-8 px-2"

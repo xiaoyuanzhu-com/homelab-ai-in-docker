@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { TextEmbeddingInputOutput } from "@/components/text-embedding-input-output";
 
@@ -21,6 +22,7 @@ interface EmbeddingModel {
 }
 
 export default function EmbeddingPage() {
+  const searchParams = useSearchParams();
   const [texts, setTexts] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<EmbeddingResult | null>(null);
@@ -41,8 +43,14 @@ export default function EmbeddingPage() {
           (m: EmbeddingModel) => m.status === "ready"
         );
         setAvailableModels(downloadedModels);
-        // Select first downloaded model by default
-        if (downloadedModels.length > 0 && !selectedModel) {
+
+        // Check if skill query param is provided
+        const skillParam = searchParams.get("skill");
+        if (skillParam && downloadedModels.some((m: EmbeddingModel) => m.id === skillParam)) {
+          // Pre-select the skill from query param if it exists and is ready
+          setSelectedModel(skillParam);
+        } else if (downloadedModels.length > 0 && !selectedModel) {
+          // Select first downloaded model by default
           setSelectedModel(downloadedModels[0].id);
         }
       } catch (err) {
@@ -52,7 +60,7 @@ export default function EmbeddingPage() {
       }
     };
     fetchModels();
-  }, [selectedModel]);
+  }, [searchParams, selectedModel]);
 
   const handleEmbed = async () => {
     const textList = texts.split("\n").filter((t) => t.trim());

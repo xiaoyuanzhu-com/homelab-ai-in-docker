@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { TextGenerationInputOutput } from "@/components/text-generation-input-output";
 
@@ -29,6 +30,7 @@ interface SkillInfo {
 }
 
 export default function TextGenerationPage() {
+  const searchParams = useSearchParams();
   const [prompt, setPrompt] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerationResult | null>(null);
@@ -56,10 +58,15 @@ export default function TextGenerationPage() {
           (s: SkillInfo) => s.status === "ready"
         );
         setAvailableModels(downloadedModels);
-        // Set first downloaded model as default
-        if (downloadedModels.length > 0) {
-          const firstModel = downloadedModels[0];
-          setSelectedModel(firstModel.id);
+
+        // Check if skill query param is provided
+        const skillParam = searchParams.get("skill");
+        if (skillParam && downloadedModels.some((s: SkillInfo) => s.id === skillParam)) {
+          // Pre-select the skill from query param if it exists and is ready
+          setSelectedModel(skillParam);
+        } else if (downloadedModels.length > 0) {
+          // Set first downloaded model as default
+          setSelectedModel(downloadedModels[0].id);
         }
       } catch (err) {
         console.error("Error fetching models:", err);
@@ -70,7 +77,7 @@ export default function TextGenerationPage() {
     };
 
     fetchModels();
-  }, []);
+  }, [searchParams]);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || !selectedModel) return;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ interface ASRRequestBody {
 }
 
 export default function AutomaticSpeechRecognitionPage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("try");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -102,8 +104,14 @@ export default function AutomaticSpeechRecognitionPage() {
           (s: SkillInfo) => s.status === "ready"
         );
         setAvailableModels(downloadedModels);
-        // Set first downloaded model as default
-        if (downloadedModels.length > 0) {
+
+        // Check if skill query param is provided
+        const skillParam = searchParams.get("skill");
+        if (skillParam && downloadedModels.some((s: SkillInfo) => s.id === skillParam)) {
+          // Pre-select the skill from query param if it exists and is ready
+          setSelectedModel(skillParam);
+        } else if (downloadedModels.length > 0) {
+          // Set first downloaded model as default
           setSelectedModel(downloadedModels[0].id);
         }
       } catch (err) {
@@ -115,7 +123,7 @@ export default function AutomaticSpeechRecognitionPage() {
     };
 
     fetchModels();
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     if (recordedAudioUrl) {

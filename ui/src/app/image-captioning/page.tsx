@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { ImageCaptionInputOutput } from "@/components/image-caption-input-output";
 
@@ -28,6 +29,7 @@ interface SkillInfo {
 }
 
 export default function ImageCaptionPage() {
+  const searchParams = useSearchParams();
   const [, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -52,14 +54,26 @@ export default function ImageCaptionPage() {
           (s: SkillInfo) => s.status === "ready"
         );
         setAvailableModels(downloadedModels);
-        // Set first downloaded model as default
-        if (downloadedModels.length > 0) {
-          const firstModel = downloadedModels[0];
-          setSelectedModel(firstModel.id);
-          // Set default prompt if model requires it
-          if (firstModel.default_prompt) {
-            setPrompt(firstModel.default_prompt);
+
+        // Check if skill query param is provided
+        const skillParam = searchParams.get("skill");
+        let modelToSelect: SkillInfo | null = null;
+
+        if (skillParam && downloadedModels.some((s: SkillInfo) => s.id === skillParam)) {
+          // Pre-select the skill from query param if it exists and is ready
+          modelToSelect = downloadedModels.find((s: SkillInfo) => s.id === skillParam) || null;
+          if (modelToSelect) {
+            setSelectedModel(modelToSelect.id);
           }
+        } else if (downloadedModels.length > 0) {
+          // Set first downloaded model as default
+          modelToSelect = downloadedModels[0];
+          setSelectedModel(modelToSelect.id);
+        }
+
+        // Set default prompt if model requires it
+        if (modelToSelect?.default_prompt) {
+          setPrompt(modelToSelect.default_prompt);
         }
       } catch (err) {
         console.error("Error fetching models:", err);
@@ -70,7 +84,7 @@ export default function ImageCaptionPage() {
     };
 
     fetchModels();
-  }, []);
+  }, [searchParams]);
 
   useEffect(() => {
     // Update prompt when model changes

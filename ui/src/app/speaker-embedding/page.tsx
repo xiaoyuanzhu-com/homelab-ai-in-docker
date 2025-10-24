@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -47,6 +48,7 @@ interface SkillInfo {
 }
 
 export default function SpeakerEmbeddingPage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("compare");
   const [audioFile1, setAudioFile1] = useState<File | null>(null);
   const [audioFile2, setAudioFile2] = useState<File | null>(null);
@@ -74,8 +76,14 @@ export default function SpeakerEmbeddingPage() {
           (s: SkillInfo) => s.status === "ready"
         );
         setAvailableModels(downloadedModels);
-        // Set first downloaded model as default
-        if (downloadedModels.length > 0) {
+
+        // Check if skill query param is provided
+        const skillParam = searchParams.get("skill");
+        if (skillParam && downloadedModels.some((s: SkillInfo) => s.id === skillParam)) {
+          // Pre-select the skill from query param if it exists and is ready
+          setSelectedModel(skillParam);
+        } else if (downloadedModels.length > 0) {
+          // Set first downloaded model as default
           setSelectedModel(downloadedModels[0].id);
         }
       } catch (err) {
@@ -87,7 +95,7 @@ export default function SpeakerEmbeddingPage() {
     };
 
     fetchModels();
-  }, []);
+  }, [searchParams]);
 
   const handleFileChange = (
     e: React.ChangeEvent<HTMLInputElement>,
