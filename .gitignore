@@ -12,6 +12,9 @@ wheels/
 # Model data cache and history database
 data/
 
+# MkDocs build output
+site/
+
 # Local dev scripts
 run.sh
 build.sh

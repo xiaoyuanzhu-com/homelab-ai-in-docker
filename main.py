@@ -288,6 +288,13 @@ try:
 except Exception as e:
     logger.warning(f"Failed to mount MCP server (mcp package may not be installed): {e}")
 
+# Mount MkDocs documentation at /doc
+DOCS_SITE_DIR = Path(__file__).parent / "site"
+if DOCS_SITE_DIR.exists():
+    app.mount("/doc", StaticFiles(directory=str(DOCS_SITE_DIR), html=True), name="mkdocs")
+    logger = logging.getLogger(__name__)
+    logger.info("MkDocs documentation mounted at /doc")
+
 # Serve static files from the UI build
 UI_DIST_DIR = Path(__file__).parent / "ui" / "dist"
 if UI_DIST_DIR.exists():
@@ -320,6 +327,7 @@ async def root():
             "health": "/api/health",
             "ready": "/api/ready",
             "mcp": "/mcp",
+            "documentation": "/doc",
         },
     }
 
