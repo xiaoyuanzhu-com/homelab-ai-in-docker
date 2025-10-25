@@ -155,11 +155,54 @@ docs/
   - Returns Markdown-formatted content
   - Optional screenshot capture
   - Handles modern JS-heavy websites
+- POST `/api/text-to-embedding` - Text embedding generation
+- POST `/api/text-generation` - LLM text generation
+- POST `/api/image-captioning` - Image caption generation
+- POST `/api/image-ocr` - OCR text extraction
+- POST `/api/automatic-speech-recognition` - Audio transcription
+- GET `/api/hardware` - Hardware status and GPU info
+- GET `/api/skills` - Model/skill management
+- GET `/api/settings` - Settings management
 - GET `/api/docs` - Interactive Swagger documentation
+- **`/mcp`** - Model Context Protocol (MCP) server endpoint
+  - Exposes all AI capabilities as remote MCP tools
+  - Uses Streamable HTTP transport (modern MCP standard)
+  - Compatible with Claude Code and other MCP clients
+  - See [docs/mcp-setup.md](docs/mcp-setup.md) for details
+
+## MCP (Model Context Protocol) Integration
+
+The application now includes a **remote MCP server** that exposes all AI capabilities as MCP tools. This allows Claude Code and other MCP clients to use the homelab AI services programmatically.
+
+**Implementation:**
+- **Router:** `src/api/routers/mcp.py`
+- **Framework:** FastMCP (high-level Python SDK)
+- **Transport:** Streamable HTTP (modern standard, recommended for 2025+)
+- **Endpoint:** `/mcp` (mounted in main.py)
+- **Dependencies:** `mcp>=1.8.0` (added to pyproject.toml)
+
+**Available MCP Tools:**
+- `crawl_web` - Web scraping with JavaScript rendering
+- `embed_text` - Text embedding generation
+- `generate_text` - LLM text generation
+- `caption_image` - Image captioning
+- `ocr_image` - OCR text extraction
+- `transcribe_audio` - Speech recognition
+- `get_hardware_info` - Hardware/GPU information
+
+**Authentication:** Currently open (no authentication). For production, use reverse proxy authentication or VPN/firewall restrictions.
+
+**Testing:**
+```bash
+# Check MCP endpoint is mounted
+curl http://localhost:12310/api | jq .endpoints.mcp
+
+# Health check
+curl http://localhost:12310/api/health
+```
 
 ## Planned Features
 
-- Text embedding (sentence-transformers)
-- Image captioning (BLIP/LLaVA)
-- Configuration UI
+- MCP authentication (bearer token or OAuth)
+- Configuration UI for MCP settings
 - Monitoring dashboard
