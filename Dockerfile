@@ -60,9 +60,10 @@ RUN uv pip install --system --no-cache -e .[gpu]
 RUN crawl4ai-setup
 
 # Copy documentation files and build with MkDocs
+# Note: mkdocs-material is already installed via pyproject.toml above
 COPY docs/ ./docs/
 COPY mkdocs.yml ./
-RUN pip install --no-cache-dir mkdocs-material && mkdocs build
+RUN mkdocs build
 
 # Copy built UI from builder stage
 COPY --from=ui-builder /ui/dist ./ui/dist
