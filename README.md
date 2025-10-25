@@ -10,6 +10,7 @@ AI capabilities wrapped in API, specially crafted for homelab.
 - Python and AI wrapped, choose your app tech stack freely
 - Built-in observability
 - Developer friendly and LLM friendly
+- **Remote MCP Server**: Exposes all AI capabilities via Model Context Protocol (MCP) for use with Claude Code and other MCP clients
 
 ## Screenshots
 
@@ -61,6 +62,7 @@ services:
 | Image OCR | ✅ |
 | Automatic Speech Recognition | ✅ |
 | Web Crawling | ✅ |
+| Remote MCP Server | ✅ |
 | Speaker Embedding | Not yet |
 | Text Classification | Not yet |
 | Token Classification | Not yet |
@@ -257,6 +259,27 @@ All endpoints are under the `/api` prefix:
 - `GET /api/health` - Health check
 - `GET /api/ready` - Readiness check
 - `GET /api/docs` - Interactive API documentation (Swagger UI)
+- **`/mcp`** - Model Context Protocol (MCP) server endpoint (Streamable HTTP)
+
+### MCP (Model Context Protocol) Support
+
+The service exposes all AI capabilities as **remote MCP tools** at the `/mcp` endpoint, allowing Claude Code and other MCP clients to access them programmatically.
+
+**Available MCP Tools:**
+- `crawl_web` - Scrape web pages with JavaScript rendering
+- `embed_text` - Generate text embeddings for semantic search
+- `generate_text` - Generate text using language models
+- `caption_image` - Generate captions for images
+- `ocr_image` - Extract text from images using OCR
+- `transcribe_audio` - Transcribe speech from audio files
+- `get_hardware_info` - Get GPU and system hardware information
+
+**Connecting from Claude Code:**
+
+1. Ensure the service is running and accessible (e.g., `http://localhost:12310`)
+2. Configure Claude Code to connect to your MCP server at `http://localhost:12310/mcp`
+
+See [docs/mcp-setup.md](docs/mcp-setup.md) for detailed configuration instructions.
 
 ## Directory Structure
 

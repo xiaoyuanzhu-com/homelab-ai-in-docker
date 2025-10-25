@@ -23,6 +23,7 @@ from src.api.routers import (
     skills,
     hardware,
     settings,
+    mcp,
 )
 from src.db.skills import init_skills_table, upsert_skill, SkillStatus
 
@@ -278,6 +279,15 @@ app.include_router(skills.router)
 app.include_router(hardware.router)
 app.include_router(settings.router)
 
+# Mount MCP (Model Context Protocol) server at /mcp
+# This exposes AI capabilities as remote MCP tools for Claude Code and other MCP clients
+try:
+    mcp_app = mcp.get_mcp_app()
+    app.mount("/mcp", mcp_app)
+    logger.info("MCP server mounted at /mcp")
+except Exception as e:
+    logger.warning(f"Failed to mount MCP server (mcp package may not be installed): {e}")
+
 # Serve static files from the UI build
 UI_DIST_DIR = Path(__file__).parent / "ui" / "dist"
 if UI_DIST_DIR.exists():
@@ -309,6 +319,7 @@ async def root():
             "docs": "/api/docs",
             "health": "/api/health",
             "ready": "/api/ready",
+            "mcp": "/mcp",
         },
     }
 
