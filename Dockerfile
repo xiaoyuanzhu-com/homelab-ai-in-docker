@@ -59,6 +59,12 @@ RUN uv pip install --system --no-cache -e .[gpu]
 # This installs browsers to default location inside the container
 RUN crawl4ai-setup
 
+# Copy documentation files and build with MkDocs
+# Note: mkdocs-material is already installed via pyproject.toml above
+COPY docs/ ./docs/
+COPY mkdocs.yml ./
+RUN mkdocs build
+
 # Copy built UI from builder stage
 COPY --from=ui-builder /ui/dist ./ui/dist
 
