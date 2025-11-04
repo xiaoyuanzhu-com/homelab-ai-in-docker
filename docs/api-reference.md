@@ -369,7 +369,7 @@ POST /api/crawl
 | `page_timeout` | integer | No | Total navigation timeout in ms (default: 120000) |
 | `chrome_cdp_url` | string | No | Remote Chrome CDP endpoint (useful when attaching to an existing browser) |
 
-> **Dynamic render strategy:** The crawler auto-scrolls, taps generic “load more” buttons, and waits for the supplied selectors to stabilize. Override the defaults when a site needs deeper scrolling, additional expand buttons, or stricter content thresholds.
+> **Dynamic render strategy:** The crawler auto-scrolls toward the bottom, triggers generic “load more” buttons, watches for network-idle windows, and waits for text/selector counts to stabilize before returning. Override the defaults when a site needs deeper scrolling, additional expand buttons, or stricter content thresholds.
 
 ### Response
 

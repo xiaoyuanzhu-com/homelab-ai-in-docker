@@ -409,6 +409,41 @@ async def _max_selector_count(page, selectors: List[str]) -> int:
     return max(counts) if counts else 0
 
 
+def _track_network_activity(page):
+    timestamps = {"last": time.monotonic()}
+
+    def _update(*_args, **_kwargs):
+        timestamps["last"] = time.monotonic()
+
+    events = ["request", "requestfinished", "requestfailed", "response"]
+    for event in events:
+        page.on(event, _update)
+
+    def _stop():
+        for event in events:
+            try:
+                page.off(event, _update)
+            except Exception:
+                continue
+
+    return timestamps, _stop
+
+
+async def _wait_for_network_quiet(
+    timestamps: dict,
+    quiet_ms: int,
+    timeout_ms: int,
+) -> bool:
+    start = time.monotonic()
+    sleep_interval = max(quiet_ms / 2000.0, 0.1)
+    while (time.monotonic() - start) * 1000 < timeout_ms:
+        idle_ms = (time.monotonic() - timestamps["last"]) * 1000
+        if idle_ms >= quiet_ms:
+            return True
+        await asyncio.sleep(sleep_interval)
+    return False
+
+
 async def _click_candidates(page, selectors: List[str], texts: List[str], delay_ms: int) -> bool:
     clicked = False
 
@@ -465,60 +500,89 @@ async def _ensure_render_complete(page, url: str, logger: logging.Logger, settin
     stabilization_interval_ms: int = settings["stabilization_interval_ms"]
     max_render_wait_ms: int = settings["max_render_wait_ms"]
     selector_wait_timeout: int = settings["selector_wait_timeout"]
+    network_quiet_ms: int = settings["network_quiet_ms"]
+    network_quiet_timeout_ms: int = settings["network_quiet_timeout_ms"]
+    min_text_length: int = settings["min_text_length"]
+    text_delta_threshold: int = settings["text_delta_threshold"]
 
     await _wait_for_any_selector(page, selectors, selector_wait_timeout)
+
+    try:
+        await page.wait_for_load_state("load")
+    except PlaywrightTimeoutError:
+        pass
+
+    network_tracker, stop_tracking = _track_network_activity(page)
 
     start_time = time.monotonic()
     previous_count = -1
     stable_rounds = 0
     scroll_round = 0
     click_round = 0
+    previous_height = 0
+    stagnant_scrolls = 0
+    last_text_length = -1
 
-    while True:
-        elapsed_ms = (time.monotonic() - start_time) * 1000
-        if elapsed_ms >= max_render_wait_ms:
-            logger.warning(
-                "Render stabilization timed out after %.0fms for %s",
-                elapsed_ms,
-                url,
-            )
-            break
+    try:
+        while True:
+            elapsed_ms = (time.monotonic() - start_time) * 1000
+            if elapsed_ms >= max_render_wait_ms:
+                logger.warning(
+                    "Render stabilization timed out after %.0fms for %s",
+                    elapsed_ms,
+                    url,
+                )
+                break
 
-        if scroll_round < max_scroll_rounds:
-            try:
-                await page.evaluate("() => window.scrollBy(0, window.innerHeight)")
-            except Exception:
-                pass
-            scroll_round += 1
-            await page.wait_for_timeout(scroll_delay_ms)
+            await _wait_for_network_quiet(network_tracker, network_quiet_ms, network_quiet_timeout_ms)
 
-        clicked = False
-        if click_round < max_click_loops:
-            clicked = await _click_candidates(page, load_selectors, load_texts, scroll_delay_ms)
-            if clicked:
-                click_round += 1
+            if scroll_round < max_scroll_rounds:
+                try:
+                    current_height = await page.evaluate("() => document.body.scrollHeight")
+                    await page.evaluate("() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })")
+                    scroll_round += 1
+                    if abs(current_height - previous_height) < 50:
+                        stagnant_scrolls += 1
+                    else:
+                        stagnant_scrolls = 0
+                    previous_height = current_height
+                except Exception:
+                    stagnant_scrolls += 1
+                await page.wait_for_timeout(max(scroll_delay_ms, 50))
 
-        current_count = await _max_selector_count(page, selectors)
-        meets_minimum = min_count is None or current_count >= min_count
+            clicked = False
+            if click_round < max_click_loops:
+                clicked = await _click_candidates(page, load_selectors, load_texts, scroll_delay_ms)
+                if clicked:
+                    click_round += 1
 
-        if current_count == previous_count:
-            stable_rounds += 1
-        else:
-            stable_rounds = 0
-        previous_count = current_count
+            current_count = await _max_selector_count(page, selectors)
+            text_length = await page.evaluate("() => document.body.innerText.length")
+            meets_minimum = min_count is None or current_count >= min_count
+            meets_text = min_text_length is None or text_length >= min_text_length
 
-        if meets_minimum and stable_rounds >= stabilization_iterations:
-            break
+            if current_count == previous_count and abs(text_length - last_text_length) <= text_delta_threshold:
+                stable_rounds += 1
+            else:
+                stable_rounds = 0
+            previous_count = current_count
+            last_text_length = text_length
 
-        if (
-            not clicked
-            and scroll_round >= max_scroll_rounds
-            and stable_rounds >= stabilization_iterations
-            and meets_minimum
-        ):
-            break
+            if (meets_minimum or meets_text) and stable_rounds >= stabilization_iterations:
+                break
 
-        await page.wait_for_timeout(stabilization_interval_ms)
+            if (
+                not clicked
+                and scroll_round >= max_scroll_rounds
+                and stable_rounds >= stabilization_iterations
+                and (meets_minimum or meets_text)
+                and stagnant_scrolls >= 2
+            ):
+                break
+
+            await page.wait_for_timeout(stabilization_interval_ms)
+    finally:
+        stop_tracking()
 
 
 _stealth_module = None
@@ -655,6 +719,10 @@ async def crawl_url(
             "stabilization_interval_ms": stabilization_interval_ms,
             "max_render_wait_ms": max_render_wait_ms or DEFAULT_MAX_RENDER_WAIT_MS,
             "selector_wait_timeout": wait_for_selector_timeout or 10000,
+            "network_quiet_ms": 1500,
+            "network_quiet_timeout_ms": 15000,
+            "min_text_length": 400,
+            "text_delta_threshold": 80,
         }
 
         async def after_goto_hook(page, context=None, url: str = url, **_kwargs):
