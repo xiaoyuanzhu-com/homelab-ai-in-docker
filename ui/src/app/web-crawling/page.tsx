@@ -9,6 +9,10 @@ import { CrawlResult } from "@/types/api";
 export default function CrawlPage() {
   const [url, setUrl] = useState("");
   const [waitForJs, setWaitForJs] = useState(true);
+  const [screenshot, setScreenshot] = useState(false);
+  const [screenshotWidth, setScreenshotWidth] = useState(1920);
+  const [screenshotHeight, setScreenshotHeight] = useState(1080);
+  const [pageTimeout, setPageTimeout] = useState(120000);
   const [chromeCdpUrl, setChromeCdpUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CrawlResult | null>(null);
@@ -25,12 +29,18 @@ export default function CrawlPage() {
       const requestBody: {
         url: string;
         screenshot: boolean;
+        screenshot_width: number;
+        screenshot_height: number;
         wait_for_js: boolean;
+        page_timeout: number;
         chrome_cdp_url?: string;
       } = {
         url,
-        screenshot: false,
+        screenshot,
+        screenshot_width: screenshotWidth,
+        screenshot_height: screenshotHeight,
         wait_for_js: waitForJs,
+        page_timeout: pageTimeout,
       };
 
       // Only include chrome_cdp_url if it's not empty
@@ -80,6 +90,14 @@ export default function CrawlPage() {
           onUrlChange={setUrl}
           waitForJs={waitForJs}
           onWaitForJsChange={setWaitForJs}
+          screenshot={screenshot}
+          onScreenshotChange={setScreenshot}
+          screenshotWidth={screenshotWidth}
+          onScreenshotWidthChange={setScreenshotWidth}
+          screenshotHeight={screenshotHeight}
+          onScreenshotHeightChange={setScreenshotHeight}
+          pageTimeout={pageTimeout}
+          onPageTimeoutChange={setPageTimeout}
           chromeCdpUrl={chromeCdpUrl}
           onChromeCdpUrlChange={setChromeCdpUrl}
           result={result}

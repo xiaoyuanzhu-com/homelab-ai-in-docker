@@ -22,8 +22,11 @@ from mcp.server.fastmcp import FastMCP
 logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server
+# Set streamable_http_path to "/" so the MCP endpoint is at the mount root
+# When mounted at "/mcp", the endpoint will be accessible at "/mcp/"
 mcp_server = FastMCP(
     name="Homelab AI Services",
+    streamable_http_path="/",
 )
 
 
@@ -400,4 +403,4 @@ async def get_hardware_info() -> dict:
 # Export the FastAPI app for mounting
 def get_mcp_app():
     """Get the MCP server's Streamable HTTP application for mounting."""
-    return mcp_server.streamable_http_app
+    return mcp_server.streamable_http_app()

@@ -20,6 +20,14 @@ interface CrawlInputOutputProps {
   onUrlChange?: (url: string) => void;
   waitForJs: boolean;
   onWaitForJsChange?: (value: boolean) => void;
+  screenshot?: boolean;
+  onScreenshotChange?: (value: boolean) => void;
+  screenshotWidth?: number;
+  onScreenshotWidthChange?: (value: number) => void;
+  screenshotHeight?: number;
+  onScreenshotHeightChange?: (value: number) => void;
+  pageTimeout?: number;
+  onPageTimeoutChange?: (value: number) => void;
   chromeCdpUrl?: string;
   onChromeCdpUrlChange?: (url: string) => void;
 
@@ -42,6 +50,14 @@ export function CrawlInputOutput({
   onUrlChange,
   waitForJs,
   onWaitForJsChange,
+  screenshot = false,
+  onScreenshotChange,
+  screenshotWidth = 1920,
+  onScreenshotWidthChange,
+  screenshotHeight = 1080,
+  onScreenshotHeightChange,
+  pageTimeout = 120000,
+  onPageTimeoutChange,
   chromeCdpUrl,
   onChromeCdpUrlChange,
   result,
@@ -63,7 +79,11 @@ export function CrawlInputOutput({
     requestPayload ??
     {
       url,
+      screenshot,
+      screenshot_width: screenshotWidth,
+      screenshot_height: screenshotHeight,
       wait_for_js: waitForJs,
+      page_timeout: pageTimeout,
       ...(chromeCdpUrl && { chrome_cdp_url: chromeCdpUrl }),
     };
 
@@ -106,6 +126,88 @@ export function CrawlInputOutput({
           checked={waitForJs}
           onCheckedChange={onWaitForJsChange}
           disabled={!isEditable}
+        />
+      </div>
+
+      <div className="flex items-center justify-between space-x-2">
+        <div className="flex items-center space-x-2">
+          <Label htmlFor="screenshot" className="cursor-pointer">
+            Capture Screenshot
+          </Label>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="h-4 w-4 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-xs">
+                Capture a screenshot of the page with custom viewport dimensions.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <Switch
+          id="screenshot"
+          checked={screenshot}
+          onCheckedChange={onScreenshotChange}
+          disabled={!isEditable}
+        />
+      </div>
+
+      {screenshot && (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="screenshot-width">Width (px)</Label>
+            <Input
+              id="screenshot-width"
+              type="number"
+              min="320"
+              max="7680"
+              value={screenshotWidth}
+              onChange={(e) => onScreenshotWidthChange?.(parseInt(e.target.value) || 1920)}
+              readOnly={!isEditable}
+              className={!isEditable ? "bg-muted" : ""}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="screenshot-height">Height (px)</Label>
+            <Input
+              id="screenshot-height"
+              type="number"
+              min="240"
+              max="4320"
+              value={screenshotHeight}
+              onChange={(e) => onScreenshotHeightChange?.(parseInt(e.target.value) || 1080)}
+              readOnly={!isEditable}
+              className={!isEditable ? "bg-muted" : ""}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <div className="flex items-center space-x-2">
+          <Label htmlFor="page-timeout">Page Timeout (ms)</Label>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="h-4 w-4 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-xs">
+                Maximum time to wait for page navigation in milliseconds. Default is 120000ms (2 minutes). Increase for slower sites.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <Input
+          id="page-timeout"
+          type="number"
+          min="10000"
+          max="300000"
+          step="10000"
+          value={pageTimeout}
+          onChange={(e) => onPageTimeoutChange?.(parseInt(e.target.value) || 120000)}
+          readOnly={!isEditable}
+          className={!isEditable ? "bg-muted" : ""}
         />
       </div>
 
@@ -172,6 +274,19 @@ export function CrawlInputOutput({
             <div className="space-y-2">
               <Label>Title</Label>
               <p className="text-sm">{result.title}</p>
+            </div>
+          )}
+
+          {result.screenshot_base64 && (
+            <div className="space-y-2">
+              <Label>Screenshot</Label>
+              <div className="border rounded-lg overflow-hidden">
+                <img
+                  src={`data:image/png;base64,${result.screenshot_base64}`}
+                  alt="Page screenshot"
+                  className="w-full h-auto"
+                />
+              </div>
             </div>
           )}
 

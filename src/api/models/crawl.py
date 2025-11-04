@@ -11,8 +11,26 @@ class CrawlRequest(BaseModel):
 
     url: HttpUrl = Field(..., description="URL to crawl")
     screenshot: bool = Field(default=False, description="Capture screenshot")
+    screenshot_width: int = Field(
+        default=1920,
+        description="Screenshot viewport width in pixels",
+        ge=320,
+        le=7680
+    )
+    screenshot_height: int = Field(
+        default=1080,
+        description="Screenshot viewport height in pixels",
+        ge=240,
+        le=4320
+    )
     wait_for_js: bool = Field(
         default=True, description="Wait for JavaScript to execute"
+    )
+    page_timeout: int = Field(
+        default=120000,
+        description="Page navigation timeout in milliseconds (default: 120000ms / 2 minutes)",
+        ge=10000,
+        le=300000
     )
     chrome_cdp_url: Optional[str] = Field(
         default=None,

@@ -7,6 +7,7 @@ export interface CrawlResult {
   url: string;
   title: string | null;
   markdown: string;
+  screenshot_base64?: string | null;
   processing_time_ms: number;
   success: boolean;
 }

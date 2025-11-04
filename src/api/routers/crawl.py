@@ -1,7 +1,6 @@
 """Crawl API router for web scraping functionality."""
 
 import asyncio
-import base64
 import logging
 import os
 import time
@@ -9,7 +8,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from crawl4ai import AsyncWebCrawler, BrowserConfig
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 
 from ..models.crawl import CrawlRequest, CrawlResponse, ErrorResponse
 from ...storage.history import history_storage
@@ -25,7 +24,10 @@ DEFAULT_CHROME_CDP_URL = os.environ.get("CHROME_CDP_URL")
 async def crawl_url(
     url: str,
     screenshot: bool = False,
+    screenshot_width: int = 1920,
+    screenshot_height: int = 1080,
     wait_for_js: bool = True,
+    page_timeout: int = 120000,
     chrome_cdp_url: Optional[str] = None,
 ) -> dict:
     """
@@ -34,7 +36,10 @@ async def crawl_url(
     Args:
         url: URL to crawl
         screenshot: Whether to capture a screenshot
+        screenshot_width: Screenshot viewport width in pixels
+        screenshot_height: Screenshot viewport height in pixels
         wait_for_js: Whether to wait for JavaScript execution
+        page_timeout: Page navigation timeout in milliseconds
         chrome_cdp_url: Remote Chrome CDP URL for browser connection
 
     Returns:
@@ -53,20 +58,24 @@ async def crawl_url(
                 browser_mode="cdp",
                 cdp_url=cdp_url,
                 headless=True,
-                verbose=False
+                verbose=False,
+                viewport_width=screenshot_width,
+                viewport_height=screenshot_height,
             )
         else:
             # Use local browser (default mode)
             browser_config = BrowserConfig(
                 headless=True,
-                verbose=False
+                verbose=False,
+                viewport_width=screenshot_width,
+                viewport_height=screenshot_height,
             )
 
         async with AsyncWebCrawler(config=browser_config, verbose=False) as crawler:
-            # For JS-heavy pages, wait for content to load
-            kwargs = {
-                "url": url,
+            # Configure crawler run parameters
+            run_config_params = {
                 "screenshot": screenshot,
+                "page_timeout": page_timeout,
             }
 
             if wait_for_js:
@@ -75,12 +84,16 @@ async def crawl_url(
                 # - delay_before_return_html gives extra time for rendering
                 # - simulate_user helps avoid bot detection
                 # - scan_full_page scrolls the page to trigger lazy loading
-                kwargs["wait_until"] = "networkidle"
-                kwargs["delay_before_return_html"] = 2.0
-                kwargs["simulate_user"] = True
-                kwargs["scan_full_page"] = True
+                run_config_params["wait_until"] = "networkidle"
+                run_config_params["delay_before_return_html"] = 2.0
+                run_config_params["simulate_user"] = True
+                run_config_params["scan_full_page"] = True
 
-            result = await crawler.arun(**kwargs)
+            # Create crawler run configuration
+            run_config = CrawlerRunConfig(**run_config_params)
+
+            # Run the crawler with the configuration
+            result = await crawler.arun(url=url, config=run_config)
 
             return {
                 "url": result.url,
@@ -129,16 +142,17 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
         result = await crawl_url(
             url=str(request.url),
             screenshot=request.screenshot,
+            screenshot_width=request.screenshot_width,
+            screenshot_height=request.screenshot_height,
             wait_for_js=request.wait_for_js,
+            page_timeout=request.page_timeout,
             chrome_cdp_url=request.chrome_cdp_url,
         )
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
-        # Convert screenshot to base64 if present
-        screenshot_base64 = None
-        if request.screenshot and result.get("screenshot"):
-            screenshot_base64 = base64.b64encode(result["screenshot"]).decode("utf-8")
+        # Screenshot is already base64-encoded by crawl4ai
+        screenshot_base64 = result.get("screenshot") if request.screenshot else None
 
         response = CrawlResponse(
             request_id=request_id,
