@@ -2,16 +2,15 @@
 
 import asyncio
 import importlib
-import json
 import logging
 import os
 import time
 import types
 import uuid
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+ 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 
 from ..models.crawl import CrawlRequest, CrawlResponse, ErrorResponse
@@ -23,63 +22,13 @@ router = APIRouter(prefix="/api", tags=["crawl"])
 
 # Get default remote Chrome URL from environment
 DEFAULT_CHROME_CDP_URL = os.environ.get("CHROME_CDP_URL")
-DEFAULT_USER_AGENT = os.environ.get(
-    "CRAWLER_USER_AGENT",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-)
-DEFAULT_ACCEPT_LANGUAGE = os.environ.get("CRAWLER_ACCEPT_LANGUAGE", "en-US,en;q=0.9")
-DEFAULT_REQUEST_HEADERS = {
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9,"
-        "image/avif,image/webp,image/apng,*/*;q=0.8"
-    ),
-    "Accept-Language": DEFAULT_ACCEPT_LANGUAGE,
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-}
+# If not provided, let the browser supply its native User-Agent.
+# No UA override: use browser's native User-Agent
+# No global header overrides: let the browser send its native headers.
 
-DEFAULT_CONTENT_SELECTORS: List[str] = [
-    "[data-test-id='post-content']",
-    "[data-testid='post-container']",
-    "[data-test-id='comment']",
-    "[data-testid='comment']",
-    "div[data-test-id='comment']",
-    "div[data-testid='comment']",
-    "div[data-test-id='comment-list']",
-    "shreddit-comment",
-    "faceplate-tracker[data-tracker-name*='comment']",
-    "[itemprop='articleBody']",
-    "article.faceplate-comment",
-    "article",
-    "main article",
-    "main",
-]
-DEFAULT_LOAD_MORE_SELECTORS: List[str] = [
-    "button.morecomments",
-    ".morecomments button",
-    "button[aria-label*='more']",
-    "button[aria-label*='More']",
-    "button[aria-label*='load']",
-    "button[aria-label*='Load']",
-    "button[data-action='expand']",
-    "button[data-click-id='comments']",
-    "button[data-click-id='load_more']",
-    "[data-testid='load-more']",
-    "[data-testid='expand-button']",
-    "[data-testid='caret']",
-    "shreddit-comment-tree button",
-    "faceplate-tracker button",
-]
-DEFAULT_LOAD_MORE_TEXTS: List[str] = [
-    "Load more",
-    "Show more",
-    "View more",
-    "More comments",
-    "Load comments",
-    "See more",
-]
-DEFAULT_MAX_RENDER_WAIT_MS = 20000
+"""
+Minimal, general crawler: no site-specific selectors, scrolling, or clicking.
+"""
 
 DEFAULT_ENABLE_STEALTH = os.environ.get("CRAWLER_ENABLE_STEALTH", "true").lower() not in (
     "false",
@@ -366,223 +315,8 @@ def _install_playwright_stealth_compat(module) -> bool:
     return True
 
 
-def _dedupe_selectors(selectors: List[str]) -> List[str]:
-    seen = set()
-    deduped = []
-    for selector in selectors:
-        if not selector:
-            continue
-        key = selector.strip()
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        deduped.append(key)
-    return deduped
-
-
-async def _wait_for_any_selector(page, selectors: List[str], timeout_ms: int) -> None:
-    if not selectors:
-        return
-    for selector in selectors:
-        try:
-            await page.wait_for_selector(selector, timeout=timeout_ms)
-            return
-        except PlaywrightTimeoutError:
-            continue
-
-
-async def _count_matches(page, selector: str) -> int:
-    try:
-        return await page.evaluate(
-            "sel => document.querySelectorAll(sel).length", selector
-        )
-    except Exception:
-        return 0
-
-
-async def _max_selector_count(page, selectors: List[str]) -> int:
-    if not selectors:
-        return 0
-    counts = []
-    for selector in selectors:
-        counts.append(await _count_matches(page, selector))
-    return max(counts) if counts else 0
-
-
-def _track_network_activity(page):
-    timestamps = {"last": time.monotonic()}
-
-    def _update(*_args, **_kwargs):
-        timestamps["last"] = time.monotonic()
-
-    events = ["request", "requestfinished", "requestfailed", "response"]
-    for event in events:
-        page.on(event, _update)
-
-    def _stop():
-        for event in events:
-            try:
-                page.off(event, _update)
-            except Exception:
-                continue
-
-    return timestamps, _stop
-
-
-async def _wait_for_network_quiet(
-    timestamps: dict,
-    quiet_ms: int,
-    timeout_ms: int,
-) -> bool:
-    start = time.monotonic()
-    sleep_interval = max(quiet_ms / 2000.0, 0.1)
-    while (time.monotonic() - start) * 1000 < timeout_ms:
-        idle_ms = (time.monotonic() - timestamps["last"]) * 1000
-        if idle_ms >= quiet_ms:
-            return True
-        await asyncio.sleep(sleep_interval)
-    return False
-
-
-async def _click_candidates(page, selectors: List[str], texts: List[str], delay_ms: int) -> bool:
-    clicked = False
-
-    for selector in selectors:
-        try:
-            locator = page.locator(selector)
-            count = await locator.count()
-        except Exception:
-            continue
-
-        for idx in range(count):
-            element = locator.nth(idx)
-            try:
-                if await element.is_visible() and await element.is_enabled():
-                    await element.click(timeout=2000)
-                    clicked = True
-                    await page.wait_for_timeout(delay_ms)
-            except Exception:
-                continue
-
-    for text in texts:
-        text_selector = (
-            ":is(button, a, div[role='button'], span[role='button'])"
-            f":has-text({json.dumps(text)})"
-        )
-        locator = page.locator(text_selector)
-        try:
-            count = await locator.count()
-        except Exception:
-            continue
-
-        for idx in range(count):
-            element = locator.nth(idx)
-            try:
-                if await element.is_visible() and await element.is_enabled():
-                    await element.click(timeout=2000)
-                    clicked = True
-                    await page.wait_for_timeout(delay_ms)
-            except Exception:
-                continue
-
-    return clicked
-
-
-async def _ensure_render_complete(page, url: str, logger: logging.Logger, settings: dict) -> None:
-    selectors: List[str] = settings["content_selectors"]
-    min_count: Optional[int] = settings["min_content_selector_count"]
-    load_selectors: List[str] = settings["load_more_selectors"]
-    load_texts: List[str] = settings["load_more_texts"]
-    max_scroll_rounds: int = settings["max_scroll_rounds"]
-    scroll_delay_ms: int = settings["scroll_delay_ms"]
-    max_click_loops: int = settings["max_click_loops"]
-    stabilization_iterations: int = settings["stabilization_iterations"]
-    stabilization_interval_ms: int = settings["stabilization_interval_ms"]
-    max_render_wait_ms: int = settings["max_render_wait_ms"]
-    selector_wait_timeout: int = settings["selector_wait_timeout"]
-    network_quiet_ms: int = settings["network_quiet_ms"]
-    network_quiet_timeout_ms: int = settings["network_quiet_timeout_ms"]
-    min_text_length: int = settings["min_text_length"]
-    text_delta_threshold: int = settings["text_delta_threshold"]
-
-    await _wait_for_any_selector(page, selectors, selector_wait_timeout)
-
-    try:
-        await page.wait_for_load_state("load")
-    except PlaywrightTimeoutError:
-        pass
-
-    network_tracker, stop_tracking = _track_network_activity(page)
-
-    start_time = time.monotonic()
-    previous_count = -1
-    stable_rounds = 0
-    scroll_round = 0
-    click_round = 0
-    previous_height = 0
-    stagnant_scrolls = 0
-    last_text_length = -1
-
-    try:
-        while True:
-            elapsed_ms = (time.monotonic() - start_time) * 1000
-            if elapsed_ms >= max_render_wait_ms:
-                logger.warning(
-                    "Render stabilization timed out after %.0fms for %s",
-                    elapsed_ms,
-                    url,
-                )
-                break
-
-            await _wait_for_network_quiet(network_tracker, network_quiet_ms, network_quiet_timeout_ms)
-
-            if scroll_round < max_scroll_rounds:
-                try:
-                    current_height = await page.evaluate("() => document.body.scrollHeight")
-                    await page.evaluate("() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })")
-                    scroll_round += 1
-                    if abs(current_height - previous_height) < 50:
-                        stagnant_scrolls += 1
-                    else:
-                        stagnant_scrolls = 0
-                    previous_height = current_height
-                except Exception:
-                    stagnant_scrolls += 1
-                await page.wait_for_timeout(max(scroll_delay_ms, 50))
-
-            clicked = False
-            if click_round < max_click_loops:
-                clicked = await _click_candidates(page, load_selectors, load_texts, scroll_delay_ms)
-                if clicked:
-                    click_round += 1
-
-            current_count = await _max_selector_count(page, selectors)
-            text_length = await page.evaluate("() => document.body.innerText.length")
-            meets_minimum = min_count is None or current_count >= min_count
-            meets_text = min_text_length is None or text_length >= min_text_length
-
-            if current_count == previous_count and abs(text_length - last_text_length) <= text_delta_threshold:
-                stable_rounds += 1
-            else:
-                stable_rounds = 0
-            previous_count = current_count
-            last_text_length = text_length
-
-            if (meets_minimum or meets_text) and stable_rounds >= stabilization_iterations:
-                break
-
-            if (
-                not clicked
-                and scroll_round >= max_scroll_rounds
-                and stable_rounds >= stabilization_iterations
-                and (meets_minimum or meets_text)
-                and stagnant_scrolls >= 2
-            ):
-                break
-
-            await page.wait_for_timeout(stabilization_interval_ms)
-    finally:
-        stop_tracking()
+## Removed site-specific and generic selector/interaction helpers to keep the
+## crawler general. No auto-scroll or auto-click behavior.
 
 
 _stealth_module = None
@@ -619,17 +353,6 @@ async def crawl_url(
     screenshot_height: int = 1080,
     page_timeout: int = 120000,
     chrome_cdp_url: Optional[str] = None,
-    wait_for_selector: Optional[str] = None,
-    wait_for_selector_timeout: Optional[int] = None,
-    content_selectors: Optional[List[str]] = None,
-    min_content_selector_count: Optional[int] = None,
-    load_more_selectors: Optional[List[str]] = None,
-    max_scroll_rounds: int = 8,
-    scroll_delay_ms: int = 350,
-    load_more_clicks: int = 6,
-    stabilization_iterations: int = 2,
-    stabilization_interval_ms: int = 700,
-    max_render_wait_ms: Optional[int] = None,
 ) -> dict:
     """
     Crawl a URL and extract content.
@@ -641,17 +364,6 @@ async def crawl_url(
         screenshot_height: Screenshot viewport height in pixels
         page_timeout: Page navigation timeout in milliseconds
         chrome_cdp_url: Remote Chrome CDP URL for browser connection
-        wait_for_selector: Optional CSS selector to wait for once DOMContentLoaded fires
-        wait_for_selector_timeout: Timeout for selector wait
-        content_selectors: Additional selectors that signal the important content has rendered
-        min_content_selector_count: Minimum number of matched elements required before returning
-        load_more_selectors: Extra selectors to click while waiting (e.g., “Load more” buttons)
-        max_scroll_rounds: Maximum automatic scroll iterations to trigger lazy content
-        scroll_delay_ms: Delay between scroll steps in milliseconds
-        load_more_clicks: Maximum number of load-more click cycles
-        stabilization_iterations: Consecutive iterations with no new content before finishing
-        stabilization_interval_ms: Pause between stabilization checks in milliseconds
-        max_render_wait_ms: Overall cap on dynamic render wait time
 
     Returns:
         Dictionary containing crawl results
@@ -664,114 +376,50 @@ async def crawl_url(
         if cdp_url:
             # Connect to remote Chrome via CDP
             logger.info(f"Connecting to remote Chrome at: {cdp_url}")
-            browser_config = BrowserConfig(
+            _cdp_kwargs = dict(
                 browser_mode="cdp",
                 cdp_url=cdp_url,
                 headless=True,
                 verbose=False,
                 viewport_width=screenshot_width,
                 viewport_height=screenshot_height,
-                headers=dict(DEFAULT_REQUEST_HEADERS),
-                user_agent=DEFAULT_USER_AGENT,
                 enable_stealth=ENABLE_STEALTH,
             )
+            browser_config = BrowserConfig(**_cdp_kwargs)
         else:
             # Use local browser (default mode)
-            browser_config = BrowserConfig(
+            _local_kwargs = dict(
                 headless=True,
                 verbose=False,
                 viewport_width=screenshot_width,
                 viewport_height=screenshot_height,
-                headers=dict(DEFAULT_REQUEST_HEADERS),
-                user_agent=DEFAULT_USER_AGENT,
                 enable_stealth=ENABLE_STEALTH,
             )
-
-        merged_selectors: List[str] = []
-        if wait_for_selector:
-            merged_selectors.append(wait_for_selector)
-        if content_selectors:
-            merged_selectors.extend(content_selectors)
-        merged_selectors.extend(DEFAULT_CONTENT_SELECTORS)
-        merged_selectors = _dedupe_selectors(merged_selectors)
-
-        merged_load_more = DEFAULT_LOAD_MORE_SELECTORS.copy()
-        if load_more_selectors:
-            merged_load_more = _dedupe_selectors(load_more_selectors + merged_load_more)
-
-        selector_minimum = (
-            min_content_selector_count
-            if min_content_selector_count is not None
-            else 1
-        )
-
-        render_settings = {
-            "content_selectors": merged_selectors,
-            "min_content_selector_count": selector_minimum,
-            "load_more_selectors": merged_load_more,
-            "load_more_texts": DEFAULT_LOAD_MORE_TEXTS,
-            "max_scroll_rounds": max_scroll_rounds,
-            "scroll_delay_ms": scroll_delay_ms,
-            "max_click_loops": load_more_clicks,
-            "stabilization_iterations": stabilization_iterations,
-            "stabilization_interval_ms": stabilization_interval_ms,
-            "max_render_wait_ms": max_render_wait_ms or DEFAULT_MAX_RENDER_WAIT_MS,
-            "selector_wait_timeout": wait_for_selector_timeout or 10000,
-            "network_quiet_ms": 1500,
-            "network_quiet_timeout_ms": 15000,
-            "min_text_length": 400,
-            "text_delta_threshold": 80,
-        }
-
-        async def after_goto_hook(page, context=None, url: str = url, **_kwargs):
-            try:
-                await _ensure_render_complete(
-                    page,
-                    url,
-                    logger,
-                    render_settings,
-                )
-            except Exception as hook_error:
-                logger.warning(
-                    "Render completion hook failed for %s: %s",
-                    url,
-                    hook_error,
-                    exc_info=True,
-                )
+            browser_config = BrowserConfig(**_local_kwargs)
 
         async with AsyncWebCrawler(config=browser_config, verbose=False) as crawler:
-            crawler.crawler_strategy.set_hook("after_goto", after_goto_hook)
             # Configure crawler run parameters
             run_config_params = {
                 "screenshot": screenshot,
                 "page_timeout": page_timeout,
-                "max_scroll_steps": max_scroll_rounds,
-                "scroll_delay": max(scroll_delay_ms / 1000.0, 0.05),
+                # Use defaults for scrolling; we don't force interactions
             }
 
             # For JavaScript-heavy SPAs:
             # - wait_until="domcontentloaded" avoids networkidle hangs
-            # - wait_for selector ensures target nodes render
             # - simulate_user/override_navigator reduce bot detection
             run_config_params["wait_until"] = "domcontentloaded"
-            run_config_params["delay_before_return_html"] = 0.5
+            run_config_params["delay_before_return_html"] = 0.25
             run_config_params["simulate_user"] = True
-            run_config_params["scan_full_page"] = True
+            # Avoid extra internal full-page scanning.
+            run_config_params["scan_full_page"] = False
             run_config_params["override_navigator"] = True
-
-            if wait_for_selector:
-                run_config_params["wait_for"] = wait_for_selector
-                if wait_for_selector_timeout:
-                    run_config_params["wait_for_timeout"] = wait_for_selector_timeout
 
             # Create crawler run configuration
             run_config = CrawlerRunConfig(**run_config_params)
 
             # Run the crawler with the configuration
-            try:
-                result = await crawler.arun(url=url, config=run_config)
-            finally:
-                crawler.crawler_strategy.set_hook("after_goto", None)
+            result = await crawler.arun(url=url, config=run_config)
 
             return {
                 "url": result.url,
@@ -824,17 +472,6 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             screenshot_height=request.screenshot_height,
             page_timeout=request.page_timeout,
             chrome_cdp_url=request.chrome_cdp_url,
-            wait_for_selector=request.wait_for_selector,
-            wait_for_selector_timeout=request.wait_for_selector_timeout,
-            content_selectors=request.content_selectors,
-            min_content_selector_count=request.min_content_selector_count,
-            load_more_selectors=request.load_more_selectors,
-            max_scroll_rounds=request.max_scroll_rounds,
-            scroll_delay_ms=request.scroll_delay_ms,
-            load_more_clicks=request.load_more_clicks,
-            stabilization_iterations=request.stabilization_iterations,
-            stabilization_interval_ms=request.stabilization_interval_ms,
-            max_render_wait_ms=request.max_render_wait_ms,
         )
 
         processing_time_ms = int((time.time() - start_time) * 1000)

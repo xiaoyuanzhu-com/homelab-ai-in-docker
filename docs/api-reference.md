@@ -350,23 +350,10 @@ POST /api/crawl
 | `page_timeout` | integer | No | Total navigation timeout in ms (default: 120000) |
 | `chrome_cdp_url` | string | No | Remote Chrome CDP endpoint (attach to an existing browser) |
 
-The crawler automatically scrolls, clicks common “load more” buttons, and waits for network idle/text stabilization to grab complete SPA content. If you need deeper control, see the advanced options below.
-
-#### Advanced Options
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `wait_for_selector` | string | Guard selector to wait for before the render loop |
-| `wait_for_selector_timeout` | integer | Timeout for the guard selector in ms (default: 15000) |
-| `content_selectors` | array[string] | Additional selectors that must appear before returning (merged with defaults) |
-| `min_content_selector_count` | integer | Minimum matches across `content_selectors` (default: 1) |
-| `load_more_selectors` | array[string] | Extra “load more” buttons to click while content grows |
-| `max_scroll_rounds` | integer | Auto-scroll passes to trigger lazy loading (default: 8) |
-| `scroll_delay_ms` | integer | Delay between scrolls in ms (default: 350) |
-| `load_more_clicks` | integer | Maximum load-more click cycles (default: 6) |
-| `stabilization_iterations` | integer | Consecutive steady checks before finishing (default: 2) |
-| `stabilization_interval_ms` | integer | Delay between stabilization checks in ms (default: 700) |
-| `max_render_wait_ms` | integer | Hard cap for the dynamic render wait in ms (default: 20000) |
+Behavior
+- General by default: no site-specific selectors, no auto scroll, no auto click.
+- Renders with JavaScript support and returns once the page reaches `domcontentloaded` and a short settle.
+- Use your own post-processing if a site requires interaction.
 
 ### Response
 

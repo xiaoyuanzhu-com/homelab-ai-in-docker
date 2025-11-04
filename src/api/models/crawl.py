@@ -1,6 +1,6 @@
 """Pydantic models for crawl API endpoints."""
 
-from typing import List, Optional
+from typing import Optional
 from pydantic import BaseModel, Field, HttpUrl
 
 from .base import BaseResponse
@@ -28,69 +28,6 @@ class CrawlRequest(BaseModel):
         description="Page navigation timeout in milliseconds (default: 120000ms / 2 minutes)",
         ge=10000,
         le=300000
-    )
-    wait_for_selector: Optional[str] = Field(
-        default=None,
-        description="Optional CSS selector to wait for after DOM content is loaded (helps with SPA rendering)",
-        examples=["article[data-test-id='post-content']", "#main-content"],
-    )
-    wait_for_selector_timeout: Optional[int] = Field(
-        default=10000,
-        description="Timeout in milliseconds when waiting for selector (default: 10000ms). Ignored if wait_for_selector is not set.",
-        ge=1000,
-        le=60000,
-    )
-    content_selectors: Optional[List[str]] = Field(
-        default=None,
-        description="List of CSS selectors that should appear before considering the page fully rendered.",
-        examples=[["article", "[data-testid='comment']"]],
-    )
-    min_content_selector_count: Optional[int] = Field(
-        default=None,
-        description="Minimum number of matching nodes across content_selectors before treating the page as stable.",
-        ge=0,
-        le=10000,
-    )
-    load_more_selectors: Optional[List[str]] = Field(
-        default=None,
-        description="Extra CSS selectors to click (e.g., 'Load more' buttons) while waiting for the page to stabilize.",
-        examples=[["button.morecomments", "button[data-action='expand']"]],
-    )
-    max_scroll_rounds: int = Field(
-        default=8,
-        description="Maximum number of auto-scroll steps to trigger lazy loading.",
-        ge=0,
-        le=50,
-    )
-    scroll_delay_ms: int = Field(
-        default=350,
-        description="Pause between auto-scroll steps in milliseconds.",
-        ge=50,
-        le=2000,
-    )
-    load_more_clicks: int = Field(
-        default=6,
-        description="Maximum number of load-more click cycles.",
-        ge=0,
-        le=25,
-    )
-    stabilization_iterations: int = Field(
-        default=2,
-        description="Number of consecutive stabilization checks with no new content before concluding the page is complete.",
-        ge=1,
-        le=10,
-    )
-    stabilization_interval_ms: int = Field(
-        default=700,
-        description="Delay between stabilization checks in milliseconds.",
-        ge=100,
-        le=5000,
-    )
-    max_render_wait_ms: int = Field(
-        default=20000,
-        description="Maximum time in milliseconds to wait for dynamic content before returning.",
-        ge=1000,
-        le=60000,
     )
     chrome_cdp_url: Optional[str] = Field(
         default=None,
