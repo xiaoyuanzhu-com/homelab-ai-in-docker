@@ -352,8 +352,18 @@ POST /api/crawl
 
 Behavior
 - General by default: no site-specific selectors, no auto scroll, no auto click.
-- Renders with JavaScript support and returns once the page reaches `domcontentloaded` and a short settle.
-- Use your own post-processing if a site requires interaction.
+- Uses headless browser rendering; returns after `domcontentloaded` + a brief settle window (~1.5s).
+- Full-page scan is enabled to capture content beyond the initial viewport.
+- Stealth is enabled; navigator is lightly overridden to reduce bot detection.
+- No global header overrides; native browser User-Agent is used by default (no forced UA).
+- If a site hides content behind interactions (e.g., “load more”), content may not appear by default; perform interactions downstream if needed.
+
+Implementation notes
+- `wait_until: "domcontentloaded"`
+- `delay_before_return_html: 1.5`
+- `scan_full_page: true`
+- `simulate_user: true`
+- `override_navigator: true`
 
 ### Response
 
