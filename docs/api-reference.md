@@ -335,14 +335,7 @@ POST /api/crawl
 ```json
 {
   "url": "https://example.com",
-  "screenshot": false,
-  "wait_for_js": true,
-  "wait_for_selector": "#main-content",
-  "wait_for_selector_timeout": 15000,
-  "content_selectors": ["article", "[data-testid='comment']"],
-  "max_scroll_rounds": 12,
-  "load_more_clicks": 8,
-  "page_timeout": 60000
+  "screenshot": false
 }
 ```
 
@@ -352,24 +345,29 @@ POST /api/crawl
 |-------|------|----------|-------------|
 | `url` | string | Yes | URL to crawl |
 | `screenshot` | boolean | No | Capture screenshot (default: false) |
-| `screenshot_width` | integer | No | Screenshot viewport width (default: 1920, range: 320-7680) |
-| `screenshot_height` | integer | No | Screenshot viewport height (default: 1080, range: 240-4320) |
 | `wait_for_js` | boolean | No | Wait for JavaScript to render (default: true) |
-| `wait_for_selector` | string | No | CSS selector to wait for |
-| `wait_for_selector_timeout` | integer | No | Timeout for selector wait in ms (default: 15000) |
-| `content_selectors` | array[string] | No | Additional selectors that must appear before returning (merged with sensible defaults) |
-| `min_content_selector_count` | integer | No | Minimum total matches across `content_selectors` before finishing (default: 1) |
-| `load_more_selectors` | array[string] | No | Extra “load more” buttons to click while content is still changing |
-| `max_scroll_rounds` | integer | No | Auto-scroll passes to trigger lazy loading (default: 8) |
-| `scroll_delay_ms` | integer | No | Delay between scrolls in ms (default: 350) |
-| `load_more_clicks` | integer | No | Maximum load-more click cycles (default: 6) |
-| `stabilization_iterations` | integer | No | Consecutive steady checks (no new nodes) before finishing (default: 2) |
-| `stabilization_interval_ms` | integer | No | Delay between stabilization checks in ms (default: 700) |
-| `max_render_wait_ms` | integer | No | Hard cap for dynamic render wait in ms (default: 20000) |
-| `page_timeout` | integer | No | Total navigation timeout in ms (default: 120000) |
-| `chrome_cdp_url` | string | No | Remote Chrome CDP endpoint (useful when attaching to an existing browser) |
 
-> **Dynamic render strategy:** The crawler auto-scrolls toward the bottom, triggers generic “load more” buttons, watches for network-idle windows, and waits for text/selector counts to stabilize before returning. Override the defaults when a site needs deeper scrolling, additional expand buttons, or stricter content thresholds.
+The crawler automatically scrolls, clicks common “load more” buttons, and waits for network idle/text stabilization to grab complete SPA content. If you need deeper control, see the advanced options below.
+
+#### Advanced Options
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `screenshot_width` | integer | Screenshot viewport width (default: 1920, range: 320-7680) |
+| `screenshot_height` | integer | Screenshot viewport height (default: 1080, range: 240-4320) |
+| `wait_for_selector` | string | Guard selector to wait for before the render loop |
+| `wait_for_selector_timeout` | integer | Timeout for the guard selector in ms (default: 15000) |
+| `content_selectors` | array[string] | Additional selectors that must appear before returning (merged with defaults) |
+| `min_content_selector_count` | integer | Minimum matches across `content_selectors` (default: 1) |
+| `load_more_selectors` | array[string] | Extra “load more” buttons to click while content grows |
+| `max_scroll_rounds` | integer | Auto-scroll passes to trigger lazy loading (default: 8) |
+| `scroll_delay_ms` | integer | Delay between scrolls in ms (default: 350) |
+| `load_more_clicks` | integer | Maximum load-more click cycles (default: 6) |
+| `stabilization_iterations` | integer | Consecutive steady checks before finishing (default: 2) |
+| `stabilization_interval_ms` | integer | Delay between stabilization checks in ms (default: 700) |
+| `max_render_wait_ms` | integer | Hard cap for the dynamic render wait in ms (default: 20000) |
+| `page_timeout` | integer | Total navigation timeout in ms (default: 120000) |
+| `chrome_cdp_url` | string | Remote Chrome CDP endpoint (attach to existing browser) |
 
 ### Response
 
