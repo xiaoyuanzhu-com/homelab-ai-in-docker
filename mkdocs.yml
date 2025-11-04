@@ -39,6 +39,8 @@ nav:
   - User Guide:
       - Product Overview: product-design.md
       - Deployment: deployment.md
+  - API Reference:
+      - Endpoints: api-reference.md
   - Developer Guide:
       - Technical Design: tech-design.md
 
