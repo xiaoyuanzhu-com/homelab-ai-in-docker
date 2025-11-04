@@ -102,8 +102,21 @@ Response:
 - **Consent & auth flows**: Expect interstitials (GDPR, login, age gates). Detect them via selectors and click/dismiss before scraping; persist resulting cookies so the modal doesn't reappear on subsequent runs.
 - **Alt endpoints & fallbacks**: For Reddit, consider `old.reddit.com` or the `https://www.reddit.com/<path>/.json` API variant when HTML rendering proves fragile. Keep the primary path in place but fail over after repeated navigation timeouts.
 - **Observability**: Capture console errors and navigation events. When navigation timeouts cluster, restart the remote Chromium session—stale websocket sessions are a common culprit. Log rendered HTML size, selector wait timing, and retry counts for easier post-mortems.
-- **API support**: `wait_for_selector` and `wait_for_selector_timeout` are available in the crawl request payload so callers can align navigation waits with the first piece of content they need.
+- **Dynamic render strategy**: The crawler auto-scrolls, clicks generic “load more” affordances, and waits for content counts to stabilize (or until `max_render_wait_ms` expires). Override the defaults with `content_selectors`, `load_more_selectors`, `max_scroll_rounds`, `load_more_clicks`, `stabilization_iterations`, etc., when a site needs custom tuning.
+- **API support**: `wait_for_selector`, `content_selectors`, and companions like `min_content_selector_count` or `stabilization_interval_ms` let callers tailor the render-complete signal per site without changing server code.
 - **Stealth support**: Stealth mode ships with a known-good `playwright-stealth==1.8.0` build so Crawl4AI keeps its fingerprint spoofing without surprises. Set `CRAWLER_ENABLE_STEALTH=false` if you need to disable it for troubleshooting.
+
+**Render Strategy Parameters**
+
+| Field | Purpose |
+|-------|---------|
+| `wait_for_selector` / `wait_for_selector_timeout` | Initial guard selector before dynamic waits kick in |
+| `content_selectors` | Additional selectors that must appear before returning |
+| `min_content_selector_count` | Minimum node count across `content_selectors` to consider the page populated |
+| `max_scroll_rounds` / `scroll_delay_ms` | Auto-scroll depth and pacing used to trigger lazy loading |
+| `load_more_selectors` / `load_more_clicks` | Generic “load more” controls to click repeatedly while content grows |
+| `stabilization_iterations` / `stabilization_interval_ms` | Consecutive steady-state checks (no new nodes) before finishing |
+| `max_render_wait_ms` | Hard cap on the whole render wait loop |
 
 ### Management Endpoints
 
