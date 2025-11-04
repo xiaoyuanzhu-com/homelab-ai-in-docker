@@ -42,7 +42,13 @@ DEFAULT_CONTENT_SELECTORS: List[str] = [
     "[data-testid='post-container']",
     "[data-test-id='comment']",
     "[data-testid='comment']",
+    "div[data-test-id='comment']",
+    "div[data-testid='comment']",
+    "div[data-test-id='comment-list']",
+    "shreddit-comment",
+    "faceplate-tracker[data-tracker-name*='comment']",
     "[itemprop='articleBody']",
+    "article.faceplate-comment",
     "article",
     "main article",
     "main",
@@ -60,6 +66,8 @@ DEFAULT_LOAD_MORE_SELECTORS: List[str] = [
     "[data-testid='load-more']",
     "[data-testid='expand-button']",
     "[data-testid='caret']",
+    "shreddit-comment-tree button",
+    "faceplate-tracker button",
 ]
 DEFAULT_LOAD_MORE_TEXTS: List[str] = [
     "Load more",
@@ -343,9 +351,15 @@ async def crawl_url(
         if load_more_selectors:
             merged_load_more = _dedupe_selectors(load_more_selectors + merged_load_more)
 
+        selector_minimum = (
+            min_content_selector_count
+            if min_content_selector_count is not None
+            else 1
+        )
+
         render_settings = {
             "content_selectors": merged_selectors,
-            "min_content_selector_count": min_content_selector_count,
+            "min_content_selector_count": selector_minimum,
             "load_more_selectors": merged_load_more,
             "load_more_texts": DEFAULT_LOAD_MORE_TEXTS,
             "max_scroll_rounds": max_scroll_rounds,
