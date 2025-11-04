@@ -65,6 +65,7 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
     let timeoutId: NodeJS.Timeout | null = null;
 
     const fetchStats = async () => {
@@ -84,16 +85,19 @@ export default function StatsPage() {
         console.error("Failed to fetch stats:", err);
       } finally {
         setLoading(false);
-        // Schedule next refresh 1 second after completion (idle time)
-        timeoutId = setTimeout(fetchStats, 1000);
+        // Schedule next refresh only if component is still mounted
+        if (isMounted) {
+          timeoutId = setTimeout(fetchStats, 1000);
+        }
       }
     };
 
     // Start initial fetch
     fetchStats();
 
-    // Cleanup: clear timeout on unmount
+    // Cleanup: clear timeout and prevent future refreshes on unmount
     return () => {
+      isMounted = false;
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
