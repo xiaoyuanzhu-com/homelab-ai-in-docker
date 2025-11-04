@@ -7,7 +7,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -125,133 +125,162 @@ async def lifespan(app: FastAPI):
     """Manage application lifespan events (startup and shutdown)."""
     logger = logging.getLogger(__name__)
 
-    # Startup
-    logger.info("Starting up application...")
-
-    # Initialize database schema (skills, history, download_logs, and settings tables in haid.db)
-    logger.info("Initializing database...")
-    init_skills_table()
-
-    # Initialize download logs table
-    from src.db.download_logs import init_download_logs_table
-    init_download_logs_table()
-
-    # Initialize settings table
-    from src.db.settings import init_settings_table
-    init_settings_table()
-
-    # Initialize history storage (creates request_history table)
-    from src.storage.history import history_storage
-    # history_storage.__init__() already called on import, table created
-
-    # Load skills manifest
-    skills_manifest_path = Path(__file__).parent / "src" / "api" / "skills" / "skills_manifest.json"
-    if skills_manifest_path.exists():
-        with open(skills_manifest_path, "r") as f:
-            skills_manifest = json.load(f)
-
-        skill_count = 0
-        for skill in skills_manifest.get("skills", []):
-            upsert_skill(
-                skill_id=skill["id"],
-                label=skill["label"],
-                provider=skill.get("provider", ""),
-                tasks=skill.get("tasks", []),
-                architecture=skill.get("architecture"),
-                default_prompt=skill.get("default_prompt"),
-                platform_requirements=skill.get("platform_requirements"),
-                supports_markdown=skill.get("supports_markdown", False),
-                requires_quantization=skill.get("requires_quantization", False),
-                requires_download=skill.get("requires_download", True),
-                hf_model=skill.get("hf_model"),
-                reference_url=skill.get("reference_url"),
-                size_mb=skill.get("size_mb"),
-                parameters_m=skill.get("parameters_m"),
-                gpu_memory_mb=skill.get("gpu_memory_mb"),
-                dimensions=skill.get("dimensions"),
-                initial_status=(
-                    SkillStatus.READY if not skill.get("requires_download", True) else SkillStatus.INIT
-                ),
-            )
-            skill_count += 1
-
-        logger.info(f"Loaded {skill_count} skills from manifest into database")
-    else:
-        logger.warning(f"Skills manifest not found at {skills_manifest_path}")
-
-    # Start background task for periodic model cleanup
-    cleanup_task = asyncio.create_task(periodic_model_cleanup())
-
-    logger.info("Startup complete")
-
-    yield  # Application runs here
-
-    # Shutdown
-    logger.info("Shutting down application...")
-
-    # Cancel background cleanup task
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
-
-    # Clean up ML model resources
-    from src.api.routers import text_to_embedding, text_generation, image_captioning, image_ocr, automatic_speech_recognition
+    cleanup_task: asyncio.Task | None = None
+    mcp_lifespan_cm = None
+    mcp_lifespan_started = False
 
     try:
-        logger.info("Releasing text embedding model resources...")
-        text_to_embedding.cleanup()
-    except Exception as e:
-        logger.warning(f"Error cleaning up text embedding model: {e}")
+        # Startup
+        logger.info("Starting up application...")
 
-    try:
-        logger.info("Releasing text generation model resources...")
-        text_generation.cleanup()
-    except Exception as e:
-        logger.warning(f"Error cleaning up text generation model: {e}")
+        # Initialize database schema (skills, history, download_logs, and settings tables in haid.db)
+        logger.info("Initializing database...")
+        init_skills_table()
 
-    try:
-        logger.info("Releasing image captioning model resources...")
-        image_captioning.cleanup()
-    except Exception as e:
-        logger.warning(f"Error cleaning up image captioning model: {e}")
+        # Initialize download logs table
+        from src.db.download_logs import init_download_logs_table
+        init_download_logs_table()
 
-    try:
-        logger.info("Releasing image OCR model resources...")
-        image_ocr.cleanup()
-    except Exception as e:
-        logger.warning(f"Error cleaning up image OCR model: {e}")
+        # Initialize settings table
+        from src.db.settings import init_settings_table
+        init_settings_table()
 
-    try:
-        logger.info("Releasing ASR model resources...")
-        automatic_speech_recognition.cleanup()
-    except Exception as e:
-        logger.warning(f"Error cleaning up ASR model: {e}")
+        # Initialize history storage (creates request_history table)
+        from src.storage.history import history_storage
+        # history_storage.__init__() already called on import, table created
 
-    # Best-effort shutdown of any joblib/loky process executors to avoid
-    # leaked semaphore warnings from Python's resource_tracker on exit.
-    try:
-        try:
-            # Prefer the public import path if available
-            from joblib.externals.loky import get_reusable_executor  # type: ignore
-        except Exception:
+        # Load skills manifest
+        skills_manifest_path = Path(__file__).parent / "src" / "api" / "skills" / "skills_manifest.json"
+        if skills_manifest_path.exists():
+            with open(skills_manifest_path, "r") as f:
+                skills_manifest = json.load(f)
+
+            skill_count = 0
+            for skill in skills_manifest.get("skills", []):
+                upsert_skill(
+                    skill_id=skill["id"],
+                    label=skill["label"],
+                    provider=skill.get("provider", ""),
+                    tasks=skill.get("tasks", []),
+                    architecture=skill.get("architecture"),
+                    default_prompt=skill.get("default_prompt"),
+                    platform_requirements=skill.get("platform_requirements"),
+                    supports_markdown=skill.get("supports_markdown", False),
+                    requires_quantization=skill.get("requires_quantization", False),
+                    requires_download=skill.get("requires_download", True),
+                    hf_model=skill.get("hf_model"),
+                    reference_url=skill.get("reference_url"),
+                    size_mb=skill.get("size_mb"),
+                    parameters_m=skill.get("parameters_m"),
+                    gpu_memory_mb=skill.get("gpu_memory_mb"),
+                    dimensions=skill.get("dimensions"),
+                    initial_status=(
+                        SkillStatus.READY if not skill.get("requires_download", True) else SkillStatus.INIT
+                    ),
+                )
+                skill_count += 1
+
+            logger.info(f"Loaded {skill_count} skills from manifest into database")
+        else:
+            logger.warning(f"Skills manifest not found at {skills_manifest_path}")
+
+        # Start background task for periodic model cleanup
+        cleanup_task = asyncio.create_task(periodic_model_cleanup())
+
+        # Ensure the MCP sub-application lifecycle is running so its session manager is ready
+        mcp_app_instance = globals().get("mcp_app")
+        if mcp_app_instance is not None:
             try:
-                # Fallback for older/newer joblib structures
-                from joblib.externals.loky.reusable_executor import get_reusable_executor  # type: ignore
+                mcp_lifespan_cm = mcp_app_instance.router.lifespan_context(mcp_app_instance)
+                await mcp_lifespan_cm.__aenter__()
+                mcp_lifespan_started = True
+                logger.info("MCP server lifespan started")
+            except Exception as e:
+                logger.error(f"Failed to start MCP server lifespan: {e}", exc_info=True)
+                mcp_lifespan_cm = None
+        else:
+            logger.info("MCP server not configured; skipping lifespan startup")
+
+        logger.info("Startup complete")
+
+        yield  # Application runs here
+
+    finally:
+        # Shutdown
+        logger.info("Shutting down application...")
+
+        # Cancel background cleanup task
+        if cleanup_task is not None:
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
+
+        # Stop MCP session manager before tearing down shared resources
+        if mcp_lifespan_cm is not None and mcp_lifespan_started:
+            try:
+                await mcp_lifespan_cm.__aexit__(None, None, None)
+                logger.info("MCP server lifespan stopped")
+            except Exception as e:
+                logger.warning(f"Error shutting down MCP server lifespan: {e}", exc_info=True)
+
+        # Clean up ML model resources
+        from src.api.routers import text_to_embedding, text_generation, image_captioning, image_ocr, automatic_speech_recognition
+
+        try:
+            logger.info("Releasing text embedding model resources...")
+            text_to_embedding.cleanup()
+        except Exception as e:
+            logger.warning(f"Error cleaning up text embedding model: {e}")
+
+        try:
+            logger.info("Releasing text generation model resources...")
+            text_generation.cleanup()
+        except Exception as e:
+            logger.warning(f"Error cleaning up text generation model: {e}")
+
+        try:
+            logger.info("Releasing image captioning model resources...")
+            image_captioning.cleanup()
+        except Exception as e:
+            logger.warning(f"Error cleaning up image captioning model: {e}")
+
+        try:
+            logger.info("Releasing image OCR model resources...")
+            image_ocr.cleanup()
+        except Exception as e:
+            logger.warning(f"Error cleaning up image OCR model: {e}")
+
+        try:
+            logger.info("Releasing ASR model resources...")
+            automatic_speech_recognition.cleanup()
+        except Exception as e:
+            logger.warning(f"Error cleaning up ASR model: {e}")
+
+        # Best-effort shutdown of any joblib/loky process executors to avoid
+        # leaked semaphore warnings from Python's resource_tracker on exit.
+        try:
+            try:
+                # Prefer the public import path if available
+                from joblib.externals.loky import get_reusable_executor  # type: ignore
             except Exception:
-                get_reusable_executor = None  # type: ignore
+                try:
+                    # Fallback for older/newer joblib structures
+                    from joblib.externals.loky.reusable_executor import get_reusable_executor  # type: ignore
+                except Exception:
+                    get_reusable_executor = None  # type: ignore
 
-        if get_reusable_executor is not None:  # type: ignore
-            executor = get_reusable_executor()  # type: ignore
-            if executor is not None:
-                executor.shutdown(wait=True, kill_workers=True)
-                logger.info("Shut down joblib/loky reusable executor")
-    except Exception as e:
-        # Only log at debug to keep shutdown clean in normal scenarios
-        logger.debug(f"No joblib/loky executor to shutdown or cleanup failed: {e}")
+            if get_reusable_executor is not None:  # type: ignore
+                executor = get_reusable_executor()  # type: ignore
+                if executor is not None:
+                    executor.shutdown(wait=True, kill_workers=True)
+                    logger.info("Shut down joblib/loky reusable executor")
+        except Exception as e:
+            # Only log at debug to keep shutdown clean in normal scenarios
+            logger.debug(f"No joblib/loky executor to shutdown or cleanup failed: {e}")
 
-    logger.info("Shutdown complete")
+        logger.info("Shutdown complete")
 
 
 # Create FastAPI app with lifespan handler
@@ -283,13 +312,29 @@ app.include_router(settings.router)
 logger = logging.getLogger(__name__)
 
 # Mount MCP (Model Context Protocol) server at /mcp
-# This exposes AI capabilities as remote MCP tools for Claude Code and other MCP clients
+# Note: FastMCP creates a Starlette app with routes, but we need to ensure
+# the catch-all route doesn't interfere. The catch-all explicitly skips "/mcp"
+mcp_app = None
 try:
     mcp_app = mcp.get_mcp_app()
     app.mount("/mcp", mcp_app)
     logger.info("MCP server mounted at /mcp")
 except Exception as e:
     logger.warning(f"Failed to mount MCP server (mcp package may not be installed): {e}")
+
+
+@app.middleware("http")
+async def mcp_trailing_slash_redirect(request: Request, call_next):
+    """Redirect bare /mcp requests to /mcp/ so the mounted Streamable HTTP app handles them."""
+    if request.method in {"GET", "POST"} and request.url.path == "/mcp":
+        from fastapi.responses import RedirectResponse
+
+        if globals().get("mcp_app") is None:
+            raise HTTPException(status_code=404, detail="MCP server not available")
+
+        return RedirectResponse(url="/mcp/", status_code=307)
+
+    return await call_next(request)
 
 # Mount MkDocs documentation at /doc
 DOCS_SITE_DIR = Path(__file__).parent / "site"
@@ -356,42 +401,24 @@ async def ready():
     }
 
 
-# Catch-all route to serve the UI (must be last)
-@app.get("/{full_path:path}")
-async def serve_ui(full_path: str):
-    """Serve the Next.js static UI for all non-API routes."""
-    if UI_DIST_DIR.exists():
-        # Check if the requested file exists (for static assets like .js, .css, .svg, etc.)
-        file_path = UI_DIST_DIR / full_path
-        if file_path.is_file():
-            return FileResponse(file_path)
+# Serve UI at root path (mount at "/" as catch-all, must be LAST)
+# Note: Mounts are evaluated in reverse order, so specific mounts like /api, /mcp, /doc
+# will be matched first before falling back to the root mount
+if UI_DIST_DIR.exists():
+    # For Next.js static export with SPA routing, we need a custom StaticFiles class
+    # that serves index.html for all unmatched routes
+    class SPAStaticFiles(StaticFiles):
+        async def get_response(self, path: str, scope):
+            try:
+                return await super().get_response(path, scope)
+            except Exception:
+                # If file not found, serve index.html for SPA routing
+                index_path = Path(self.directory) / "index.html"
+                if index_path.is_file():
+                    return FileResponse(index_path)
+                raise
 
-        # Check for directory with index.html (Next.js static export with trailingSlash: true)
-        if file_path.is_dir():
-            index_in_dir = file_path / "index.html"
-            if index_in_dir.is_file():
-                return FileResponse(index_in_dir)
-
-        # Check for .html extension (for paths without trailing slash)
-        html_path = UI_DIST_DIR / f"{full_path}.html"
-        if html_path.is_file():
-            return FileResponse(html_path)
-
-        # Check for path/index.html pattern (for paths without trailing slash)
-        path_index = UI_DIST_DIR / full_path / "index.html"
-        if path_index.is_file():
-            return FileResponse(path_index)
-
-        # Default to root index.html for SPA routing (fallback for unmatched routes)
-        index_path = UI_DIST_DIR / "index.html"
-        if index_path.is_file():
-            return FileResponse(index_path)
-
-    # If UI is not built, return a friendly message
-    return JSONResponse(
-        status_code=503,
-        content={"error": "UI not available", "message": "The UI has not been built yet. Please build the UI first."},
-    )
+    app.mount("/", SPAStaticFiles(directory=str(UI_DIST_DIR), html=True), name="ui")
 
 
 if __name__ == "__main__":

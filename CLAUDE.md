@@ -176,7 +176,7 @@ docs/
   - Exposes all AI capabilities as remote MCP tools
   - Uses Streamable HTTP transport (modern MCP standard)
   - Compatible with Claude Code and other MCP clients
-  - See [docs/mcp-setup.md](docs/mcp-setup.md) for details
+  - Setup instructions live in the MCP section of `README.md`
 
 ## MCP (Model Context Protocol) Integration
 

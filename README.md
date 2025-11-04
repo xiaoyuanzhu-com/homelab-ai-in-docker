@@ -274,12 +274,22 @@ The service exposes all AI capabilities as **remote MCP tools** at the `/mcp` en
 - `transcribe_audio` - Transcribe speech from audio files
 - `get_hardware_info` - Get GPU and system hardware information
 
-**Connecting from Claude Code:**
-
-1. Ensure the service is running and accessible (e.g., `http://localhost:12310`)
-2. Configure Claude Code to connect to your MCP server at `http://localhost:12310/mcp`
-
-See [docs/mcp-setup.md](docs/mcp-setup.md) for detailed configuration instructions.
+**Client integrations:**
+- **Claude Code**
+  1. Start the service and verify it with `curl http://localhost:12310/api/health`.
+  2. Add a remote MCP server in Claude Code that points to `http://localhost:12310/mcp`.
+  3. Claude Code will auto-discover the tools above and expose them in the MCP sidebar.
+- **Codex CLI / other MCP clients**
+  1. Target the trailing-slash endpoint: `http://localhost:12310/mcp/`.
+  2. Include the required headers when making requests manually:<br>
+     `Accept: application/json, text/event-stream` and `Content-Type: application/json`.
+  3. Example initialize call:
+     ```bash
+     curl http://localhost:12310/mcp/ \
+       -H "Accept: application/json, text/event-stream" \
+       -H "Content-Type: application/json" \
+       -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+     ```
 
 ## Directory Structure
 

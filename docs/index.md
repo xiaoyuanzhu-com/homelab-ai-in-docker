@@ -96,7 +96,6 @@ curl -X POST http://localhost:12310/api/crawl \
 ### User Guide
 
 - **[Product Overview](product-design.md)** - Vision, target users, and AI capabilities
-- **[MCP Setup](mcp-setup.md)** - Connect Claude Code to your homelab AI service
 - **[Deployment](deployment.md)** - Docker, GHCR, and production deployment guide
 
 ### Developer Guide
@@ -107,7 +106,7 @@ curl -X POST http://localhost:12310/api/crawl \
 
 - Check the [interactive API docs](http://localhost:12310/api/docs) for endpoint details
 - Review the [technical design](tech-design.md) for implementation specifics
-- See [MCP setup guide](mcp-setup.md) for Claude Code integration
+- MCP client integration tips are in the MCP section of the main README
 
 ## License
 
