@@ -279,6 +279,9 @@ app.include_router(skills.router)
 app.include_router(hardware.router)
 app.include_router(settings.router)
 
+# Initialize logger for startup messages
+logger = logging.getLogger(__name__)
+
 # Mount MCP (Model Context Protocol) server at /mcp
 # This exposes AI capabilities as remote MCP tools for Claude Code and other MCP clients
 try:
@@ -292,7 +295,6 @@ except Exception as e:
 DOCS_SITE_DIR = Path(__file__).parent / "site"
 if DOCS_SITE_DIR.exists():
     app.mount("/doc", StaticFiles(directory=str(DOCS_SITE_DIR), html=True), name="mkdocs")
-    logger = logging.getLogger(__name__)
     logger.info("MkDocs documentation mounted at /doc")
 
 # Serve static files from the UI build

@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 # Initialize FastMCP server
 mcp_server = FastMCP(
     name="Homelab AI Services",
-    version="0.1.0",
 )
 
 
@@ -400,5 +399,5 @@ async def get_hardware_info() -> dict:
 
 # Export the FastAPI app for mounting
 def get_mcp_app():
-    """Get the MCP server's FastAPI application for mounting."""
-    return mcp_server.get_asgi_app()
+    """Get the MCP server's Streamable HTTP application for mounting."""
+    return mcp_server.streamable_http_app

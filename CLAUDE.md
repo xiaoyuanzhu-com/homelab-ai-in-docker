@@ -24,6 +24,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - **ALWAYS** explain the tradeoffs between optimal solutions and workarounds
   - Let the user make informed decisions about which approach to take
 
+- **ALWAYS CLEAN UP TEST SERVERS** - It's OK to spin up test servers for testing, but ALWAYS kill them when done
+  - **Python servers**: You may start `uv run python main.py` or `uvicorn` for testing
+  - **npm servers**: You may start `npm run dev` for UI testing
+  - **CRITICAL**: ALWAYS kill test servers before completing a task
+  - The user needs to run their own testing and port conflicts will cause issues
+  - Use `pkill -f "uvicorn main:app"` or `pkill -f "next dev"` to clean up
+  - Verify processes are killed with `ps aux | grep [u]vicorn` or similar
+
 ## Project Overview
 
 REST API service that wraps common AI capabilities for homelab developers. Built with FastAPI and Python, designed to run in Docker.
