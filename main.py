@@ -324,15 +324,19 @@ except Exception as e:
 
 
 @app.middleware("http")
-async def mcp_trailing_slash_redirect(request: Request, call_next):
-    """Redirect bare /mcp requests to /mcp/ so the mounted Streamable HTTP app handles them."""
-    if request.method in {"GET", "POST"} and request.url.path == "/mcp":
-        from fastapi.responses import RedirectResponse
+async def trailing_slash_redirect(request: Request, call_next):
+    """Redirect bare /mcp and /doc requests to their trailing-slash versions."""
+    from fastapi.responses import RedirectResponse
 
+    # Redirect /mcp to /mcp/ for the mounted Streamable HTTP app
+    if request.method in {"GET", "POST"} and request.url.path == "/mcp":
         if globals().get("mcp_app") is None:
             raise HTTPException(status_code=404, detail="MCP server not available")
-
         return RedirectResponse(url="/mcp/", status_code=307)
+
+    # Redirect /doc to /doc/ for the mounted MkDocs static files
+    if request.method == "GET" and request.url.path == "/doc":
+        return RedirectResponse(url="/doc/", status_code=307)
 
     return await call_next(request)
 
@@ -412,6 +416,13 @@ if UI_DIST_DIR.exists():
             try:
                 return await super().get_response(path, scope)
             except Exception:
+                # Don't intercept paths that should be handled by other mounts
+                # (FastAPI/Starlette should have already routed those, but be defensive)
+                request_path = scope.get("path", "")
+                if request_path.startswith("/doc"):
+                    # Let the /doc mount handle this (don't fall back to UI)
+                    raise
+
                 # If file not found, serve index.html for SPA routing
                 index_path = Path(self.directory) / "index.html"
                 if index_path.is_file():

@@ -79,6 +79,16 @@ export function Header() {
                 Settings
               </Link>
             </NavigationMenuItem>
+            <NavigationMenuItem>
+              <a
+                href="/doc/"
+                className={navigationMenuTriggerStyle()}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Docs
+              </a>
+            </NavigationMenuItem>
           </NavigationMenuList>
         </NavigationMenu>
       </div>
