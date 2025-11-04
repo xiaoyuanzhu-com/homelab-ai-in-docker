@@ -25,6 +25,23 @@ const nextConfig: NextConfig = {
           source: "/api/:path*",
           destination: "http://localhost:12310/api/:path*",
         },
+        // Proxy bare paths directly to trailing slash versions to avoid redirect loops
+        {
+          source: "/mcp",
+          destination: "http://localhost:12310/mcp/",
+        },
+        {
+          source: "/mcp/:path*",
+          destination: "http://localhost:12310/mcp/:path*",
+        },
+        {
+          source: "/doc",
+          destination: "http://localhost:12310/doc/",
+        },
+        {
+          source: "/doc/:path*",
+          destination: "http://localhost:12310/doc/:path*",
+        },
       ];
     },
   }),
