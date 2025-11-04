@@ -1,10 +1,12 @@
 """Crawl API router for web scraping functionality."""
 
+import asyncio
 import importlib
 import json
 import logging
 import os
 import time
+import types
 import uuid
 from typing import List, Optional
 
@@ -84,6 +86,284 @@ DEFAULT_ENABLE_STEALTH = os.environ.get("CRAWLER_ENABLE_STEALTH", "true").lower(
     "0",
     "no",
 )
+
+def _schedule_async_task(coro):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    else:
+        loop.create_task(coro)
+
+
+async def _apply_stealth_to_context_async(context, stealth_async_fn, config):
+    if getattr(context, "_haid_stealth_async_installed", False):
+        return context
+
+    setattr(context, "_haid_stealth_async_installed", True)
+
+    original_new_page = context.new_page
+
+    async def new_page_with_stealth(*args, **kwargs):
+        page = await original_new_page(*args, **kwargs)
+        await stealth_async_fn(page, config=config)
+        return page
+
+    context.new_page = types.MethodType(new_page_with_stealth, context)
+
+    for page in list(context.pages):
+        try:
+            await stealth_async_fn(page, config=config)
+        except Exception:
+            continue
+
+    context.on("page", lambda page: _schedule_async_task(stealth_async_fn(page, config=config)))
+    return context
+
+
+async def _apply_stealth_to_browser_async(browser, stealth_async_fn, config):
+    if getattr(browser, "_haid_stealth_async_installed", False):
+        return browser
+
+    setattr(browser, "_haid_stealth_async_installed", True)
+
+    original_new_page = getattr(browser, "new_page", None)
+    if original_new_page is not None:
+
+        async def browser_new_page(*args, **kwargs):
+            page = await original_new_page(*args, **kwargs)
+            await stealth_async_fn(page, config=config)
+            return page
+
+        browser.new_page = types.MethodType(browser_new_page, browser)
+
+    original_new_context = getattr(browser, "new_context", None)
+    if original_new_context is not None:
+
+        async def browser_new_context(*args, **kwargs):
+            context = await original_new_context(*args, **kwargs)
+            await _apply_stealth_to_context_async(context, stealth_async_fn, config)
+            return context
+
+        browser.new_context = types.MethodType(browser_new_context, browser)
+
+    for context in list(getattr(browser, "contexts", [])):
+        await _apply_stealth_to_context_async(context, stealth_async_fn, config)
+
+    if hasattr(browser, "on"):
+        try:
+            browser.on(
+                "context",
+                lambda ctx: _schedule_async_task(
+                    _apply_stealth_to_context_async(ctx, stealth_async_fn, config)
+                ),
+            )
+        except Exception:
+            pass
+
+    return browser
+
+
+def _wrap_async_method(obj, attr_name, after_coroutine):
+    original = getattr(obj, attr_name, None)
+    if original is None or getattr(obj, f"_haid_wrapped_async_{attr_name}", False):
+        return
+
+    async def wrapped(*args, **kwargs):
+        result = await original(*args, **kwargs)
+        new_result = await after_coroutine(result)
+        return new_result or result
+
+    setattr(obj, attr_name, types.MethodType(wrapped, obj))
+    setattr(obj, f"_haid_wrapped_async_{attr_name}", True)
+
+
+def _wrap_sync_method(obj, attr_name, after_callable):
+    original = getattr(obj, attr_name, None)
+    if original is None or getattr(obj, f"_haid_wrapped_sync_{attr_name}", False):
+        return
+
+    def wrapped(*args, **kwargs):
+        result = original(*args, **kwargs)
+        new_result = after_callable(result)
+        return new_result or result
+
+    setattr(obj, attr_name, types.MethodType(wrapped, obj))
+    setattr(obj, f"_haid_wrapped_sync_{attr_name}", True)
+
+
+async def _apply_async_stealth_to_playwright(playwright, stealth_async_fn, config):
+    async def _after_browser(browser):
+        return await _apply_stealth_to_browser_async(browser, stealth_async_fn, config)
+
+    async def _after_context(context):
+        return await _apply_stealth_to_context_async(context, stealth_async_fn, config)
+
+    for browser_type_name in ("chromium", "firefox", "webkit"):
+        browser_type = getattr(playwright, browser_type_name, None)
+        if browser_type is None:
+            continue
+        _wrap_async_method(browser_type, "launch", _after_browser)
+        _wrap_async_method(browser_type, "connect_over_cdp", _after_browser)
+        _wrap_async_method(browser_type, "launch_persistent_context", _after_context)
+
+    return playwright
+
+
+def _apply_sync_stealth_to_context(context, stealth_sync_fn, config):
+    if getattr(context, "_haid_stealth_sync_installed", False):
+        return context
+
+    setattr(context, "_haid_stealth_sync_installed", True)
+
+    original_new_page = context.new_page
+
+    def new_page_with_stealth(*args, **kwargs):
+        page = original_new_page(*args, **kwargs)
+        stealth_sync_fn(page, config=config)
+        return page
+
+    context.new_page = types.MethodType(new_page_with_stealth, context)
+
+    for page in list(context.pages):
+        try:
+            stealth_sync_fn(page, config=config)
+        except Exception:
+            continue
+
+    if hasattr(context, "on"):
+        context.on("page", lambda page: stealth_sync_fn(page, config=config))
+    return context
+
+
+def _apply_sync_stealth_to_browser(browser, stealth_sync_fn, config):
+    if getattr(browser, "_haid_stealth_sync_installed", False):
+        return browser
+
+    setattr(browser, "_haid_stealth_sync_installed", True)
+
+    original_new_page = getattr(browser, "new_page", None)
+    if original_new_page is not None:
+
+        def browser_new_page(*args, **kwargs):
+            page = original_new_page(*args, **kwargs)
+            stealth_sync_fn(page, config=config)
+            return page
+
+        browser.new_page = types.MethodType(browser_new_page, browser)
+
+    original_new_context = getattr(browser, "new_context", None)
+    if original_new_context is not None:
+
+        def browser_new_context(*args, **kwargs):
+            context = original_new_context(*args, **kwargs)
+            _apply_sync_stealth_to_context(context, stealth_sync_fn, config)
+            return context
+
+        browser.new_context = types.MethodType(browser_new_context, browser)
+
+    for context in list(getattr(browser, "contexts", [])):
+        _apply_sync_stealth_to_context(context, stealth_sync_fn, config)
+
+    if hasattr(browser, "on"):
+        try:
+            browser.on(
+                "context",
+                lambda ctx: _apply_sync_stealth_to_context(ctx, stealth_sync_fn, config),
+            )
+        except Exception:
+            pass
+
+    return browser
+
+
+def _apply_sync_stealth_to_playwright(playwright, stealth_sync_fn, config):
+
+    def _after_browser(browser):
+        return _apply_sync_stealth_to_browser(browser, stealth_sync_fn, config)
+
+    def _after_context(context):
+        return _apply_sync_stealth_to_context(context, stealth_sync_fn, config)
+
+    for browser_type_name in ("chromium", "firefox", "webkit"):
+        browser_type = getattr(playwright, browser_type_name, None)
+        if browser_type is None:
+            continue
+        _wrap_sync_method(browser_type, "launch", _after_browser)
+        _wrap_sync_method(browser_type, "connect_over_cdp", _after_browser)
+        _wrap_sync_method(browser_type, "launch_persistent_context", _after_context)
+
+    return playwright
+
+
+def _install_playwright_stealth_compat(module) -> bool:
+    stealth_async_fn = getattr(module, "stealth_async", None)
+    stealth_sync_fn = getattr(module, "stealth_sync", None)
+    StealthConfig = getattr(module, "StealthConfig", None)
+
+    if stealth_async_fn is None or StealthConfig is None:
+        return False
+
+    class _CompatAsyncStealthContext:
+        def __init__(self, inner_cm, stealth_fn, cfg):
+            self._inner_cm = inner_cm
+            self._stealth_fn = stealth_fn
+            self._config = cfg
+
+        async def __aenter__(self):
+            self._cm = self._inner_cm
+            self._playwright = await self._cm.__aenter__()
+            await _apply_async_stealth_to_playwright(
+                self._playwright, self._stealth_fn, self._config
+            )
+            return self._playwright
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return await self._cm.__aexit__(exc_type, exc, tb)
+
+    _CompatSyncStealthContext = None
+    if stealth_sync_fn is not None:
+
+        class _CompatSyncStealthContext:
+            def __init__(self, inner_cm, stealth_fn, cfg):
+                self._inner_cm = inner_cm
+                self._stealth_fn = stealth_fn
+                self._config = cfg
+
+            def __enter__(self):
+                self._cm = self._inner_cm
+                self._playwright = self._cm.__enter__()
+                _apply_sync_stealth_to_playwright(
+                    self._playwright, self._stealth_fn, self._config
+                )
+                return self._playwright
+
+            def __exit__(self, exc_type, exc, tb):
+                return self._cm.__exit__(exc_type, exc, tb)
+
+    class _CompatStealth:
+        def __init__(self, config=None):
+            self.config = config or StealthConfig()
+
+        def use_async(self, playwright_cm):
+            return _CompatAsyncStealthContext(playwright_cm, stealth_async_fn, self.config)
+
+        def use(self, playwright_cm):
+            if stealth_sync_fn is None or _CompatSyncStealthContext is None:
+                raise RuntimeError(
+                    "playwright-stealth does not expose synchronous helpers in this version."
+                )
+            return _CompatSyncStealthContext(playwright_cm, stealth_sync_fn, self.config)
+
+    module.Stealth = _CompatStealth
+    module.StealthAsync = _CompatAsyncStealthContext
+    if stealth_sync_fn is not None:
+        module.StealthSync = _CompatSyncStealthContext
+    return True
 
 
 def _dedupe_selectors(selectors: List[str]) -> List[str]:
@@ -249,8 +529,14 @@ if DEFAULT_ENABLE_STEALTH:
     except ImportError:
         PLAYWRIGHT_STEALTH_SUPPORTED = False
     else:
-        PLAYWRIGHT_STEALTH_SUPPORTED = hasattr(_stealth_module, 'Stealth')
-        if not PLAYWRIGHT_STEALTH_SUPPORTED:
+        if any(
+            hasattr(_stealth_module, attr_name)
+            for attr_name in ("Stealth", "StealthAsync", "StealthSync")
+        ):
+            PLAYWRIGHT_STEALTH_SUPPORTED = True
+        elif _install_playwright_stealth_compat(_stealth_module):
+            PLAYWRIGHT_STEALTH_SUPPORTED = True
+        else:
             logger.warning(
                 'playwright_stealth does not provide the Stealth wrapper; stealth mode disabled.'
             )

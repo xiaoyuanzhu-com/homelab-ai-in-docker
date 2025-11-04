@@ -104,7 +104,7 @@ Response:
 - **Observability**: Capture console errors and navigation events. When navigation timeouts cluster, restart the remote Chromium session—stale websocket sessions are a common culprit. Log rendered HTML size, selector wait timing, and retry counts for easier post-mortems.
 - **Dynamic render strategy**: The crawler auto-scrolls, clicks generic “load more” affordances, and waits for content counts to stabilize (or until `max_render_wait_ms` expires). Override the defaults with `content_selectors`, `load_more_selectors`, `max_scroll_rounds`, `load_more_clicks`, `stabilization_iterations`, etc., when a site needs custom tuning.
 - **API support**: `wait_for_selector`, `content_selectors`, and companions like `min_content_selector_count` or `stabilization_interval_ms` let callers tailor the render-complete signal per site without changing server code.
-- **Stealth support**: Stealth mode ships with a known-good `playwright-stealth==1.8.0` build so Crawl4AI keeps its fingerprint spoofing without surprises. Set `CRAWLER_ENABLE_STEALTH=false` if you need to disable it for troubleshooting.
+- **Stealth support**: Stealth mode stays compatible with modern `playwright-stealth` releases—the app shims the legacy `Stealth` wrapper that Crawl4AI expects. Set `CRAWLER_ENABLE_STEALTH=false` if you need to disable it for troubleshooting.
 
 **Render Strategy Parameters**
 
