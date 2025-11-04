@@ -78,7 +78,9 @@ Request:
 {
   "url": "https://example.com",
   "screenshot": false,
-  "wait_for_js": true
+  "wait_for_js": true,
+  "wait_for_selector": "#main-content",
+  "wait_for_selector_timeout": 15000
 }
 
 Response:
@@ -91,6 +93,17 @@ Response:
   "fetch_time_ms": 2000
 }
 ```
+
+#### Browser Crawl Best Practices
+- **Navigation waits**: Avoid Playwright's `wait_until="networkidle"` for modern SPAs like Reddit—long-lived connections keep the network busy forever. Prefer `wait_until="domcontentloaded"` plus an explicit `page.wait_for_selector(...)` for the first piece of real content (e.g., `article[data-test-id='post-content']` or the GDPR consent button).
+- **Rendered-content checks**: After DOMContentLoaded, confirm that target text exists before scraping. `page.wait_for_selector` combined with `page.evaluate` sanity checks (count posts, ensure comment tree nodes render) provides deterministic completion signals.
+- **Headers & fingerprint**: Mimic a current desktop browser. Set `User-Agent`, `Accept`, `Accept-Language`, `Sec-CH-UA*`, and `Viewport` in `BrowserConfig` to reduce bot detections. Inject `navigator.webdriver = false` and persist cookies between runs so consent/search preferences stick.
+- **Rate limiting & etiquette**: Honor `robots.txt`, throttle to ~1 request/second per domain, and implement exponential backoff on 429/503 with respect for any `Retry-After`. Queue retries through the task scheduler instead of hammering from the crawler loop.
+- **Consent & auth flows**: Expect interstitials (GDPR, login, age gates). Detect them via selectors and click/dismiss before scraping; persist resulting cookies so the modal doesn't reappear on subsequent runs.
+- **Alt endpoints & fallbacks**: For Reddit, consider `old.reddit.com` or the `https://www.reddit.com/<path>/.json` API variant when HTML rendering proves fragile. Keep the primary path in place but fail over after repeated navigation timeouts.
+- **Observability**: Capture console errors and navigation events. When navigation timeouts cluster, restart the remote Chromium session—stale websocket sessions are a common culprit. Log rendered HTML size, selector wait timing, and retry counts for easier post-mortems.
+- **API support**: `wait_for_selector` and `wait_for_selector_timeout` are available in the crawl request payload so callers can align navigation waits with the first piece of content they need.
+- **Stealth support**: Stealth mode ships with a known-good `playwright-stealth==1.8.0` build so Crawl4AI keeps its fingerprint spoofing without surprises. Set `CRAWLER_ENABLE_STEALTH=false` if you need to disable it for troubleshooting.
 
 ### Management Endpoints
 

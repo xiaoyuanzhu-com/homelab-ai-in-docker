@@ -32,6 +32,17 @@ class CrawlRequest(BaseModel):
         ge=10000,
         le=300000
     )
+    wait_for_selector: Optional[str] = Field(
+        default=None,
+        description="Optional CSS selector to wait for after DOM content is loaded (helps with SPA rendering)",
+        examples=["article[data-test-id='post-content']", "#main-content"],
+    )
+    wait_for_selector_timeout: Optional[int] = Field(
+        default=10000,
+        description="Timeout in milliseconds when waiting for selector (default: 10000ms). Ignored if wait_for_selector is not set.",
+        ge=1000,
+        le=60000,
+    )
     chrome_cdp_url: Optional[str] = Field(
         default=None,
         description="Remote Chrome CDP URL (e.g., http://localhost:9222). If not provided, uses local browser.",

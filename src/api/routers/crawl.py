@@ -1,6 +1,6 @@
 """Crawl API router for web scraping functionality."""
 
-import asyncio
+import importlib
 import logging
 import os
 import time
@@ -19,6 +19,48 @@ router = APIRouter(prefix="/api", tags=["crawl"])
 
 # Get default remote Chrome URL from environment
 DEFAULT_CHROME_CDP_URL = os.environ.get("CHROME_CDP_URL")
+DEFAULT_USER_AGENT = os.environ.get(
+    "CRAWLER_USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+)
+DEFAULT_ACCEPT_LANGUAGE = os.environ.get("CRAWLER_ACCEPT_LANGUAGE", "en-US,en;q=0.9")
+DEFAULT_REQUEST_HEADERS = {
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "Accept-Language": DEFAULT_ACCEPT_LANGUAGE,
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
+
+DEFAULT_ENABLE_STEALTH = os.environ.get("CRAWLER_ENABLE_STEALTH", "true").lower() not in (
+    "false",
+    "0",
+    "no",
+)
+
+
+_stealth_module = None
+PLAYWRIGHT_STEALTH_SUPPORTED = False
+if DEFAULT_ENABLE_STEALTH:
+    try:
+        _stealth_module = importlib.import_module('playwright_stealth')
+    except ImportError:
+        PLAYWRIGHT_STEALTH_SUPPORTED = False
+    else:
+        PLAYWRIGHT_STEALTH_SUPPORTED = hasattr(_stealth_module, 'Stealth')
+        if not PLAYWRIGHT_STEALTH_SUPPORTED:
+            logger.warning(
+                'playwright_stealth does not provide the Stealth wrapper; stealth mode disabled.'
+            )
+if DEFAULT_ENABLE_STEALTH and not PLAYWRIGHT_STEALTH_SUPPORTED:
+    logger.warning(
+        'Stealth mode requested but playwright_stealth is unavailable or incompatible. ' +
+        'Crawler will run without stealth fingerprinting.'
+    )
+ENABLE_STEALTH = DEFAULT_ENABLE_STEALTH and PLAYWRIGHT_STEALTH_SUPPORTED
 
 
 async def crawl_url(
@@ -29,6 +71,8 @@ async def crawl_url(
     wait_for_js: bool = True,
     page_timeout: int = 120000,
     chrome_cdp_url: Optional[str] = None,
+    wait_for_selector: Optional[str] = None,
+    wait_for_selector_timeout: Optional[int] = None,
 ) -> dict:
     """
     Crawl a URL and extract content.
@@ -41,6 +85,8 @@ async def crawl_url(
         wait_for_js: Whether to wait for JavaScript execution
         page_timeout: Page navigation timeout in milliseconds
         chrome_cdp_url: Remote Chrome CDP URL for browser connection
+        wait_for_selector: Optional CSS selector to wait for once DOMContentLoaded fires
+        wait_for_selector_timeout: Timeout for selector wait
 
     Returns:
         Dictionary containing crawl results
@@ -52,8 +98,7 @@ async def crawl_url(
         # Configure browser with CDP support if URL is provided
         if cdp_url:
             # Connect to remote Chrome via CDP
-            import logging
-            logging.info(f"Connecting to remote Chrome at: {cdp_url}")
+            logger.info(f"Connecting to remote Chrome at: {cdp_url}")
             browser_config = BrowserConfig(
                 browser_mode="cdp",
                 cdp_url=cdp_url,
@@ -61,6 +106,9 @@ async def crawl_url(
                 verbose=False,
                 viewport_width=screenshot_width,
                 viewport_height=screenshot_height,
+                headers=dict(DEFAULT_REQUEST_HEADERS),
+                user_agent=DEFAULT_USER_AGENT,
+                enable_stealth=ENABLE_STEALTH,
             )
         else:
             # Use local browser (default mode)
@@ -69,6 +117,9 @@ async def crawl_url(
                 verbose=False,
                 viewport_width=screenshot_width,
                 viewport_height=screenshot_height,
+                headers=dict(DEFAULT_REQUEST_HEADERS),
+                user_agent=DEFAULT_USER_AGENT,
+                enable_stealth=ENABLE_STEALTH,
             )
 
         async with AsyncWebCrawler(config=browser_config, verbose=False) as crawler:
@@ -80,14 +131,21 @@ async def crawl_url(
 
             if wait_for_js:
                 # For JavaScript-heavy SPAs:
-                # - wait_until="networkidle" waits until network is idle
-                # - delay_before_return_html gives extra time for rendering
-                # - simulate_user helps avoid bot detection
-                # - scan_full_page scrolls the page to trigger lazy loading
-                run_config_params["wait_until"] = "networkidle"
-                run_config_params["delay_before_return_html"] = 2.0
+                # - wait_until="domcontentloaded" avoids networkidle hangs
+                # - wait_for selector ensures target nodes render
+                # - simulate_user/override_navigator reduce bot detection
+                run_config_params["wait_until"] = "domcontentloaded"
+                run_config_params["delay_before_return_html"] = 0.5
                 run_config_params["simulate_user"] = True
                 run_config_params["scan_full_page"] = True
+                run_config_params["override_navigator"] = True
+
+                if wait_for_selector:
+                    run_config_params["wait_for"] = wait_for_selector
+                    if wait_for_selector_timeout:
+                        run_config_params["wait_for_timeout"] = wait_for_selector_timeout
+            else:
+                run_config_params["wait_until"] = "load"
 
             # Create crawler run configuration
             run_config = CrawlerRunConfig(**run_config_params)
@@ -147,6 +205,8 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             wait_for_js=request.wait_for_js,
             page_timeout=request.page_timeout,
             chrome_cdp_url=request.chrome_cdp_url,
+            wait_for_selector=request.wait_for_selector,
+            wait_for_selector_timeout=request.wait_for_selector_timeout,
         )
 
         processing_time_ms = int((time.time() - start_time) * 1000)
