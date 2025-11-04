@@ -409,10 +409,11 @@ async def crawl_url(
             # - wait_until="domcontentloaded" avoids networkidle hangs
             # - simulate_user/override_navigator reduce bot detection
             run_config_params["wait_until"] = "domcontentloaded"
-            run_config_params["delay_before_return_html"] = 0.25
+            # Give SPAs a brief, generic settle window for dynamic content
+            run_config_params["delay_before_return_html"] = 1.5
             run_config_params["simulate_user"] = True
-            # Avoid extra internal full-page scanning.
-            run_config_params["scan_full_page"] = False
+            # Enable full-page scanning to capture content beyond initial viewport
+            run_config_params["scan_full_page"] = True
             run_config_params["override_navigator"] = True
 
             # Create crawler run configuration
