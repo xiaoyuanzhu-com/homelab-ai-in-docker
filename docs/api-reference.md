@@ -347,6 +347,8 @@ POST /api/crawl
 | `screenshot` | boolean | No | Capture screenshot (default: false) |
 | `screenshot_width` | integer | No | Screenshot viewport width (default: 1920, range: 320-7680) |
 | `screenshot_height` | integer | No | Screenshot viewport height (default: 1080, range: 240-4320) |
+| `page_timeout` | integer | No | Total navigation timeout in ms (default: 120000) |
+| `chrome_cdp_url` | string | No | Remote Chrome CDP endpoint (attach to an existing browser) |
 
 The crawler automatically scrolls, clicks common “load more” buttons, and waits for network idle/text stabilization to grab complete SPA content. If you need deeper control, see the advanced options below.
 
@@ -365,8 +367,6 @@ The crawler automatically scrolls, clicks common “load more” buttons, and wa
 | `stabilization_iterations` | integer | Consecutive steady checks before finishing (default: 2) |
 | `stabilization_interval_ms` | integer | Delay between stabilization checks in ms (default: 700) |
 | `max_render_wait_ms` | integer | Hard cap for the dynamic render wait in ms (default: 20000) |
-| `page_timeout` | integer | Total navigation timeout in ms (default: 120000) |
-| `chrome_cdp_url` | string | Remote Chrome CDP endpoint (attach to existing browser) |
 
 ### Response
 
