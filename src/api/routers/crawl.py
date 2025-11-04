@@ -617,7 +617,6 @@ async def crawl_url(
     screenshot: bool = False,
     screenshot_width: int = 1920,
     screenshot_height: int = 1080,
-    wait_for_js: bool = True,
     page_timeout: int = 120000,
     chrome_cdp_url: Optional[str] = None,
     wait_for_selector: Optional[str] = None,
@@ -640,7 +639,6 @@ async def crawl_url(
         screenshot: Whether to capture a screenshot
         screenshot_width: Screenshot viewport width in pixels
         screenshot_height: Screenshot viewport height in pixels
-        wait_for_js: Whether to wait for JavaScript execution
         page_timeout: Page navigation timeout in milliseconds
         chrome_cdp_url: Remote Chrome CDP URL for browser connection
         wait_for_selector: Optional CSS selector to wait for once DOMContentLoaded fires
@@ -751,23 +749,20 @@ async def crawl_url(
                 "scroll_delay": max(scroll_delay_ms / 1000.0, 0.05),
             }
 
-            if wait_for_js:
-                # For JavaScript-heavy SPAs:
-                # - wait_until="domcontentloaded" avoids networkidle hangs
-                # - wait_for selector ensures target nodes render
-                # - simulate_user/override_navigator reduce bot detection
-                run_config_params["wait_until"] = "domcontentloaded"
-                run_config_params["delay_before_return_html"] = 0.5
-                run_config_params["simulate_user"] = True
-                run_config_params["scan_full_page"] = True
-                run_config_params["override_navigator"] = True
+            # For JavaScript-heavy SPAs:
+            # - wait_until="domcontentloaded" avoids networkidle hangs
+            # - wait_for selector ensures target nodes render
+            # - simulate_user/override_navigator reduce bot detection
+            run_config_params["wait_until"] = "domcontentloaded"
+            run_config_params["delay_before_return_html"] = 0.5
+            run_config_params["simulate_user"] = True
+            run_config_params["scan_full_page"] = True
+            run_config_params["override_navigator"] = True
 
-                if wait_for_selector:
-                    run_config_params["wait_for"] = wait_for_selector
-                    if wait_for_selector_timeout:
-                        run_config_params["wait_for_timeout"] = wait_for_selector_timeout
-            else:
-                run_config_params["wait_until"] = "load"
+            if wait_for_selector:
+                run_config_params["wait_for"] = wait_for_selector
+                if wait_for_selector_timeout:
+                    run_config_params["wait_for_timeout"] = wait_for_selector_timeout
 
             # Create crawler run configuration
             run_config = CrawlerRunConfig(**run_config_params)
@@ -827,7 +822,6 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             screenshot=request.screenshot,
             screenshot_width=request.screenshot_width,
             screenshot_height=request.screenshot_height,
-            wait_for_js=request.wait_for_js,
             page_timeout=request.page_timeout,
             chrome_cdp_url=request.chrome_cdp_url,
             wait_for_selector=request.wait_for_selector,

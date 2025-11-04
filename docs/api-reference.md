@@ -345,7 +345,8 @@ POST /api/crawl
 |-------|------|----------|-------------|
 | `url` | string | Yes | URL to crawl |
 | `screenshot` | boolean | No | Capture screenshot (default: false) |
-| `wait_for_js` | boolean | No | Wait for JavaScript to render (default: true) |
+| `screenshot_width` | integer | No | Screenshot viewport width (default: 1920, range: 320-7680) |
+| `screenshot_height` | integer | No | Screenshot viewport height (default: 1080, range: 240-4320) |
 
 The crawler automatically scrolls, clicks common “load more” buttons, and waits for network idle/text stabilization to grab complete SPA content. If you need deeper control, see the advanced options below.
 
@@ -353,8 +354,6 @@ The crawler automatically scrolls, clicks common “load more” buttons, and wa
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `screenshot_width` | integer | Screenshot viewport width (default: 1920, range: 320-7680) |
-| `screenshot_height` | integer | Screenshot viewport height (default: 1080, range: 240-4320) |
 | `wait_for_selector` | string | Guard selector to wait for before the render loop |
 | `wait_for_selector_timeout` | integer | Timeout for the guard selector in ms (default: 15000) |
 | `content_selectors` | array[string] | Additional selectors that must appear before returning (merged with defaults) |

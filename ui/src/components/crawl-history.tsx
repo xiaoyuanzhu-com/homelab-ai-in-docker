@@ -49,9 +49,6 @@ export function CrawlHistory() {
 
   const extractEntryData = (entry: HistoryEntry) => {
     const url = typeof entry.request.url === "string" ? entry.request.url : "";
-    const waitForJs =
-      typeof entry.request.wait_for_js === "boolean" ? entry.request.wait_for_js : true;
-
     const result: CrawlResult | null =
       entry.response.url && typeof entry.response.url === "string"
         ? {
@@ -76,7 +73,7 @@ export function CrawlHistory() {
           }
         : null;
 
-    return { url, waitForJs, result };
+    return { url, result };
   };
 
   return (
@@ -111,7 +108,7 @@ export function CrawlHistory() {
             <div className="space-y-3">
               {history.map((entry) => {
                 const isExpanded = expandedId === entry.request_id;
-                const { url, waitForJs, result } = extractEntryData(entry);
+                const { url, result } = extractEntryData(entry);
 
                 return (
                   <Collapsible
@@ -165,7 +162,6 @@ export function CrawlHistory() {
                           <CrawlInputOutput
                             mode="history"
                             url={url}
-                            waitForJs={waitForJs}
                             result={result}
                             loading={false}
                             error={null}

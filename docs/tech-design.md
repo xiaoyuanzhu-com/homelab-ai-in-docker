@@ -78,7 +78,6 @@ Request:
 {
   "url": "https://example.com",
   "screenshot": false,
-  "wait_for_js": true,
   "wait_for_selector": "#main-content",
   "wait_for_selector_timeout": 15000
 }

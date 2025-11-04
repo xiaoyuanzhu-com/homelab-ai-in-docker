@@ -71,8 +71,7 @@ curl -X POST http://localhost:12310/api/crawl \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com",
-    "screenshot": false,
-    "wait_for_js": true
+    "screenshot": false
   }'
 ```
 

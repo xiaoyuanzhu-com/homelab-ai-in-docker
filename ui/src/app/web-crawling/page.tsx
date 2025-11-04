@@ -8,7 +8,6 @@ import { CrawlResult } from "@/types/api";
 
 export default function CrawlPage() {
   const [url, setUrl] = useState("");
-  const [waitForJs, setWaitForJs] = useState(true);
   const [screenshot, setScreenshot] = useState(false);
   const [screenshotWidth, setScreenshotWidth] = useState(1920);
   const [screenshotHeight, setScreenshotHeight] = useState(1080);
@@ -31,7 +30,6 @@ export default function CrawlPage() {
         screenshot: boolean;
         screenshot_width: number;
         screenshot_height: number;
-        wait_for_js: boolean;
         page_timeout: number;
         chrome_cdp_url?: string;
       } = {
@@ -39,7 +37,6 @@ export default function CrawlPage() {
         screenshot,
         screenshot_width: screenshotWidth,
         screenshot_height: screenshotHeight,
-        wait_for_js: waitForJs,
         page_timeout: pageTimeout,
       };
 
@@ -88,8 +85,6 @@ export default function CrawlPage() {
           mode="try"
           url={url}
           onUrlChange={setUrl}
-          waitForJs={waitForJs}
-          onWaitForJsChange={setWaitForJs}
           screenshot={screenshot}
           onScreenshotChange={setScreenshot}
           screenshotWidth={screenshotWidth}

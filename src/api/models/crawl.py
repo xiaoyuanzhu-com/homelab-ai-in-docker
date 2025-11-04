@@ -23,9 +23,6 @@ class CrawlRequest(BaseModel):
         ge=240,
         le=4320
     )
-    wait_for_js: bool = Field(
-        default=True, description="Wait for JavaScript to execute"
-    )
     page_timeout: int = Field(
         default=120000,
         description="Page navigation timeout in milliseconds (default: 120000ms / 2 minutes)",

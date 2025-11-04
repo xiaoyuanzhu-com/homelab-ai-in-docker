@@ -182,10 +182,6 @@ function renderEmbeddings(entry: TaskHistoryEntry) {
 
 function renderCrawl(entry: TaskHistoryEntry) {
   const url = typeof entry.request.url === "string" ? (entry.request.url as string) : "";
-  const waitForJs =
-    typeof entry.request.wait_for_js === "boolean"
-      ? (entry.request.wait_for_js as boolean)
-      : true;
   const chromeCdpUrl =
     typeof entry.request.chrome_cdp_url === "string"
       ? (entry.request.chrome_cdp_url as string)
@@ -219,7 +215,6 @@ function renderCrawl(entry: TaskHistoryEntry) {
     <CrawlInputOutput
       mode="history"
       url={url}
-      waitForJs={waitForJs}
       chromeCdpUrl={chromeCdpUrl}
       result={result}
       loading={false}

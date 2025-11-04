@@ -34,7 +34,6 @@ mcp_server = FastMCP(
 async def crawl_web(
     url: str,
     screenshot: bool = False,
-    wait_for_js: bool = True,
 ) -> dict:
     """
     Crawl a web page and extract its content as Markdown.
@@ -45,7 +44,6 @@ async def crawl_web(
     Args:
         url: The URL to crawl
         screenshot: Whether to capture a screenshot (base64-encoded)
-        wait_for_js: Whether to wait for JavaScript to execute
 
     Returns:
         Dictionary with:
@@ -61,7 +59,6 @@ async def crawl_web(
         result = await crawl.crawl_url(
             url=url,
             screenshot=screenshot,
-            wait_for_js=wait_for_js,
         )
         return {
             "url": result["url"],

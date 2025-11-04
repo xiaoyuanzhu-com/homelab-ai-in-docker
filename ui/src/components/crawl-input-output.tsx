@@ -18,8 +18,6 @@ interface CrawlInputOutputProps {
   // Input state
   url: string;
   onUrlChange?: (url: string) => void;
-  waitForJs: boolean;
-  onWaitForJsChange?: (value: boolean) => void;
   screenshot?: boolean;
   onScreenshotChange?: (value: boolean) => void;
   screenshotWidth?: number;
@@ -48,8 +46,6 @@ export function CrawlInputOutput({
   mode,
   url,
   onUrlChange,
-  waitForJs,
-  onWaitForJsChange,
   screenshot = false,
   onScreenshotChange,
   screenshotWidth = 1920,
@@ -82,7 +78,6 @@ export function CrawlInputOutput({
       screenshot,
       screenshot_width: screenshotWidth,
       screenshot_height: screenshotHeight,
-      wait_for_js: waitForJs,
       page_timeout: pageTimeout,
       ...(chromeCdpUrl && { chrome_cdp_url: chromeCdpUrl }),
     };
@@ -102,30 +97,6 @@ export function CrawlInputOutput({
           onKeyDown={handleKeyDown}
           readOnly={!isEditable}
           className={!isEditable ? "bg-muted" : ""}
-        />
-      </div>
-
-      <div className="flex items-center justify-between space-x-2">
-        <div className="flex items-center space-x-2">
-          <Label htmlFor="wait-for-js" className="cursor-pointer">
-            Wait for JavaScript
-          </Label>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Info className="h-4 w-4 text-muted-foreground" />
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="max-w-xs">
-                Wait for JavaScript to execute before capturing content. Useful for dynamic sites.
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-        <Switch
-          id="wait-for-js"
-          checked={waitForJs}
-          onCheckedChange={onWaitForJsChange}
-          disabled={!isEditable}
         />
       </div>
 
