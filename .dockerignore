@@ -41,9 +41,9 @@ htmlcov/
 *.sqlite
 
 # Documentation
-docs/
-*.md
-!README.md
+# docs/ - commented out so docs can be included in Docker build for MkDocs
+# *.md - commented out so markdown docs can be included in Docker build
+# !README.md
 
 # OS files
 .DS_Store
