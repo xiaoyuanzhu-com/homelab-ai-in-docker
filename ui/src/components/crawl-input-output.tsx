@@ -20,6 +20,8 @@ interface CrawlInputOutputProps {
   onUrlChange?: (url: string) => void;
   screenshot?: boolean;
   onScreenshotChange?: (value: boolean) => void;
+  screenshotFullpage?: boolean;
+  onScreenshotFullpageChange?: (value: boolean) => void;
   screenshotWidth?: number;
   onScreenshotWidthChange?: (value: number) => void;
   screenshotHeight?: number;
@@ -48,6 +50,8 @@ export function CrawlInputOutput({
   onUrlChange,
   screenshot = false,
   onScreenshotChange,
+  screenshotFullpage = false,
+  onScreenshotFullpageChange,
   screenshotWidth = 1920,
   onScreenshotWidthChange,
   screenshotHeight = 1080,
@@ -76,6 +80,7 @@ export function CrawlInputOutput({
     {
       url,
       screenshot,
+      screenshot_fullpage: screenshotFullpage,
       screenshot_width: screenshotWidth,
       screenshot_height: screenshotHeight,
       page_timeout: pageTimeout,
@@ -152,6 +157,32 @@ export function CrawlInputOutput({
               className={!isEditable ? "bg-muted" : ""}
             />
           </div>
+        </div>
+      )}
+
+      {screenshot && (
+        <div className="flex items-center justify-between space-x-2">
+          <div className="flex items-center space-x-2">
+            <Label htmlFor="screenshot-fullpage" className="cursor-pointer">
+              Full page (stitched)
+            </Label>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-4 w-4 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="max-w-xs">
+                  Also capture a full-page screenshot by stitching segments. Shares width/height.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <Switch
+            id="screenshot-fullpage"
+            checked={screenshotFullpage}
+            onCheckedChange={onScreenshotFullpageChange}
+            disabled={!isEditable}
+          />
         </div>
       )}
 
@@ -248,17 +279,47 @@ export function CrawlInputOutput({
             </div>
           )}
 
-          {result.screenshot_base64 && (
-            <div className="space-y-2">
-              <Label>Screenshot</Label>
-              <div className="border rounded-lg overflow-hidden">
-                <img
-                  src={`data:image/png;base64,${result.screenshot_base64}`}
-                  alt="Page screenshot"
-                  className="w-full h-auto"
-                />
-              </div>
+          {/* Prefer explicit viewport/full-page fields when available to avoid duplication */}
+          {(result.screenshot_viewport_base64 || result.screenshot_fullpage_base64) ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {result.screenshot_viewport_base64 && (
+                <div className="space-y-2">
+                  <Label>Viewport Screenshot</Label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <img
+                      src={`data:image/png;base64,${result.screenshot_viewport_base64}`}
+                      alt="Viewport screenshot"
+                      className="w-full h-auto"
+                    />
+                  </div>
+                </div>
+              )}
+              {result.screenshot_fullpage_base64 && (
+                <div className="space-y-2">
+                  <Label>Full-Page Screenshot</Label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <img
+                      src={`data:image/png;base64,${result.screenshot_fullpage_base64}`}
+                      alt="Full-page screenshot"
+                      className="w-full h-auto"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
+          ) : (
+            result.screenshot_base64 && (
+              <div className="space-y-2">
+                <Label>Screenshot</Label>
+                <div className="border rounded-lg overflow-hidden">
+                  <img
+                    src={`data:image/png;base64,${result.screenshot_base64}`}
+                    alt="Page screenshot"
+                    className="w-full h-auto"
+                  />
+                </div>
+              </div>
+            )
           )}
 
           <div className="space-y-2">

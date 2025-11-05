@@ -10,7 +10,7 @@ class CrawlRequest(BaseModel):
     """Request model for crawling a URL."""
 
     url: HttpUrl = Field(..., description="URL to crawl")
-    screenshot: bool = Field(default=False, description="Capture screenshot")
+    screenshot: bool = Field(default=True, description="Capture viewport screenshot (first screen)")
     screenshot_width: int = Field(
         default=1920,
         description="Screenshot viewport width in pixels",
@@ -34,6 +34,10 @@ class CrawlRequest(BaseModel):
         description="Remote Chrome CDP URL (e.g., http://localhost:9222). If not provided, uses local browser.",
         examples=["http://chrome:9222", "ws://127.0.0.1:9222/devtools/browser/..."],
     )
+    screenshot_fullpage: bool = Field(
+        default=False,
+        description="Also capture a full-page screenshot (stitched). Shares width/height with viewport",
+    )
 
 
 class CrawlResponse(BaseResponse):
@@ -45,6 +49,12 @@ class CrawlResponse(BaseResponse):
     html: Optional[str] = Field(None, description="Raw HTML content")
     screenshot_base64: Optional[str] = Field(
         None, description="Base64-encoded screenshot"
+    )
+    screenshot_viewport_base64: Optional[str] = Field(
+        None, description="Base64-encoded viewport (first screen) screenshot, if requested"
+    )
+    screenshot_fullpage_base64: Optional[str] = Field(
+        None, description="Base64-encoded full-page screenshot, if requested"
     )
     success: bool = Field(..., description="Whether the crawl was successful")
 

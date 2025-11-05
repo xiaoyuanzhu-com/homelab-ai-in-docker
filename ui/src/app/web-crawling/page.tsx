@@ -8,7 +8,8 @@ import { CrawlResult } from "@/types/api";
 
 export default function CrawlPage() {
   const [url, setUrl] = useState("");
-  const [screenshot, setScreenshot] = useState(false);
+  const [screenshot, setScreenshot] = useState(true);
+  const [screenshotFullpage, setScreenshotFullpage] = useState(false);
   const [screenshotWidth, setScreenshotWidth] = useState(1920);
   const [screenshotHeight, setScreenshotHeight] = useState(1080);
   const [pageTimeout, setPageTimeout] = useState(120000);
@@ -28,6 +29,7 @@ export default function CrawlPage() {
       const requestBody: {
         url: string;
         screenshot: boolean;
+        screenshot_fullpage: boolean;
         screenshot_width: number;
         screenshot_height: number;
         page_timeout: number;
@@ -35,6 +37,7 @@ export default function CrawlPage() {
       } = {
         url,
         screenshot,
+        screenshot_fullpage: screenshotFullpage,
         screenshot_width: screenshotWidth,
         screenshot_height: screenshotHeight,
         page_timeout: pageTimeout,
@@ -87,6 +90,8 @@ export default function CrawlPage() {
           onUrlChange={setUrl}
           screenshot={screenshot}
           onScreenshotChange={setScreenshot}
+          screenshotFullpage={screenshotFullpage}
+          onScreenshotFullpageChange={setScreenshotFullpage}
           screenshotWidth={screenshotWidth}
           onScreenshotWidthChange={setScreenshotWidth}
           screenshotHeight={screenshotHeight}

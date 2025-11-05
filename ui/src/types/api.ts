@@ -8,6 +8,8 @@ export interface CrawlResult {
   title: string | null;
   markdown: string;
   screenshot_base64?: string | null;
+  screenshot_viewport_base64?: string | null;
+  screenshot_fullpage_base64?: string | null;
   processing_time_ms: number;
   success: boolean;
 }

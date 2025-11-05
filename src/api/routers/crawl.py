@@ -8,6 +8,7 @@ import time
 import types
 import uuid
 from typing import Optional
+import base64
 
 from fastapi import APIRouter, HTTPException
  
@@ -346,6 +347,98 @@ if DEFAULT_ENABLE_STEALTH and not PLAYWRIGHT_STEALTH_SUPPORTED:
 ENABLE_STEALTH = DEFAULT_ENABLE_STEALTH and PLAYWRIGHT_STEALTH_SUPPORTED
 
 
+async def _capture_viewport_screenshot(
+    url: str,
+    width: int,
+    height: int,
+    timeout_ms: int,
+    chrome_cdp_url: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Capture a viewport (first screen) screenshot using Playwright directly.
+
+    Returns base64-encoded image or None on failure.
+    """
+    try:
+        # Import lazily to avoid overhead when unused
+        from playwright.async_api import async_playwright
+
+        # Wrap with stealth if available and enabled
+        if ENABLE_STEALTH and _stealth_module is not None:
+            stealth = _stealth_module.Stealth()
+            playwright_cm = stealth.use_async(async_playwright())
+        else:
+            playwright_cm = async_playwright()
+
+        async with playwright_cm as p:
+            browser = None
+            context = None
+            page = None
+            try:
+                if chrome_cdp_url:
+                    browser = await p.chromium.connect_over_cdp(chrome_cdp_url)
+                    # Try a fresh context first; fall back to existing when unsupported
+                    try:
+                        context = await browser.new_context(
+                            viewport={"width": width, "height": height}
+                        )
+                        page = await context.new_page()
+                    except Exception:
+                        contexts = getattr(browser, "contexts", []) or []
+                        if contexts:
+                            context = contexts[0]
+                            page = await context.new_page()
+                            try:
+                                await page.set_viewport_size({"width": width, "height": height})
+                            except Exception:
+                                pass
+                        else:
+                            # Some CDP connections may allow new_page directly
+                            page = await browser.new_page()
+                            try:
+                                await page.set_viewport_size({"width": width, "height": height})
+                            except Exception:
+                                pass
+                else:
+                    browser = await p.chromium.launch(headless=True)
+                    context = await browser.new_context(
+                        viewport={"width": width, "height": height}
+                    )
+                    page = await context.new_page()
+
+                try:
+                    page.set_default_navigation_timeout(timeout_ms)
+                    page.set_default_timeout(timeout_ms)
+                except Exception:
+                    pass
+
+                await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                # Give SPAs a small settle time similar to crawl config
+                await asyncio.sleep(1.5)
+                img_bytes = await page.screenshot(full_page=False)
+                return base64.b64encode(img_bytes).decode("utf-8")
+            finally:
+                try:
+                    if page is not None:
+                        await page.close()
+                except Exception:
+                    pass
+                try:
+                    # Avoid closing remote browser; close local only
+                    if context is not None and not chrome_cdp_url:
+                        await context.close()
+                except Exception:
+                    pass
+                try:
+                    if browser is not None and not chrome_cdp_url:
+                        await browser.close()
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.warning(f"Viewport screenshot failed: {e}")
+        return None
+
+
 async def crawl_url(
     url: str,
     screenshot: bool = False,
@@ -353,6 +446,7 @@ async def crawl_url(
     screenshot_height: int = 1080,
     page_timeout: int = 120000,
     chrome_cdp_url: Optional[str] = None,
+    screenshot_fullpage: bool = False,
 ) -> dict:
     """
     Crawl a URL and extract content.
@@ -400,7 +494,7 @@ async def crawl_url(
         async with AsyncWebCrawler(config=browser_config, verbose=False) as crawler:
             # Configure crawler run parameters
             run_config_params = {
-                "screenshot": screenshot,
+                "screenshot": bool(screenshot_fullpage),
                 "page_timeout": page_timeout,
                 # Use defaults for scrolling; we don't force interactions
             }
@@ -423,12 +517,39 @@ async def crawl_url(
             # Run the crawler with the configuration
             result = await crawler.arun(url=url, config=run_config)
 
+            # Determine screenshot outputs
+            viewport_b64: Optional[str] = None
+            fullpage_b64: Optional[str] = None
+            primary_b64: Optional[str] = None
+
+            # Full-page via crawl4ai if requested
+            if screenshot_fullpage:
+                fullpage_b64 = result.screenshot
+
+            # Viewport via Playwright helper if requested
+            if screenshot:
+                try:
+                    viewport_b64 = await _capture_viewport_screenshot(
+                        url=url,
+                        width=screenshot_width,
+                        height=screenshot_height,
+                        timeout_ms=page_timeout,
+                        chrome_cdp_url=cdp_url,
+                    )
+                except Exception:
+                    viewport_b64 = None
+
+            # Primary (back-compat): prefer viewport when available, else full page
+            primary_b64 = viewport_b64 or fullpage_b64
+
             return {
                 "url": result.url,
                 "title": result.metadata.get("title") if result.metadata else None,
                 "markdown": result.markdown,
                 "html": result.html,
-                "screenshot": result.screenshot if screenshot else None,
+                "screenshot": primary_b64,
+                "screenshot_viewport": viewport_b64,
+                "screenshot_fullpage": fullpage_b64,
                 "success": result.success,
             }
     except Exception as e:
@@ -474,12 +595,19 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             screenshot_height=request.screenshot_height,
             page_timeout=request.page_timeout,
             chrome_cdp_url=request.chrome_cdp_url,
+            screenshot_fullpage=request.screenshot_fullpage,
         )
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
         # Screenshot is already base64-encoded by crawl4ai
         screenshot_base64 = result.get("screenshot") if request.screenshot else None
+        screenshot_viewport_base64 = (
+            result.get("screenshot_viewport") if request.screenshot else None
+        )
+        screenshot_fullpage_base64 = (
+            result.get("screenshot_fullpage") if request.screenshot else None
+        )
 
         response = CrawlResponse(
             request_id=request_id,
@@ -488,6 +616,8 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             markdown=result["markdown"] or "",
             html=result.get("html"),
             screenshot_base64=screenshot_base64,
+            screenshot_viewport_base64=screenshot_viewport_base64,
+            screenshot_fullpage_base64=screenshot_fullpage_base64,
             processing_time_ms=processing_time_ms,
             success=result["success"],
         )
@@ -497,7 +627,14 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             service="crawl",
             request_id=request_id,
             request_data=request.model_dump(mode="json"),
-            response_data=response.model_dump(exclude={"html", "screenshot_base64"}),
+            response_data=response.model_dump(
+                exclude={
+                    "html",
+                    "screenshot_base64",
+                    "screenshot_viewport_base64",
+                    "screenshot_fullpage_base64",
+                }
+            ),
             status="success",
         )
 

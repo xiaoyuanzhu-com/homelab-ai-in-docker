@@ -335,7 +335,8 @@ POST /api/crawl
 ```json
 {
   "url": "https://example.com",
-  "screenshot": false
+  "screenshot": true,
+  "screenshot_fullpage": false
 }
 ```
 
@@ -344,11 +345,12 @@ POST /api/crawl
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `url` | string | Yes | URL to crawl |
-| `screenshot` | boolean | No | Capture screenshot (default: false) |
+| `screenshot` | boolean | No | Capture viewport screenshot (default: true) |
 | `screenshot_width` | integer | No | Screenshot viewport width (default: 1920, range: 320-7680) |
 | `screenshot_height` | integer | No | Screenshot viewport height (default: 1080, range: 240-4320) |
 | `page_timeout` | integer | No | Total navigation timeout in ms (default: 120000) |
 | `chrome_cdp_url` | string | No | Remote Chrome CDP endpoint (attach to an existing browser) |
+| `screenshot_fullpage` | boolean | No | Also capture a full-page screenshot (stitched). Shares width/height (default: false) |
 
 Behavior
 - General by default: no site-specific selectors, no auto scroll, no auto click.
@@ -376,6 +378,8 @@ Implementation notes
   "markdown": "# Example Domain\n\nThis domain is for use in illustrative examples...",
   "html": "<!DOCTYPE html>...",
   "screenshot_base64": null,
+  "screenshot_viewport_base64": null,
+  "screenshot_fullpage_base64": null,
   "success": true
 }
 ```
@@ -389,6 +393,8 @@ Implementation notes
 | `markdown` | string | Page content in Markdown format |
 | `html` | string | Raw HTML content |
 | `screenshot_base64` | string | Base64-encoded screenshot (if requested) |
+| `screenshot_viewport_base64` | string | Base64-encoded viewport screenshot when `screenshot` is true |
+| `screenshot_fullpage_base64` | string | Base64-encoded full-page screenshot when `screenshot_fullpage` is true |
 | `success` | boolean | Whether crawl succeeded |
 
 ---
