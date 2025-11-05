@@ -411,7 +411,8 @@ async def crawl_url(
             run_config_params["wait_until"] = "domcontentloaded"
             # Give SPAs a brief, generic settle window for dynamic content
             run_config_params["delay_before_return_html"] = 1.5
-            run_config_params["simulate_user"] = True
+            # Do not simulate random user interactions to avoid accidental clicks
+            run_config_params["simulate_user"] = False
             # Enable full-page scanning to capture content beyond initial viewport
             run_config_params["scan_full_page"] = True
             run_config_params["override_navigator"] = True

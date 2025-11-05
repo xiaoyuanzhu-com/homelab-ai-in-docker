@@ -362,7 +362,7 @@ Implementation notes
 - `wait_until: "domcontentloaded"`
 - `delay_before_return_html: 1.5`
 - `scan_full_page: true`
-- `simulate_user: true`
+- `simulate_user: false` (to avoid accidental clicks/navigation)
 - `override_navigator: true`
 
 ### Response
