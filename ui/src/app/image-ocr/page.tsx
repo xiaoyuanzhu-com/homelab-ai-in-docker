@@ -30,6 +30,15 @@ interface ChoiceInfo {
   type: ChoiceType;
 }
 
+interface TaskOption {
+  id: string;
+  label: string;
+  provider: string;
+  supports_markdown?: boolean;
+  status: string;
+  type: ChoiceType;
+}
+
 function ImageOCRContent() {
   const searchParams = useSearchParams();
   const [, setImageFile] = useState<File | null>(null);
@@ -51,8 +60,8 @@ function ImageOCRContent() {
         if (!resp.ok) throw new Error("Failed to fetch OCR options");
         const data = await resp.json();
         const merged: ChoiceInfo[] = (data.options || [])
-          .filter((o: any) => o.status === "ready")
-          .map((o: any) => ({ id: o.id, label: o.label, provider: o.provider, supports_markdown: !!o.supports_markdown, status: o.status, type: o.type }));
+          .filter((o: TaskOption) => o.status === "ready")
+          .map((o: TaskOption) => ({ id: o.id, label: o.label, provider: o.provider, supports_markdown: !!o.supports_markdown, status: o.status, type: o.type }));
         setChoices(merged);
 
         // Preselect logic: prefer explicit model/lib URL params, then legacy skill param, then first available
@@ -216,7 +225,7 @@ function ImageOCRContent() {
             <SelectItem value="markdown">Markdown</SelectItem>
           </SelectContent>
         </Select>
-        {!supportsMarkdown() && selectedModel && (
+        {!supportsMarkdown() && selectedChoice && (
           <p className="text-xs text-muted-foreground">
             This model only supports plain text output.
           </p>

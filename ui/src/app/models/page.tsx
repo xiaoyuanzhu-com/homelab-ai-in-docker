@@ -236,7 +236,7 @@ export default function ModelsPage() {
                             <Download className="h-4 w-4" />
                           </Button>
                         )}
-                        {m.status in {"ready"} && (
+                        {m.status === "ready" && (
                           <Button variant="ghost" size="sm" onClick={() => fetchModels()} className="h-8 px-2" title="Refresh">
                             <RefreshCw className="h-4 w-4" />
                           </Button>
