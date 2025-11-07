@@ -6,6 +6,13 @@ Replaces the legacy skills endpoints for models.
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+import asyncio
+import logging
+import os
+import shutil
+import subprocess
+import time
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -16,12 +23,6 @@ from ...db.models import update_model_status
 from ...db.status import DownloadStatus
 from ...db.download_logs import add_log_line, clear_logs, get_logs
 from ...config import get_data_dir, get_hf_endpoint, get_hf_token, get_hf_username
-import asyncio
-import os
-import shutil
-import subprocess
-import time
-from pathlib import Path
 
 
 router = APIRouter(prefix="/api", tags=["models"])
@@ -102,7 +103,7 @@ async def _download_model_with_progress(
     request: Request,
 ):
     import select
-    logger = __import__(__name__).logging.getLogger(__name__)  # reuse module logger
+    logger = logging.getLogger(__name__)
 
     cache_dir = _model_cache_dir(hf_model)
     cache_dir.mkdir(parents=True, exist_ok=True)
