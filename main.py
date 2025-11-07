@@ -19,6 +19,7 @@ from src.api.routers import (
     image_ocr,
     automatic_speech_recognition,
     speaker_embedding,
+    whisperx,
     history,
     skills,
     hardware,
@@ -112,6 +113,12 @@ async def periodic_model_cleanup():
                 speaker_embedding.check_and_cleanup_idle_model()
             except Exception as e:
                 logger.debug(f"Error checking idle speaker embedding model: {e}")
+
+            # Check WhisperX models
+            try:
+                whisperx.check_and_cleanup_idle_model()
+            except Exception as e:
+                logger.debug(f"Error checking idle WhisperX model: {e}")
 
         except asyncio.CancelledError:
             logger.info("Periodic model cleanup task cancelled")
@@ -258,6 +265,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Error cleaning up ASR model: {e}")
 
+        try:
+            logger.info("Releasing WhisperX resources...")
+            whisperx.cleanup()
+        except Exception as e:
+            logger.warning(f"Error cleaning up WhisperX: {e}")
+
         # Best-effort shutdown of any joblib/loky process executors to avoid
         # leaked semaphore warnings from Python's resource_tracker on exit.
         try:
@@ -303,6 +316,7 @@ app.include_router(image_captioning.router)
 app.include_router(image_ocr.router)
 app.include_router(automatic_speech_recognition.router)
 app.include_router(speaker_embedding.router)
+app.include_router(whisperx.router)
 app.include_router(history.router)
 app.include_router(skills.router)
 app.include_router(hardware.router)
@@ -373,6 +387,7 @@ async def root():
             "image_captioning": "/api/image-captioning",
             "image_ocr": "/api/image-ocr",
             "automatic_speech_recognition": "/api/automatic-speech-recognition",
+            "whisperx": "/api/whisperx",
             "hardware": "/api/hardware",
             "docs": "/api/docs",
             "health": "/api/health",

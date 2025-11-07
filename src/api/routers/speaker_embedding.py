@@ -18,6 +18,12 @@ from ..models.speaker_embedding import (
     EmbeddingResponse,
     CompareEmbeddingsRequest,
     CompareEmbeddingsResponse,
+    BatchEmbeddingRequest,
+    BatchEmbeddingResponse,
+    MatchRequest,
+    MatchResponse,
+    MatchResult,
+    MatchCandidate,
 )
 
 router = APIRouter(prefix="/api/speaker-embedding", tags=["speaker-embedding"])
@@ -258,6 +264,133 @@ async def compare_embeddings(request: CompareEmbeddingsRequest) -> CompareEmbedd
                     audio_path.unlink()
                 except Exception as e:
                     logger.warning(f"Failed to cleanup temp file {audio_path}: {e}")
+
+
+@router.post("/batch-extract", response_model=BatchEmbeddingResponse)
+async def batch_extract_embeddings(request: BatchEmbeddingRequest) -> BatchEmbeddingResponse:
+    """Extract speaker embeddings for multiple time segments from one audio file."""
+    request_id = f"batch_embed_{int(time.time() * 1000)}"
+    start_time = time.time()
+    audio_path: Path | None = None
+
+    try:
+        audio_path = await decode_audio(request.audio)
+        model, inference = get_model(request.model)
+
+        def _batch():
+            from pyannote.core import Segment
+            embs: list[list[float]] = []
+            dim = None
+            for seg in request.segments:
+                s = Segment(seg.start, seg.end)
+                emb = inference.crop(str(audio_path), s)
+                # emb is (1, D)
+                arr = emb[0] if hasattr(emb, "ndim") and getattr(emb, "ndim", 1) > 1 else emb
+                vec = arr.tolist()
+                if dim is None:
+                    dim = len(vec)
+                embs.append(vec)
+            return embs, dim or 0
+
+        embeddings, dimension = await asyncio.to_thread(_batch)
+        processing_time_ms = int((time.time() - start_time) * 1000)
+
+        return BatchEmbeddingResponse(
+            request_id=request_id,
+            processing_time_ms=processing_time_ms,
+            embeddings=embeddings,
+            dimension=dimension,
+            count=len(embeddings),
+            model=request.model,
+        )
+    except Exception as e:
+        logger.error(f"Batch extraction failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to batch extract embeddings: {e}")
+    finally:
+        if audio_path and audio_path.exists():
+            try:
+                audio_path.unlink()
+            except Exception:
+                pass
+
+
+@router.post("/match", response_model=MatchResponse)
+async def match_embeddings(request: MatchRequest) -> MatchResponse:
+    """Match query embeddings to a provided registry (stateless identification)."""
+    request_id = f"match_{int(time.time() * 1000)}"
+    start_time = time.time()
+
+    try:
+        import numpy as np
+        from scipy.spatial.distance import cdist
+
+        # Normalize embeddings for cosine if metric is cosine
+        def _normalize(arr: np.ndarray) -> np.ndarray:
+            if request.metric != "cosine":
+                return arr
+            norm = np.linalg.norm(arr, axis=1, keepdims=True) + 1e-12
+            return arr / norm
+
+        # Prepare query matrix
+        Q = np.array(request.query_embeddings, dtype=np.float32)
+        Q = _normalize(Q)
+
+        # Prepare registry per speaker
+        speaker_names: list[str] = []
+        speaker_vectors: list[np.ndarray] = []
+
+        for entry in request.registry:
+            speaker_names.append(entry.name)
+            S = np.array(entry.embeddings, dtype=np.float32)
+            if S.ndim == 1:
+                S = S.reshape(1, -1)
+            S = _normalize(S)
+            if request.strategy == "centroid":
+                speaker_vectors.append(np.mean(S, axis=0, keepdims=True))
+            else:  # 'best' strategy compares against all samples and takes max similarity
+                speaker_vectors.append(S)
+
+        # Compute scores for each query
+        results: list[MatchResult] = []
+        for q in Q:
+            # Build a flat list of candidates for top-k ranking
+            cand_names: list[str] = []
+            cand_sims: list[float] = []
+            for name, vecs in zip(speaker_names, speaker_vectors):
+                # Distance then convert to similarity
+                d = cdist(q.reshape(1, -1), vecs, metric=request.metric)
+                if request.metric == "cosine":
+                    sims = 1.0 - d.flatten()
+                else:
+                    sims = (1.0 / (1.0 + d.flatten()))
+                # Best score for this speaker
+                best = float(np.max(sims))
+                cand_names.append(name)
+                cand_sims.append(best)
+
+            # Rank
+            order = np.argsort(cand_sims)[::-1]
+            top_idx = order[: max(1, request.top_k)]
+            candidates = [
+                MatchCandidate(name=cand_names[i], similarity=float(cand_sims[i])) for i in top_idx
+            ]
+
+            best = candidates[0]
+            best_out = None
+            if request.threshold is None or best.similarity >= float(request.threshold):
+                best_out = best
+
+            results.append(MatchResult(best=best_out, candidates=candidates))
+
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        return MatchResponse(
+            request_id=request_id,
+            processing_time_ms=processing_time_ms,
+            results=results,
+        )
+    except Exception as e:
+        logger.error(f"Match computation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to match embeddings: {e}")
 
 
 def cleanup_model():

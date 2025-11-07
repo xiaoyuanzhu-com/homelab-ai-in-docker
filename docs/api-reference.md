@@ -320,6 +320,204 @@ POST /api/automatic-speech-recognition
 
 ---
 
+## WhisperX (Aligned ASR + Diarization)
+
+High-quality Whisper transcription with word-level alignment and optional diarization.
+
+### Endpoint
+
+```
+POST /api/whisperx/transcribe
+```
+
+### Request
+
+```json
+{
+  "audio": "base64-encoded-audio-data",
+  "asr_model": "large-v3",
+  "language": "en",
+  "diarize": true,
+  "batch_size": 16,
+  "compute_type": "float16"
+}
+```
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `audio` | string | Yes | Base64-encoded audio (mp3, mp4, mpeg, mpga, m4a, wav, webm) |
+| `asr_model` | string | No | WhisperX model id (e.g., `large-v3`, `small.en`); default `large-v3` |
+| `language` | string | No | Language code; if omitted, WhisperX will detect |
+| `diarize` | boolean | No | If true, assigns speakers using pyannote integration |
+| `batch_size` | integer | No | Inference batch size (default: 16) |
+| `compute_type` | string | No | Compute type hint (`float16`, `float32`); auto-selected if omitted |
+
+### Response
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 4120,
+  "text": "Hello everyone, welcome...",
+  "language": "en",
+  "model": "large-v3",
+  "segments": [
+    {
+      "start": 0.12,
+      "end": 2.34,
+      "text": "Hello everyone",
+      "speaker": "SPEAKER_00",
+      "words": [
+        { "word": "Hello", "start": 0.12, "end": 0.52, "speaker": "SPEAKER_00" },
+        { "word": "everyone", "start": 0.60, "end": 1.20, "speaker": "SPEAKER_00" }
+      ]
+    }
+  ]
+}
+```
+
+Notes
+- Diarization uses your configured HuggingFace token (Settings → `hf_token`).
+- This endpoint is independent of the legacy `/automatic-speech-recognition` route and can replace it.
+
+---
+
+## Speaker Embedding and Matching (Stateless)
+
+Compute speaker embeddings and perform stateless matching against an app‑managed registry.
+
+### Extract Single Embedding
+
+```
+POST /api/speaker-embedding/extract
+```
+
+```json
+{
+  "audio": "base64-audio",
+  "model": "pyannote/embedding",
+  "mode": "whole"
+}
+```
+
+Response
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 210,
+  "embedding": [0.12, -0.03, ...],
+  "dimension": 192,
+  "model": "pyannote/embedding"
+}
+```
+
+### Extract Batch Embeddings (Segments)
+
+```
+POST /api/speaker-embedding/batch-extract
+```
+
+```json
+{
+  "audio": "base64-audio",
+  "model": "pyannote/embedding",
+  "segments": [
+    { "start": 1.2, "end": 5.8 },
+    { "start": 7.0, "end": 12.3 }
+  ]
+}
+```
+
+Response
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 380,
+  "embeddings": [[...], [...]],
+  "dimension": 192,
+  "count": 2,
+  "model": "pyannote/embedding"
+}
+```
+
+### Compare Two Audio Files
+
+```
+POST /api/speaker-embedding/compare
+```
+
+```json
+{
+  "audio1": "base64-audio-A",
+  "audio2": "base64-audio-B",
+  "model": "pyannote/embedding",
+  "metric": "cosine"
+}
+```
+
+Response
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 95,
+  "distance": 0.18,
+  "similarity": 0.82,
+  "metric": "cosine",
+  "model": "pyannote/embedding"
+}
+```
+
+### Match Against Registry (Stateless)
+
+```
+POST /api/speaker-embedding/match
+```
+
+```json
+{
+  "query_embeddings": [[...], [...]],
+  "registry": [
+    { "name": "Alice", "embeddings": [[...], [...]] },
+    { "name": "Bob",   "embeddings": [[...]] }
+  ],
+  "metric": "cosine",
+  "threshold": 0.78,
+  "top_k": 3,
+  "strategy": "centroid"
+}
+```
+
+Response
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 35,
+  "results": [
+    {
+      "best": { "name": "Alice", "similarity": 0.86 },
+      "candidates": [
+        { "name": "Alice", "similarity": 0.86 },
+        { "name": "Bob",   "similarity": 0.73 },
+        { "name": "Carol", "similarity": 0.55 }
+      ]
+    }
+  ]
+}
+```
+
+Notes
+- The registry is provided by your app at call time; the API does not persist speaker data.
+- Use ≥ 5–10s of clean speech per enrolled speaker for best results.
+- `strategy: centroid` is robust; `best` compares against each sample and uses the maximum.
+
+---
+
 ## Web Crawling
 
 Scrape web pages with JavaScript rendering support.

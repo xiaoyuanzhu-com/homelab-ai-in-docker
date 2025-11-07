@@ -22,7 +22,8 @@ AI capabilities wrapped in API, specially crafted for homelab environments:
 | Feature Extraction (Text Embedding) | ✅ |
 | Image Captioning | ✅ |
 | Image OCR | ✅ |
-| Automatic Speech Recognition | ✅ |
+| Automatic Speech Recognition (Whisper & WhisperX) | ✅ |
+| Speaker Embedding + Matching (stateless) | ✅ |
 | Web Crawling | ✅ |
 | Remote MCP Server | ✅ |
 
@@ -61,6 +62,8 @@ The API will be available at `http://localhost:12310`
 - **Web UI**: `http://localhost:12310`
 - **Interactive API docs**: `http://localhost:12310/api/docs`
 - **API endpoint**: `http://localhost:12310/api`
+  - WhisperX: `POST /api/whisperx/transcribe`
+  - Speaker Embedding: `POST /api/speaker-embedding/*`
 - **Health check**: `http://localhost:12310/api/health`
 - **MCP endpoint**: `http://localhost:12310/mcp`
 
