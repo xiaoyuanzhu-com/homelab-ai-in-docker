@@ -625,7 +625,6 @@ GET /api/libs
 
 Returns built-in libraries/tools available by task. Supports `?task=image-ocr` filter.
 
-Note: `GET /api/skills` is deprecated and will be removed in a future release. Use `/api/models` and `/api/libs` instead.
 
 ### Task Options (Unified)
 

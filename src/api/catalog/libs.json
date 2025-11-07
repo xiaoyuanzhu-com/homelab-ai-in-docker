@@ -1,0 +1,30 @@
+{
+  "libs": [
+    {
+      "id": "paddleocr/pp-ocrv5",
+      "label": "PP-OCRv5",
+      "provider": "PaddlePaddle",
+      "tasks": ["image-ocr"],
+      "architecture": "paddleocr-legacy",
+      "default_prompt": null,
+      "platform_requirements": "Included with container; downloads PaddleOCR assets on first use.",
+      "supports_markdown": false,
+      "requires_quantization": false,
+      "requires_download": false,
+      "reference_url": "https://github.com/PaddlePaddle/PaddleOCR"
+    },
+    {
+      "id": "crawl4ai/async-webcrawler",
+      "label": "Crawl4AI",
+      "provider": "Crawl4AI",
+      "tasks": ["web-crawling"],
+      "architecture": "crawl4ai",
+      "default_prompt": null,
+      "platform_requirements": "Included with container; Playwright browsers pre-installed at build time.",
+      "supports_markdown": true,
+      "requires_quantization": false,
+      "requires_download": false,
+      "reference_url": "https://github.com/unclecode/crawl4ai"
+    }
+  ]
+}

@@ -15,12 +15,25 @@ export default function LibsPage() {
   const fetchLibs = async () => {
     try {
       const response = await fetch("/api/libs");
-      if (!response.ok) throw new Error("Failed to fetch libs");
+      if (!response.ok) {
+        try {
+          const err = await response.json();
+          throw new Error(err?.detail || "Failed to fetch libs");
+        } catch {
+          const text = await response.text();
+          throw new Error(text || `HTTP ${response.status}`);
+        }
+      }
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const text = await response.text();
+        throw new Error(`Unexpected response (not JSON): ${text.slice(0, 200)}`);
+      }
       const data: LibsResponse = await response.json();
       setLibs(data.libs);
     } catch (error) {
       console.error("Failed to fetch libs:", error);
-      toast.error("Failed to load libs");
+      toast.error("Failed to load libs", { description: error instanceof Error ? error.message : String(error) });
     } finally {
       setLoading(false);
     }
@@ -103,4 +116,3 @@ export default function LibsPage() {
     </div>
   );
 }
-

@@ -1,12 +1,10 @@
 {
-  "skills": [
+  "models": [
     {
       "id": "sentence-transformers/all-MiniLM-L6-v2",
       "label": "all-MiniLM-L6-v2",
       "provider": "sentence-transformers",
-      "tasks": [
-        "feature-extraction"
-      ],
+      "tasks": ["feature-extraction"],
       "architecture": null,
       "default_prompt": null,
       "supports_markdown": false,
@@ -24,9 +22,7 @@
       "id": "BAAI/bge-large-en-v1.5",
       "label": "bge-large-en-v1.5",
       "provider": "BAAI",
-      "tasks": [
-        "feature-extraction"
-      ],
+      "tasks": ["feature-extraction"],
       "architecture": null,
       "default_prompt": null,
       "supports_markdown": false,
@@ -44,9 +40,7 @@
       "id": "Salesforce/blip-image-captioning-base",
       "label": "blip-image-captioning-base",
       "provider": "Salesforce",
-      "tasks": [
-        "image-captioning"
-      ],
+      "tasks": ["image-captioning"],
       "architecture": "blip",
       "default_prompt": null,
       "supports_markdown": false,
@@ -63,9 +57,7 @@
       "id": "Salesforce/blip-image-captioning-large",
       "label": "blip-image-captioning-large",
       "provider": "Salesforce",
-      "tasks": [
-        "image-captioning"
-      ],
+      "tasks": ["image-captioning"],
       "architecture": "blip",
       "default_prompt": null,
       "supports_markdown": false,
@@ -82,9 +74,7 @@
       "id": "Salesforce/blip2-opt-2.7b",
       "label": "blip2-opt-2.7b",
       "provider": "Salesforce",
-      "tasks": [
-        "image-captioning"
-      ],
+      "tasks": ["image-captioning"],
       "architecture": "blip2",
       "default_prompt": "Question: What is in this image? Answer:",
       "supports_markdown": false,
@@ -101,9 +91,7 @@
       "id": "deepseek-ai/DeepSeek-OCR",
       "label": "DeepSeek-OCR",
       "provider": "deepseek-ai",
-      "tasks": [
-        "image-ocr"
-      ],
+      "tasks": ["image-ocr"],
       "architecture": "deepseek",
       "default_prompt": null,
       "supports_markdown": true,
@@ -120,9 +108,7 @@
       "id": "intfloat/e5-large-v2",
       "label": "E5-large-v2",
       "provider": "intfloat",
-      "tasks": [
-        "feature-extraction"
-      ],
+      "tasks": ["feature-extraction"],
       "architecture": null,
       "default_prompt": null,
       "supports_markdown": false,
@@ -140,9 +126,7 @@
       "id": "pyannote/embedding",
       "label": "embedding",
       "provider": "pyannote",
-      "tasks": [
-        "speaker-embedding"
-      ],
+      "tasks": ["speaker-embedding"],
       "architecture": "pyannote",
       "default_prompt": null,
       "supports_markdown": false,
@@ -159,9 +143,7 @@
       "id": "google/gemma-3-1b-it",
       "label": "gemma-3-1b-it",
       "provider": "google",
-      "tasks": [
-        "text-generation"
-      ],
+      "tasks": ["text-generation"],
       "architecture": "gemma2",
       "default_prompt": null,
       "supports_markdown": false,
@@ -178,9 +160,7 @@
       "id": "ibm-granite/granite-docling-258M",
       "label": "granite-docling-258M",
       "provider": "ibm-granite",
-      "tasks": [
-        "image-ocr"
-      ],
+      "tasks": ["image-ocr"],
       "architecture": "granite-docling",
       "default_prompt": "Convert this page to markdown.",
       "supports_markdown": true,
@@ -197,9 +177,7 @@
       "id": "Alibaba-NLP/gte-large-en-v1.5",
       "label": "gte-large-en-v1.5",
       "provider": "Alibaba-NLP",
-      "tasks": [
-        "feature-extraction"
-      ],
+      "tasks": ["feature-extraction"],
       "architecture": null,
       "default_prompt": null,
       "supports_markdown": false,
@@ -217,9 +195,7 @@
       "id": "jinaai/jina-embeddings-v3",
       "label": "jina-embeddings-v3",
       "provider": "jinaai",
-      "tasks": [
-        "feature-extraction"
-      ],
+      "tasks": ["feature-extraction"],
       "architecture": null,
       "default_prompt": null,
       "supports_markdown": false,
@@ -237,9 +213,7 @@
       "id": "unsloth/llava-1.5-7b-hf-bnb-4bit",
       "label": "llava-1.5-7b-hf-bnb-4bit",
       "provider": "unsloth",
-      "tasks": [
-        "image-captioning"
-      ],
+      "tasks": ["image-captioning"],
       "architecture": "llava",
       "default_prompt": "USER: <image>\nDescribe this image in detail.\nASSISTANT:",
       "supports_markdown": false,
@@ -256,9 +230,7 @@
       "id": "unsloth/llava-v1.6-mistral-7b-hf-bnb-4bit",
       "label": "llava-v1.6-mistral-7b-hf-bnb-4bit",
       "provider": "unsloth",
-      "tasks": [
-        "image-captioning"
-      ],
+      "tasks": ["image-captioning"],
       "architecture": "llava_next",
       "default_prompt": "USER: <image>\nDescribe this image in detail.\nASSISTANT:",
       "supports_markdown": false,
@@ -275,9 +247,7 @@
       "id": "opendatalab/MinerU2.5-2509-1.2B",
       "label": "MinerU2.5-2509-1.2B",
       "provider": "opendatalab",
-      "tasks": [
-        "image-ocr"
-      ],
+      "tasks": ["image-ocr"],
       "architecture": "mineru",
       "default_prompt": null,
       "supports_markdown": false,
@@ -291,50 +261,10 @@
       "platform_requirements": "Works with transformers >= 4.46.3 (use torch_dtype for versions < 4.56.0)"
     },
     {
-      "id": "paddleocr/pp-ocrv5",
-      "label": "PP-OCRv5",
-      "provider": "PaddlePaddle",
-      "tasks": [
-        "image-ocr"
-      ],
-      "architecture": "paddleocr-legacy",
-      "default_prompt": null,
-      "platform_requirements": "Included with container; downloads PaddleOCR assets on first use.",
-      "supports_markdown": false,
-      "requires_quantization": false,
-      "requires_download": false,
-      "hf_model": null,
-      "reference_url": "https://github.com/PaddlePaddle/PaddleOCR",
-      "size_mb": null,
-      "parameters_m": null,
-      "gpu_memory_mb": null
-    },
-    {
-      "id": "crawl4ai/async-webcrawler",
-      "label": "Crawl4AI",
-      "provider": "Crawl4AI",
-      "tasks": [
-        "web-crawling"
-      ],
-      "architecture": "crawl4ai",
-      "default_prompt": null,
-      "platform_requirements": "Included with container; Playwright browsers pre-installed at build time.",
-      "supports_markdown": true,
-      "requires_quantization": false,
-      "requires_download": false,
-      "hf_model": null,
-      "reference_url": "https://github.com/unclecode/crawl4ai",
-      "size_mb": null,
-      "parameters_m": null,
-      "gpu_memory_mb": null
-    },
-    {
       "id": "Qwen/Qwen3-0.6B",
       "label": "Qwen3-0.6B",
       "provider": "Qwen",
-      "tasks": [
-        "text-generation"
-      ],
+      "tasks": ["text-generation"],
       "architecture": "qwen2",
       "default_prompt": null,
       "supports_markdown": false,
@@ -351,9 +281,7 @@
       "id": "Qwen/Qwen3-Embedding-0.6B",
       "label": "Qwen3-Embedding-0.6B",
       "provider": "Qwen",
-      "tasks": [
-        "feature-extraction"
-      ],
+      "tasks": ["feature-extraction"],
       "architecture": null,
       "default_prompt": null,
       "supports_markdown": false,
@@ -371,9 +299,7 @@
       "id": "pyannote/segmentation-3.0",
       "label": "segmentation-3.0",
       "provider": "pyannote",
-      "tasks": [
-        "automatic-speech-recognition"
-      ],
+      "tasks": ["automatic-speech-recognition"],
       "architecture": "pyannote",
       "default_prompt": null,
       "supports_markdown": false,
@@ -390,9 +316,7 @@
       "id": "pyannote/speaker-diarization-3.1",
       "label": "speaker-diarization-3.1",
       "provider": "pyannote",
-      "tasks": [
-        "automatic-speech-recognition"
-      ],
+      "tasks": ["automatic-speech-recognition"],
       "architecture": "pyannote",
       "default_prompt": null,
       "supports_markdown": false,
@@ -409,9 +333,7 @@
       "id": "openai/whisper-large-v3",
       "label": "whisper-large-v3",
       "provider": "openai",
-      "tasks": [
-        "automatic-speech-recognition"
-      ],
+      "tasks": ["automatic-speech-recognition"],
       "architecture": "whisper",
       "default_prompt": null,
       "supports_markdown": false,
@@ -428,9 +350,7 @@
       "id": "openai/whisper-large-v3-turbo",
       "label": "whisper-large-v3-turbo",
       "provider": "openai",
-      "tasks": [
-        "automatic-speech-recognition"
-      ],
+      "tasks": ["automatic-speech-recognition"],
       "architecture": "whisper",
       "default_prompt": null,
       "supports_markdown": false,

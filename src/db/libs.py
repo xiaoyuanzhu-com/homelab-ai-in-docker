@@ -9,36 +9,50 @@ from typing import Any, Dict, Iterable, Optional, Sequence
 from .db_config import get_db
 
 
+def _create_libs_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS libs (
+            id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            tasks TEXT NOT NULL,
+            architecture TEXT,
+            default_prompt TEXT,
+            platform_requirements TEXT,
+            supports_markdown INTEGER DEFAULT 0,
+            requires_quantization INTEGER DEFAULT 0,
+            requires_download INTEGER DEFAULT 0,
+            reference_url TEXT,
+            status TEXT NOT NULL DEFAULT 'ready',
+            downloaded_size_mb INTEGER,
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_libs_status
+        ON libs(status)
+        """
+    )
+
+
 def init_libs_table() -> None:
     with get_db() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS libs (
-                id TEXT PRIMARY KEY,
-                label TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                tasks TEXT NOT NULL,
-                architecture TEXT,
-                default_prompt TEXT,
-                platform_requirements TEXT,
-                supports_markdown INTEGER DEFAULT 0,
-                requires_quantization INTEGER DEFAULT 0,
-                requires_download INTEGER DEFAULT 0,
-                reference_url TEXT,
-                status TEXT NOT NULL DEFAULT 'ready',
-                downloaded_size_mb INTEGER,
-                error_message TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_libs_status
-            ON libs(status)
-            """
-        )
+        _create_libs_schema(conn)
+        # Verify schema; if mismatched, drop and recreate
+        try:
+            cur = conn.execute("PRAGMA table_info(libs)")
+            cols = {row[1] for row in cur.fetchall()}
+        except Exception:
+            cols = set()
+        required = {"id", "label", "provider", "tasks", "status"}
+        if not required.issubset(cols):
+            conn.execute("DROP TABLE IF EXISTS libs")
+            _create_libs_schema(conn)
 
 
 def _tasks_to_json(tasks: Sequence[str]) -> str:
@@ -164,4 +178,3 @@ def list_libs(task: Optional[str] = None) -> list[Dict[str, Any]]:
 def get_lib_dict2(lib_id: str) -> Optional[Dict[str, Any]]:
     row = get_lib(lib_id)
     return _row_to_lib(row) if row is not None else None
-

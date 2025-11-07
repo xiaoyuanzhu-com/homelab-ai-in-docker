@@ -161,66 +161,82 @@ async def lifespan(app: FastAPI):
         from src.storage.history import history_storage
         # history_storage.__init__() already called on import, table created
 
-        # Load catalog manifest (unified list; classified into models/libs)
-        catalog_manifest_path = Path(__file__).parent / "src" / "api" / "catalog" / "catalog.json"
-        legacy_skills_manifest_path = Path(__file__).parent / "src" / "api" / "skills" / "skills_manifest.json"
-        manifest_path = catalog_manifest_path if catalog_manifest_path.exists() else legacy_skills_manifest_path
-        if manifest_path.exists():
+        # Load catalog manifests (separate models and libs)
+        models_manifest_path = Path(__file__).parent / "src" / "api" / "catalog" / "models.json"
+        libs_manifest_path = Path(__file__).parent / "src" / "api" / "catalog" / "libs.json"
+
+        # Models
+        if models_manifest_path.exists():
             try:
-                with open(manifest_path, "r", encoding="utf-8") as f:
-                    catalog_manifest = json.load(f)
+                with open(models_manifest_path, "r", encoding="utf-8") as f:
+                    models_manifest = json.load(f)
             except Exception as e:
-                logger.error(f"Failed to load catalog manifest: {e}")
+                logger.error(f"Failed to load models manifest: {e}")
             else:
-                item_count = 0
-                for item in catalog_manifest.get("skills", []):
-                    is_model = bool(item.get("hf_model")) or item.get("requires_download", True)
+                m_count = 0
+                for item in models_manifest.get("models", []):
                     try:
-                        if is_model:
-                            upsert_model(
-                                model_id=item["id"],
-                                label=item["label"],
-                                provider=item.get("provider", ""),
-                                tasks=item.get("tasks", []),
-                                architecture=item.get("architecture"),
-                                default_prompt=item.get("default_prompt"),
-                                platform_requirements=item.get("platform_requirements"),
-                                supports_markdown=item.get("supports_markdown", False),
-                                requires_quantization=item.get("requires_quantization", False),
-                                requires_download=item.get("requires_download", True),
-                                hf_model=item.get("hf_model"),
-                                reference_url=item.get("reference_url"),
-                                size_mb=item.get("size_mb"),
-                                parameters_m=item.get("parameters_m"),
-                                gpu_memory_mb=item.get("gpu_memory_mb"),
-                                dimensions=item.get("dimensions"),
-                                initial_status=DownloadStatus.INIT if item.get("requires_download", True) else DownloadStatus.READY,
-                            )
-                        else:
-                            upsert_lib(
-                                lib_id=item["id"],
-                                label=item["label"],
-                                provider=item.get("provider", ""),
-                                tasks=item.get("tasks", []),
-                                architecture=item.get("architecture"),
-                                default_prompt=item.get("default_prompt"),
-                                platform_requirements=item.get("platform_requirements"),
-                                supports_markdown=item.get("supports_markdown", False),
-                                requires_quantization=item.get("requires_quantization", False),
-                                requires_download=item.get("requires_download", False),
-                                reference_url=item.get("reference_url"),
-                                size_mb=item.get("size_mb"),
-                                parameters_m=item.get("parameters_m"),
-                                gpu_memory_mb=item.get("gpu_memory_mb"),
-                                dimensions=item.get("dimensions"),
-                                initial_status="ready",
-                            )
-                        item_count += 1
+                        upsert_model(
+                            model_id=item["id"],
+                            label=item["label"],
+                            provider=item.get("provider", ""),
+                            tasks=item.get("tasks", []),
+                            architecture=item.get("architecture"),
+                            default_prompt=item.get("default_prompt"),
+                            platform_requirements=item.get("platform_requirements"),
+                            supports_markdown=item.get("supports_markdown", False),
+                            requires_quantization=item.get("requires_quantization", False),
+                            requires_download=item.get("requires_download", True),
+                            hf_model=item.get("hf_model"),
+                            reference_url=item.get("reference_url"),
+                            size_mb=item.get("size_mb"),
+                            parameters_m=item.get("parameters_m"),
+                            gpu_memory_mb=item.get("gpu_memory_mb"),
+                            dimensions=item.get("dimensions"),
+                            initial_status=DownloadStatus.INIT if item.get("requires_download", True) else DownloadStatus.READY,
+                        )
+                        m_count += 1
                     except Exception as e:
-                        logger.warning(f"Failed to upsert catalog item '{item.get('id')}': {e}")
-                logger.info(f"Loaded {item_count} items from catalog into database")
+                        logger.warning(f"Failed to upsert model '{item.get('id')}': {e}")
+                logger.info(f"Loaded {m_count} models from manifest into database")
         else:
-            logger.warning(f"Catalog manifest not found at {catalog_manifest_path} (or legacy {legacy_skills_manifest_path})")
+            logger.warning(f"Models manifest not found at {models_manifest_path}")
+
+        # Libs
+        if libs_manifest_path.exists():
+            try:
+                with open(libs_manifest_path, "r", encoding="utf-8") as f:
+                    libs_manifest = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load libs manifest: {e}")
+            else:
+                l_count = 0
+                for item in libs_manifest.get("libs", []):
+                    try:
+                        upsert_lib(
+                            lib_id=item["id"],
+                            label=item["label"],
+                            provider=item.get("provider", ""),
+                            tasks=item.get("tasks", []),
+                            architecture=item.get("architecture"),
+                            default_prompt=item.get("default_prompt"),
+                            platform_requirements=item.get("platform_requirements"),
+                            supports_markdown=item.get("supports_markdown", False),
+                            requires_quantization=item.get("requires_quantization", False),
+                            requires_download=item.get("requires_download", False),
+                            reference_url=item.get("reference_url"),
+                            size_mb=item.get("size_mb"),
+                            parameters_m=item.get("parameters_m"),
+                            gpu_memory_mb=item.get("gpu_memory_mb"),
+                            dimensions=item.get("dimensions"),
+                            initial_status="ready",
+                        )
+                        l_count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to upsert lib '{item.get('id')}': {e}")
+                logger.info(f"Loaded {l_count} libs from manifest into database")
+        else:
+            logger.warning(f"Libs manifest not found at {libs_manifest_path}")
 
         # Start background task for periodic model cleanup
         cleanup_task = asyncio.create_task(periodic_model_cleanup())

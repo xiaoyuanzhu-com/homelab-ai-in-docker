@@ -10,41 +10,62 @@ from .db_config import get_db
 from .status import DownloadStatus
 
 
+def _create_models_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS models (
+            id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            tasks TEXT NOT NULL,
+            architecture TEXT,
+            default_prompt TEXT,
+            platform_requirements TEXT,
+            supports_markdown INTEGER DEFAULT 0,
+            requires_quantization INTEGER DEFAULT 0,
+            requires_download INTEGER DEFAULT 1,
+            hf_model TEXT,
+            reference_url TEXT,
+            size_mb INTEGER,
+            parameters_m INTEGER,
+            gpu_memory_mb INTEGER,
+            dimensions INTEGER,
+            status TEXT NOT NULL DEFAULT 'init',
+            downloaded_size_mb INTEGER,
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_models_status
+        ON models(status)
+        """
+    )
+
+
 def init_models_table() -> None:
     with get_db() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS models (
-                id TEXT PRIMARY KEY,
-                label TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                tasks TEXT NOT NULL,
-                architecture TEXT,
-                default_prompt TEXT,
-                platform_requirements TEXT,
-                supports_markdown INTEGER DEFAULT 0,
-                requires_quantization INTEGER DEFAULT 0,
-                requires_download INTEGER DEFAULT 1,
-                hf_model TEXT,
-                reference_url TEXT,
-                size_mb INTEGER,
-                parameters_m INTEGER,
-                gpu_memory_mb INTEGER,
-                dimensions INTEGER,
-                status TEXT NOT NULL DEFAULT 'init',
-                downloaded_size_mb INTEGER,
-                error_message TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_models_status
-            ON models(status)
-            """
-        )
+        # Create if not exists
+        _create_models_schema(conn)
+        # Verify schema; if mismatched (e.g., missing 'label'), drop and recreate (fresh impl)
+        try:
+            cur = conn.execute("PRAGMA table_info(models)")
+            cols = {row[1] for row in cur.fetchall()}
+        except Exception:
+            cols = set()
+        required = {
+            "id",
+            "label",
+            "provider",
+            "tasks",
+            "status",
+        }
+        if not required.issubset(cols):
+            conn.execute("DROP TABLE IF EXISTS models")
+            _create_models_schema(conn)
 
 
 def _tasks_to_json(tasks: Sequence[str]) -> str:
@@ -209,4 +230,3 @@ def list_models(task: Optional[str] = None) -> list[Dict[str, Any]]:
 def get_model_dict2(model_id: str) -> Optional[Dict[str, Any]]:
     row = get_model(model_id)
     return _row_to_model(row) if row is not None else None
-

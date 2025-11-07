@@ -35,12 +35,26 @@ export default function ModelsPage() {
   const fetchModels = async () => {
     try {
       const response = await fetch("/api/models");
-      if (!response.ok) throw new Error("Failed to fetch models");
+      if (!response.ok) {
+        // Try to extract JSON error; fallback to text
+        try {
+          const err = await response.json();
+          throw new Error(err?.detail || "Failed to fetch models");
+        } catch {
+          const text = await response.text();
+          throw new Error(text || `HTTP ${response.status}`);
+        }
+      }
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const text = await response.text();
+        throw new Error(`Unexpected response (not JSON): ${text.slice(0, 200)}`);
+      }
       const data: ModelsResponse = await response.json();
       setModels(data.models);
     } catch (error) {
       console.error("Failed to fetch models:", error);
-      toast.error("Failed to load models");
+      toast.error("Failed to load models", { description: error instanceof Error ? error.message : String(error) });
     } finally {
       setLoading(false);
     }
@@ -272,4 +286,3 @@ export default function ModelsPage() {
     </div>
   );
 }
-
