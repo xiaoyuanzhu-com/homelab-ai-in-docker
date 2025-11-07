@@ -14,7 +14,7 @@ import torch
 from ..models.text_to_embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
 from ...config import get_data_dir, get_hf_endpoint
-from ...db.skills import get_skill_dict
+from ...db.catalog import get_model_dict
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
     """
     Get or load the embedding model.
 
-    Models downloaded via skills API are stored at: data/models/{org}/{model}
+    Models downloaded are stored at: data/models/{org}/{model}
     Falls back to downloading from HuggingFace if not found locally.
 
     Args:
@@ -115,10 +115,10 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
 
     # Load model if not cached or if different model requested
     if _model_cache is None or target_model != _current_model_name:
-        # Get skill info from database
-        skill = get_skill_dict(target_model)
-        if skill is None:
-            raise ValueError(f"Skill '{target_model}' not found in database")
+        # Get model info from catalog
+        model_info = get_model_dict(target_model)
+        if model_info is None:
+            raise ValueError(f"Model '{target_model}' not found in catalog")
 
         # Set HuggingFace endpoint for model loading
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()

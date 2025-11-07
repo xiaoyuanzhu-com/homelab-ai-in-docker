@@ -191,7 +191,17 @@ POST /api/image-ocr
 ```json
 {
   "image": "base64-encoded-image-data",
-  "model": "PaddlePaddle/PaddleOCR",
+  "model": "deepseek-ai/DeepSeek-OCR",
+  "output_format": "markdown"
+}
+```
+
+or using a library engine:
+
+```json
+{
+  "image": "base64-encoded-image-data",
+  "lib": "paddleocr/pp-ocrv5",
   "language": "en",
   "output_format": "text"
 }
@@ -202,12 +212,12 @@ POST /api/image-ocr
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `image` | string | Yes | Base64-encoded image data |
-| `model` | string | Yes | Model ID (see available models below) |
+| `model` | string | No | Model ID (use `/api/models?task=image-ocr`) |
+| `lib` | string | No | Lib ID (use `/api/libs?task=image-ocr`) |
 | `language` | string | No | Language hint ('en', 'zh', 'auto', etc.) |
 | `output_format` | string | No | 'text' or 'markdown' (default: 'text') |
 
-**Available Models:**
-- `PaddlePaddle/PaddleOCR` - Multi-language OCR
+Exactly one of `model` or `lib` must be provided.
 - `PaddlePaddle/PaddleOCR-VL` - Vision-language OCR with markdown support
 - `deepseek-ai/DeepSeek-VL2-Tiny` - Advanced OCR with markdown support
 
@@ -599,13 +609,59 @@ Implementation notes
 
 ## Management Endpoints
 
-### List Available Skills
+### List Available Models
 
 ```
-GET /api/skills
+GET /api/models
 ```
 
-Returns all available AI models/skills with their configurations, download status, and capabilities.
+Returns all downloadable AI models with their configurations, download status, and capabilities. Supports `?task=image-ocr` filter.
+
+### List Available Libs
+
+```
+GET /api/libs
+```
+
+Returns built-in libraries/tools available by task. Supports `?task=image-ocr` filter.
+
+Note: `GET /api/skills` is deprecated and will be removed in a future release. Use `/api/models` and `/api/libs` instead.
+
+### Task Options (Unified)
+
+```
+GET /api/task-options?task={task}
+```
+
+Returns a unified list of choices for a task, combining models and libs. Each option has a `type` field (`model` or `lib`).
+
+Response
+
+```json
+{
+  "task": "image-ocr",
+  "options": [
+    {
+      "id": "deepseek-ai/DeepSeek-OCR",
+      "label": "DeepSeek-OCR",
+      "provider": "deepseek-ai",
+      "type": "model",
+      "supports_markdown": true,
+      "requires_download": true,
+      "status": "ready"
+    },
+    {
+      "id": "paddleocr/pp-ocrv5",
+      "label": "PP-OCRv5",
+      "provider": "PaddlePaddle",
+      "type": "lib",
+      "supports_markdown": false,
+      "requires_download": false,
+      "status": "ready"
+    }
+  ]
+}
+```
 
 ### Hardware Information
 

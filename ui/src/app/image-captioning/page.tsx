@@ -41,22 +41,22 @@ function ImageCaptionContent() {
   const [prompt, setPrompt] = useState<string>("");
 
   useEffect(() => {
-    // Fetch available skills
+    // Fetch available models
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/skills?task=image-captioning");
+        const response = await fetch("/api/models?task=image-captioning");
         if (!response.ok) {
-          throw new Error("Failed to fetch skills");
+          throw new Error("Failed to fetch models");
         }
         const data = await response.json();
-        // Filter for ready skills only in Try tab
-        const downloadedModels = data.skills.filter(
+        // Filter for ready models only in Try tab
+        const downloadedModels = data.models.filter(
           (s: SkillInfo) => s.status === "ready"
         );
         setAvailableModels(downloadedModels);
 
-        // Check if skill query param is provided
-        const skillParam = searchParams.get("skill");
+        // Check if model or legacy skill query param is provided
+        const skillParam = searchParams.get("skill") || searchParams.get("model");
         let modelToSelect: SkillInfo | null = null;
 
         if (skillParam && downloadedModels.some((s: SkillInfo) => s.id === skillParam)) {
@@ -79,7 +79,7 @@ function ImageCaptionContent() {
         }
       } catch (err) {
         console.error("Error fetching models:", err);
-        toast.error("Failed to load available skills");
+        toast.error("Failed to load available models");
       } finally {
         setModelsLoading(false);
       }

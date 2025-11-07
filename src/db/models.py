@@ -1,28 +1,20 @@
-"""Database schema and helpers for managing skills manifest."""
+"""Database schema and helpers for managing downloadable models."""
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from enum import Enum
-from typing import Any, Dict, Optional, Sequence, Iterable
+from typing import Any, Dict, Iterable, Optional, Sequence
 
 from .db_config import get_db
+from .status import DownloadStatus
 
 
-class SkillStatus(str, Enum):
-    INIT = "init"
-    DOWNLOADING = "downloading"
-    FAILED = "failed"
-    READY = "ready"
-
-
-def init_skills_table() -> None:
-    """Create the skills table (idempotent)."""
+def init_models_table() -> None:
     with get_db() as conn:
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS skills (
+            CREATE TABLE IF NOT EXISTS models (
                 id TEXT PRIMARY KEY,
                 label TEXT NOT NULL,
                 provider TEXT NOT NULL,
@@ -47,29 +39,33 @@ def init_skills_table() -> None:
             )
             """
         )
-
         conn.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_skills_status
-            ON skills(status)
+            CREATE INDEX IF NOT EXISTS idx_models_status
+            ON models(status)
             """
         )
-
-        # Add dimensions column if it doesn't exist (for existing databases)
-        try:
-            conn.execute("ALTER TABLE skills ADD COLUMN dimensions INTEGER")
-        except Exception:
-            # Column already exists
-            pass
 
 
 def _tasks_to_json(tasks: Sequence[str]) -> str:
     return json.dumps(sorted(set(tasks)))
 
 
-def upsert_skill(
+def _deserialize_tasks(raw: Optional[str]) -> list[str]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return data
+    except json.JSONDecodeError:
+        pass
+    return []
+
+
+def upsert_model(
     *,
-    skill_id: str,
+    model_id: str,
     label: str,
     provider: str,
     tasks: Sequence[str],
@@ -85,18 +81,12 @@ def upsert_skill(
     parameters_m: Optional[int] = None,
     gpu_memory_mb: Optional[int] = None,
     dimensions: Optional[int] = None,
-    initial_status: Optional[SkillStatus] = None,
+    initial_status: Optional[DownloadStatus] = None,
 ) -> None:
-    """
-    Insert or update a skill definition.
-
-    The status remains untouched unless `initial_status` is supplied or the record
-    does not yet exist.
-    """
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO skills (
+            INSERT INTO models (
                 id, label, provider, tasks, architecture, default_prompt,
                 platform_requirements, supports_markdown, requires_quantization,
                 requires_download, hf_model, reference_url, size_mb, parameters_m,
@@ -119,13 +109,13 @@ def upsert_skill(
                 gpu_memory_mb = excluded.gpu_memory_mb,
                 dimensions = excluded.dimensions,
                 status = CASE
-                    WHEN skills.status IN ('downloading', 'ready') THEN skills.status
+                    WHEN models.status IN ('downloading', 'ready') THEN models.status
                     ELSE excluded.status
                 END,
                 updated_at = CURRENT_TIMESTAMP
             """,
             (
-                skill_id,
+                model_id,
                 label,
                 provider,
                 _tasks_to_json(tasks),
@@ -141,61 +131,49 @@ def upsert_skill(
                 parameters_m,
                 gpu_memory_mb,
                 dimensions,
-                (initial_status or (SkillStatus.INIT if requires_download else SkillStatus.READY)).value,
+                (initial_status or (DownloadStatus.INIT if requires_download else DownloadStatus.READY)).value,
             ),
         )
 
 
-def get_skill(skill_id: str) -> Optional[sqlite3.Row]:
+def get_model(model_id: str) -> Optional[sqlite3.Row]:
     with get_db() as conn:
-        cursor = conn.execute("SELECT * FROM skills WHERE id = ?", (skill_id,))
-        return cursor.fetchone()
+        cur = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,))
+        return cur.fetchone()
 
 
-def get_all_skills() -> Iterable[sqlite3.Row]:
+def get_all_models() -> Iterable[sqlite3.Row]:
     with get_db() as conn:
-        cursor = conn.execute("SELECT * FROM skills ORDER BY provider, label")
-        return cursor.fetchall()
+        cur = conn.execute("SELECT * FROM models ORDER BY provider, label")
+        return cur.fetchall()
 
 
-def delete_skill(skill_id: str) -> None:
+def delete_model(model_id: str) -> None:
     with get_db() as conn:
-        conn.execute("DELETE FROM skills WHERE id = ?", (skill_id,))
+        conn.execute("DELETE FROM models WHERE id = ?", (model_id,))
 
 
-def update_skill_status(
-    skill_id: str,
-    status: SkillStatus,
+def update_model_status(
+    model_id: str,
+    status: DownloadStatus,
     downloaded_size_mb: Optional[int] = None,
     error_message: Optional[str] = None,
 ) -> None:
     with get_db() as conn:
         conn.execute(
             """
-            UPDATE skills
+            UPDATE models
             SET status = ?,
                 downloaded_size_mb = COALESCE(?, downloaded_size_mb),
                 error_message = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (status.value, downloaded_size_mb, error_message, skill_id),
+            (status.value, downloaded_size_mb, error_message, model_id),
         )
 
 
-def _deserialize_tasks(raw: Optional[str]) -> list[str]:
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-        if isinstance(data, list):
-            return data
-    except json.JSONDecodeError:
-        pass
-    return []
-
-
-def _row_to_skill(row: sqlite3.Row) -> Dict[str, Any]:
+def _row_to_model(row: sqlite3.Row) -> Dict[str, Any]:
     return {
         "id": row["id"],
         "label": row["label"],
@@ -219,17 +197,16 @@ def _row_to_skill(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
-def list_skills(task: Optional[str] = None) -> list[Dict[str, Any]]:
-    rows = get_all_skills()
-    skills = [_row_to_skill(row) for row in rows]
+def list_models(task: Optional[str] = None) -> list[Dict[str, Any]]:
+    rows = get_all_models()
+    items = [_row_to_model(r) for r in rows]
     if task:
-        task_lower = task.lower()
-        skills = [s for s in skills if any(t.lower() == task_lower for t in s["tasks"])]
-    return skills
+        tl = task.lower()
+        items = [s for s in items if any(t.lower() == tl for t in s["tasks"])]
+    return items
 
 
-def get_skill_dict(skill_id: str) -> Optional[Dict[str, Any]]:
-    row = get_skill(skill_id)
-    if row is None:
-        return None
-    return _row_to_skill(row)
+def get_model_dict2(model_id: str) -> Optional[Dict[str, Any]]:
+    row = get_model(model_id)
+    return _row_to_model(row) if row is not None else None
+

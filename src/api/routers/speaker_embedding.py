@@ -53,7 +53,6 @@ def get_model(model_name: str):
     from pyannote.audio import Model, Inference
     from ...db.settings import get_setting
     from ...config import get_hf_endpoint, get_data_dir
-    from ...db.skills import get_skill_dict
 
     # Check for local download at data/models/{org}/{model}
     local_model_dir = get_data_dir() / "models" / model_name

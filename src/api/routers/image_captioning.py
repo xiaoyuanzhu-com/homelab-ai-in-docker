@@ -24,7 +24,7 @@ import torch
 
 from ..models.image_captioning import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
-from ...db.skills import get_skill_dict, list_skills
+from ...db.catalog import get_model_dict, list_models
 
 logger = logging.getLogger(__name__)
 
@@ -49,45 +49,45 @@ _idle_cleanup_task: Optional[asyncio.Task] = None
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
     """
-    Get skill configuration from database.
+    Get model configuration from catalog.
 
     Args:
-        model_id: Skill identifier
+        model_id: Model identifier
 
     Returns:
-        Skill configuration dictionary
+        Model configuration dictionary
 
     Raises:
-        ValueError: If skill not found in database
+        ValueError: If model not found in catalog
     """
-    skill = get_skill_dict(model_id)
+    model = get_model_dict(model_id)
 
-    if skill is None:
-        raise ValueError(f"Skill '{model_id}' not found in database")
+    if model is None:
+        raise ValueError(f"Model '{model_id}' not found in catalog")
 
-    return skill
+    return model
 
 
 def get_available_models() -> list[str]:
     """
-    Load available caption skills from the database.
+    Load available caption models from the catalog.
 
     Returns:
-        List of skill IDs that can be used
+        List of model IDs that can be used
     """
-    caption_skills = list_skills(task="image-captioning")
-    return [skill["id"] for skill in caption_skills]
+    caption_models = list_models(task="image-captioning")
+    return [m["id"] for m in caption_models]
 
 
 def validate_model(model_name: str) -> None:
     """
-    Validate that the skill is supported.
+    Validate that the model is supported.
 
     Args:
-        model_name: Skill identifier to validate
+        model_name: Model identifier to validate
 
     Raises:
-        ValueError: If skill is not supported
+        ValueError: If model is not supported
     """
     available = get_available_models()
     if model_name not in available:

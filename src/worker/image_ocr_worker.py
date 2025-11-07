@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from PIL import Image
 
 from src.inference.ocr import OCRInferenceEngine
-from src.db.skills import get_skill_dict
+from src.db.catalog import get_model_dict, get_lib_dict
 
 
 logger = logging.getLogger("ocr_worker")
@@ -54,10 +54,10 @@ _idle_task: Optional[asyncio.Task] = None
 
 
 def _get_model_config(model_id: str) -> Dict[str, Any]:
-    skill = get_skill_dict(model_id)
-    if skill is None:
-        raise RuntimeError(f"Model '{model_id}' not found in database")
-    return skill
+    cfg = get_model_dict(model_id) or get_lib_dict(model_id)
+    if cfg is None:
+        raise RuntimeError(f"Engine '{model_id}' not found in catalog")
+    return cfg
 
 
 def _decode_image(image_data: str) -> Image.Image:

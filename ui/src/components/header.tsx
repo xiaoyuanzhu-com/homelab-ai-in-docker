@@ -48,13 +48,24 @@ export function Header() {
             </NavigationMenuItem>
             <NavigationMenuItem>
               <Link
-                href="/skills"
+                href="/models"
                 className={cn(
                   navigationMenuTriggerStyle(),
-                  isActive("/skills") && "bg-accent text-accent-foreground"
+                  isActive("/models") && "bg-accent text-accent-foreground"
                 )}
               >
-                Skills
+                Models
+              </Link>
+            </NavigationMenuItem>
+            <NavigationMenuItem>
+              <Link
+                href="/libs"
+                className={cn(
+                  navigationMenuTriggerStyle(),
+                  isActive("/libs") && "bg-accent text-accent-foreground"
+                )}
+              >
+                Libs
               </Link>
             </NavigationMenuItem>
             <NavigationMenuItem>

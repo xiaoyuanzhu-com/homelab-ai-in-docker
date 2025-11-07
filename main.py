@@ -21,12 +21,16 @@ from src.api.routers import (
     speaker_embedding,
     whisperx,
     history,
-    skills,
+    models,
+    libs,
+    task_options,
     hardware,
     settings,
     mcp,
 )
-from src.db.skills import init_skills_table, upsert_skill, SkillStatus
+from src.db.models import init_models_table, upsert_model
+from src.db.libs import init_libs_table, upsert_lib
+from src.db.status import DownloadStatus
 
 # Configure data directories for model caching
 # Use environment variables if set, otherwise default to /haid/data
@@ -140,9 +144,10 @@ async def lifespan(app: FastAPI):
         # Startup
         logger.info("Starting up application...")
 
-        # Initialize database schema (skills, history, download_logs, and settings tables in haid.db)
+        # Initialize database schema (models, libs, history, download_logs, settings)
         logger.info("Initializing database...")
-        init_skills_table()
+        init_models_table()
+        init_libs_table()
 
         # Initialize download logs table
         from src.db.download_logs import init_download_logs_table
@@ -156,40 +161,66 @@ async def lifespan(app: FastAPI):
         from src.storage.history import history_storage
         # history_storage.__init__() already called on import, table created
 
-        # Load skills manifest
-        skills_manifest_path = Path(__file__).parent / "src" / "api" / "skills" / "skills_manifest.json"
-        if skills_manifest_path.exists():
-            with open(skills_manifest_path, "r") as f:
-                skills_manifest = json.load(f)
-
-            skill_count = 0
-            for skill in skills_manifest.get("skills", []):
-                upsert_skill(
-                    skill_id=skill["id"],
-                    label=skill["label"],
-                    provider=skill.get("provider", ""),
-                    tasks=skill.get("tasks", []),
-                    architecture=skill.get("architecture"),
-                    default_prompt=skill.get("default_prompt"),
-                    platform_requirements=skill.get("platform_requirements"),
-                    supports_markdown=skill.get("supports_markdown", False),
-                    requires_quantization=skill.get("requires_quantization", False),
-                    requires_download=skill.get("requires_download", True),
-                    hf_model=skill.get("hf_model"),
-                    reference_url=skill.get("reference_url"),
-                    size_mb=skill.get("size_mb"),
-                    parameters_m=skill.get("parameters_m"),
-                    gpu_memory_mb=skill.get("gpu_memory_mb"),
-                    dimensions=skill.get("dimensions"),
-                    initial_status=(
-                        SkillStatus.READY if not skill.get("requires_download", True) else SkillStatus.INIT
-                    ),
-                )
-                skill_count += 1
-
-            logger.info(f"Loaded {skill_count} skills from manifest into database")
+        # Load catalog manifest (unified list; classified into models/libs)
+        catalog_manifest_path = Path(__file__).parent / "src" / "api" / "catalog" / "catalog.json"
+        legacy_skills_manifest_path = Path(__file__).parent / "src" / "api" / "skills" / "skills_manifest.json"
+        manifest_path = catalog_manifest_path if catalog_manifest_path.exists() else legacy_skills_manifest_path
+        if manifest_path.exists():
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    catalog_manifest = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load catalog manifest: {e}")
+            else:
+                item_count = 0
+                for item in catalog_manifest.get("skills", []):
+                    is_model = bool(item.get("hf_model")) or item.get("requires_download", True)
+                    try:
+                        if is_model:
+                            upsert_model(
+                                model_id=item["id"],
+                                label=item["label"],
+                                provider=item.get("provider", ""),
+                                tasks=item.get("tasks", []),
+                                architecture=item.get("architecture"),
+                                default_prompt=item.get("default_prompt"),
+                                platform_requirements=item.get("platform_requirements"),
+                                supports_markdown=item.get("supports_markdown", False),
+                                requires_quantization=item.get("requires_quantization", False),
+                                requires_download=item.get("requires_download", True),
+                                hf_model=item.get("hf_model"),
+                                reference_url=item.get("reference_url"),
+                                size_mb=item.get("size_mb"),
+                                parameters_m=item.get("parameters_m"),
+                                gpu_memory_mb=item.get("gpu_memory_mb"),
+                                dimensions=item.get("dimensions"),
+                                initial_status=DownloadStatus.INIT if item.get("requires_download", True) else DownloadStatus.READY,
+                            )
+                        else:
+                            upsert_lib(
+                                lib_id=item["id"],
+                                label=item["label"],
+                                provider=item.get("provider", ""),
+                                tasks=item.get("tasks", []),
+                                architecture=item.get("architecture"),
+                                default_prompt=item.get("default_prompt"),
+                                platform_requirements=item.get("platform_requirements"),
+                                supports_markdown=item.get("supports_markdown", False),
+                                requires_quantization=item.get("requires_quantization", False),
+                                requires_download=item.get("requires_download", False),
+                                reference_url=item.get("reference_url"),
+                                size_mb=item.get("size_mb"),
+                                parameters_m=item.get("parameters_m"),
+                                gpu_memory_mb=item.get("gpu_memory_mb"),
+                                dimensions=item.get("dimensions"),
+                                initial_status="ready",
+                            )
+                        item_count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to upsert catalog item '{item.get('id')}': {e}")
+                logger.info(f"Loaded {item_count} items from catalog into database")
         else:
-            logger.warning(f"Skills manifest not found at {skills_manifest_path}")
+            logger.warning(f"Catalog manifest not found at {catalog_manifest_path} (or legacy {legacy_skills_manifest_path})")
 
         # Start background task for periodic model cleanup
         cleanup_task = asyncio.create_task(periodic_model_cleanup())
@@ -318,7 +349,9 @@ app.include_router(automatic_speech_recognition.router)
 app.include_router(speaker_embedding.router)
 app.include_router(whisperx.router)
 app.include_router(history.router)
-app.include_router(skills.router)
+app.include_router(models.router)
+app.include_router(libs.router)
+app.include_router(task_options.router)
 app.include_router(hardware.router)
 app.include_router(settings.router)
 

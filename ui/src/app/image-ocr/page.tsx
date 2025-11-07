@@ -20,25 +20,14 @@ interface OCRResult {
   output_format: string;
 }
 
-interface SkillInfo {
+type ChoiceType = "model" | "lib";
+interface ChoiceInfo {
   id: string;
   label: string;
   provider: string;
-  tasks: string[];
-  architecture?: string;
-  default_prompt?: string;
-  platform_requirements?: string;
   supports_markdown: boolean;
-  requires_quantization: boolean;
-  requires_download: boolean;
-  hf_model?: string;
-  reference_url?: string;
-  size_mb?: number;
-  parameters_m?: number;
-  gpu_memory_mb?: number;
   status: string;
-  downloaded_size_mb?: number;
-  error_message?: string;
+  type: ChoiceType;
 }
 
 function ImageOCRContent() {
@@ -48,54 +37,60 @@ function ImageOCRContent() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<OCRResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>("");
-  const [availableModels, setAvailableModels] = useState<SkillInfo[]>([]);
+  const [selectedChoice, setSelectedChoice] = useState<string>("");
+  const [choices, setChoices] = useState<ChoiceInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [outputFormat, setOutputFormat] = useState<"text" | "markdown">("text");
   const [viewMode, setViewMode] = useState<"raw" | "rendered">("rendered");
 
   useEffect(() => {
-    // Fetch available skills
-    const fetchSkills = async () => {
+    // Fetch available choices via unified task-options endpoint
+    const fetchChoices = async () => {
       try {
-        const response = await fetch("/api/skills?task=image-ocr");
-        if (!response.ok) {
-          throw new Error("Failed to fetch skills");
-        }
-        const data = await response.json();
-        // Filter for ready skills only in Try tab
-        const downloadedSkills = data.skills.filter(
-          (s: SkillInfo) => s.status === "ready"
-        );
-        setAvailableModels(downloadedSkills);
+        const resp = await fetch("/api/task-options?task=image-ocr");
+        if (!resp.ok) throw new Error("Failed to fetch OCR options");
+        const data = await resp.json();
+        const merged: ChoiceInfo[] = (data.options || [])
+          .filter((o: any) => o.status === "ready")
+          .map((o: any) => ({ id: o.id, label: o.label, provider: o.provider, supports_markdown: !!o.supports_markdown, status: o.status, type: o.type }));
+        setChoices(merged);
 
-        // Check if skill query param is provided
+        // Preselect logic: prefer explicit model/lib URL params, then legacy skill param, then first available
+        const modelParam = searchParams.get("model");
+        const libParam = searchParams.get("lib");
         const skillParam = searchParams.get("skill");
-        if (skillParam && downloadedSkills.some((s: SkillInfo) => s.id === skillParam)) {
-          // Pre-select the skill from query param if it exists and is ready
-          setSelectedModel(skillParam);
-        } else if (downloadedSkills.length > 0) {
-          // Otherwise set first downloaded skill as default
-          setSelectedModel(downloadedSkills[0].id);
+        const findChoice = (t: ChoiceType, id: string) => merged.find(c => c.type === t && c.id === id);
+        if (modelParam && findChoice("model", modelParam)) {
+          setSelectedChoice(`model:${modelParam}`);
+        } else if (libParam && findChoice("lib", libParam)) {
+          setSelectedChoice(`lib:${libParam}`);
+        } else if (skillParam) {
+          const m = findChoice("model", skillParam);
+          const l = findChoice("lib", skillParam);
+          if (m) setSelectedChoice(`model:${skillParam}`);
+          else if (l) setSelectedChoice(`lib:${skillParam}`);
+          else if (merged.length > 0) setSelectedChoice(`${merged[0].type}:${merged[0].id}`);
+        } else if (merged.length > 0) {
+          setSelectedChoice(`${merged[0].type}:${merged[0].id}`);
         }
       } catch (err) {
-        console.error("Error fetching skills:", err);
-        toast.error("Failed to load available skills");
+        console.error("Error fetching OCR choices:", err);
+        toast.error("Failed to load available OCR engines");
       } finally {
         setModelsLoading(false);
       }
     };
 
-    fetchSkills();
+    fetchChoices();
   }, [searchParams]);
 
   // Check if selected model supports markdown
   const supportsMarkdown = () => {
-    if (!selectedModel) return false;
-    const model = availableModels.find((m) => m.id === selectedModel);
-    if (!model) return false;
-    // Check the explicit supports_markdown property from the model
-    return model.supports_markdown === true;
+    if (!selectedChoice) return false;
+    const [type, id] = selectedChoice.split(":", 2) as [ChoiceType, string];
+    const choice = choices.find((m) => m.type === type && m.id === id);
+    if (!choice) return false;
+    return choice.supports_markdown === true;
   };
 
   const copyToClipboard = async () => {
@@ -121,7 +116,7 @@ function ImageOCRContent() {
   };
 
   const handleOCR = async () => {
-    if (!imagePreview || !selectedModel) return;
+    if (!imagePreview || !selectedChoice) return;
 
     setLoading(true);
     setError(null);
@@ -136,7 +131,9 @@ function ImageOCRContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           image: base64Data,
-          model: selectedModel,
+          ...(selectedChoice.startsWith("model:")
+            ? { model: selectedChoice.split(":", 2)[1] }
+            : { lib: selectedChoice.split(":", 2)[1] }),
           output_format: outputFormat,
         }),
       });
@@ -173,13 +170,17 @@ function ImageOCRContent() {
     }
   };
 
-  const modelOptions = availableModels.map((skill) => ({
-    value: skill.id,
-    label: `${skill.label} (${skill.provider})`,
+  const modelOptions = choices.map((c) => ({
+    value: `${c.type}:${c.id}`,
+    label: `${c.label} (${c.provider}) [${c.type}]`,
   }));
 
   const requestPayload = {
-    model: selectedModel || null,
+    ...(selectedChoice?.startsWith("model:")
+      ? { model: selectedChoice.split(":", 2)[1] }
+      : selectedChoice
+      ? { lib: selectedChoice.split(":", 2)[1] }
+      : { model: null }),
     output_format: outputFormat,
     image: imagePreview ? `<base64 data, ${Math.round(imagePreview.length / 1024)}KB>` : null,
   };
@@ -189,14 +190,14 @@ function ImageOCRContent() {
   const inputContent = (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="model">Model</Label>
+        <Label htmlFor="model">Engine</Label>
         <ModelSelector
-          value={selectedModel}
-          onChange={setSelectedModel}
+          value={selectedChoice}
+          onChange={setSelectedChoice}
           options={modelOptions}
           loading={modelsLoading}
           disabled={loading}
-          emptyMessage="No OCR skills downloaded. Visit the Skills page to install one."
+          emptyMessage="No OCR engines ready. Visit Models/Libs to set them up."
         />
       </div>
 
@@ -321,7 +322,7 @@ function ImageOCRContent() {
           footer: (
             <Button
               onClick={handleOCR}
-              disabled={!imagePreview || !selectedModel || loading}
+              disabled={!imagePreview || !selectedChoice || loading}
               className="w-full"
             >
               {loading ? (

@@ -31,7 +31,7 @@ class WhisperXTranscriptionRequest(BaseModel):
         default="large-v3",
         description=(
             "Whisper model identifier for WhisperX (e.g., 'large-v3', 'small.en'). "
-            "This is independent of skills DB."
+            "This is independent of the catalog DB."
         ),
     )
     language: Optional[str] = Field(
@@ -61,4 +61,3 @@ class WhisperXTranscriptionResponse(BaseResponse):
         default_factory=list,
         description="Aligned segments with optional speaker and word info",
     )
-

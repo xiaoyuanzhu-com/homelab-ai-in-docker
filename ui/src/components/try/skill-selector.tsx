@@ -30,7 +30,7 @@ export function SkillSelector({
   loading,
   disabled,
   placeholder = "Select a skill",
-  emptyMessage = "No skills available. Download a skill first.",
+  emptyMessage = "No models available. Download a model first.",
   emptyContent,
 }: SkillSelectorProps) {
   if (loading) {

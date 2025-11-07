@@ -1,4 +1,4 @@
-export interface SkillInfo {
+export interface LibInfo {
   id: string;
   label: string;
   provider: string;
@@ -10,18 +10,15 @@ export interface SkillInfo {
   requires_quantization?: boolean;
   requires_download: boolean;
   status: "init" | "downloading" | "failed" | "ready";
-  hf_model?: string | null;
   reference_url?: string | null;
-  size_mb?: number | null;
-  parameters_m?: number | null;
-  gpu_memory_mb?: number | null;
   downloaded_size_mb?: number | null;
   error_message?: string | null;
 }
 
-export interface SkillsResponse {
-  skills: SkillInfo[];
+export interface LibsResponse {
+  libs: LibInfo[];
 }
 
-export const isSkillReady = (skill: SkillInfo): boolean =>
-  !skill.requires_download || skill.status === "ready";
+export const isLibReady = (l: LibInfo): boolean =>
+  !l.requires_download || l.status === "ready";
+

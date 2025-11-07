@@ -35,17 +35,17 @@ function EmbeddingContent() {
     // Load available models
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/skills?task=feature-extraction");
-        if (!response.ok) throw new Error("Failed to fetch skills");
+        const response = await fetch("/api/models?task=feature-extraction");
+        if (!response.ok) throw new Error("Failed to fetch models");
         const data = await response.json();
-        // Filter for ready skills only (task filter already applied)
-        const downloadedModels = data.skills.filter(
+        // Filter for ready models only (task filter already applied)
+        const downloadedModels = data.models.filter(
           (m: EmbeddingModel) => m.status === "ready"
         );
         setAvailableModels(downloadedModels);
 
         // Check if skill query param is provided
-        const skillParam = searchParams.get("skill");
+        const skillParam = searchParams.get("skill") || searchParams.get("model");
         if (skillParam && downloadedModels.some((m: EmbeddingModel) => m.id === skillParam)) {
           // Pre-select the skill from query param if it exists and is ready
           setSelectedModel(skillParam);
@@ -54,7 +54,7 @@ function EmbeddingContent() {
           setSelectedModel(downloadedModels[0].id);
         }
       } catch (err) {
-        console.error("Failed to fetch skills:", err);
+        console.error("Failed to fetch models:", err);
       } finally {
         setModelsLoading(false);
       }

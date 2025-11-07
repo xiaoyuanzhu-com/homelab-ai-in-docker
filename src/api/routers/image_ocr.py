@@ -15,7 +15,7 @@ from PIL import Image
 
 from ..models.image_ocr import OCRRequest, OCRResponse
 from ...storage.history import history_storage
-from ...db.skills import get_skill_dict, list_skills
+from ...db.catalog import list_models, list_libs, get_model_dict, get_lib_dict
 from ...worker.manager import manager as ocr_manager
 
 logger = logging.getLogger(__name__)
@@ -67,55 +67,38 @@ def _install_sigterm_forwarder():
         _sigterm_forwarder_installed = False
 
 
-def get_model_config(model_id: str) -> Dict[str, Any]:
-    """
-    Get skill configuration from database.
-
-    Args:
-        model_id: Skill identifier
-
-    Returns:
-        Skill configuration dictionary
-
-    Raises:
-        ValueError: If skill not found in database
-    """
-    skill = get_skill_dict(model_id)
-
-    if skill is None:
-        raise ValueError(f"Skill '{model_id}' not found in database")
-
-    return skill
+def get_available_choices() -> list[str]:
+    """Return all OCR-capable engines (models + libs)."""
+    ids = [m["id"] for m in list_models(task="image-ocr")]
+    ids += [l["id"] for l in list_libs(task="image-ocr")]
+    return sorted(set(ids))
 
 
-def get_available_models() -> list[str]:
-    """
-    Load available OCR skills from the database.
-
-    Returns:
-        List of skill IDs that can be used
-    """
-    # Filter for image-ocr task
-    ocr_skills = list_skills(task="image-ocr")
-    return [skill["id"] for skill in ocr_skills]
-
-
-def validate_model(model_name: str) -> None:
-    """
-    Validate that the skill is supported.
-
-    Args:
-        model_name: Skill identifier to validate
-
-    Raises:
-        ValueError: If skill is not supported
-    """
-    available = get_available_models()
-    if model_name not in available:
+def validate_engine(engine_id: str) -> None:
+    """Validate that the selected engine (model or lib) is supported."""
+    available = get_available_choices()
+    if engine_id not in available:
         raise ValueError(
-            f"Model '{model_name}' is not supported. "
-            f"Available models: {', '.join(available)}"
+            f"Engine '{engine_id}' is not supported. "
+            f"Available: {', '.join(available)}"
         )
+
+
+def get_model_config(model_id: str) -> Dict[str, Any]:
+    """Return configuration for either a model or a lib by id.
+
+    Kept for compatibility with in-process loading paths; prefers model entries
+    and falls back to lib entries.
+    """
+    d = get_model_dict(model_id) or get_lib_dict(model_id)
+    if d is None:
+        raise ValueError(f"Engine '{model_id}' not found in catalog")
+    return d
+
+
+# Backward-compat alias for legacy code paths
+def validate_model(model_name: str) -> None:  # pragma: no cover - compatibility
+    validate_engine(model_name)
 
 
 def check_and_cleanup_idle_model():
@@ -331,11 +314,13 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
     start_time = time.time()
 
     try:
-        # Validate model exists
-        validate_model(request.model)
+        # Determine selected engine (model or lib) and validate
+        selected = request.model or request.lib  # model_validator ensures exactly one
+        assert selected is not None
+        validate_engine(selected)
         # Use isolated worker manager; pass raw image string (base64 or data URL)
         infer_data = await ocr_manager.infer(
-            request.model,
+            selected,
             request.language,
             request.image,
             request.output_format or "text"
@@ -351,7 +336,7 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
             request_id=request_id,
             processing_time_ms=processing_time_ms,
             text=final_text,
-            model=request.model,
+            model=selected,
             output_format=output_format,
         )
 
@@ -359,7 +344,7 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
         history_storage.add_request(
             service="image-ocr",
             request_id=request_id,
-            request_data={"model": request.model},  # Exclude image
+            request_data={"model": selected},  # Exclude image
             response_data=response.model_dump(),
             status="success",
         )

@@ -63,22 +63,22 @@ function SpeakerEmbeddingContent() {
   const [metric, setMetric] = useState<string>("cosine");
 
   useEffect(() => {
-    // Fetch available skills
+    // Fetch available models
     const fetchModels = async () => {
       try {
-        const response = await fetch("/api/skills?task=speaker-embedding");
+        const response = await fetch("/api/models?task=speaker-embedding");
         if (!response.ok) {
-          throw new Error("Failed to fetch skills");
+          throw new Error("Failed to fetch models");
         }
         const data = await response.json();
-        // Filter for ready skills only in Try tab
-        const downloadedModels = data.skills.filter(
+        // Filter for ready models only in Try tab
+        const downloadedModels = data.models.filter(
           (s: SkillInfo) => s.status === "ready"
         );
         setAvailableModels(downloadedModels);
 
-        // Check if skill query param is provided
-        const skillParam = searchParams.get("skill");
+        // Check if model or legacy skill query param is provided
+        const skillParam = searchParams.get("skill") || searchParams.get("model");
         if (skillParam && downloadedModels.some((s: SkillInfo) => s.id === skillParam)) {
           // Pre-select the skill from query param if it exists and is ready
           setSelectedModel(skillParam);
@@ -88,7 +88,7 @@ function SpeakerEmbeddingContent() {
         }
       } catch (err) {
         console.error("Error fetching models:", err);
-        toast.error("Failed to load available skills");
+        toast.error("Failed to load available models");
       } finally {
         setModelsLoading(false);
       }
@@ -256,7 +256,7 @@ function SpeakerEmbeddingContent() {
           loading={modelsLoading}
           disabled={loading}
           placeholder="Select a model"
-          emptyMessage="No speaker embedding skills downloaded. Visit the Models tab to install one."
+          emptyMessage="No speaker embedding models downloaded. Visit the Models tab to install one."
         />
       </div>
 
@@ -368,7 +368,7 @@ function SpeakerEmbeddingContent() {
           loading={modelsLoading}
           disabled={loading}
           placeholder="Select a model"
-          emptyMessage="No speaker embedding skills downloaded. Visit the Models tab to install one."
+          emptyMessage="No speaker embedding models downloaded. Visit the Models tab to install one."
         />
       </div>
 
