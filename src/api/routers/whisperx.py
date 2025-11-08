@@ -22,7 +22,7 @@ from ..models.whisperx import (
     WhisperXWord,
 )
 from ...db.settings import get_setting, get_setting_int
-from ...config import get_hf_endpoint, get_data_dir
+from ...config import get_hf_endpoint, get_hf_model_cache_path
 from ...storage.history import history_storage
 
 
@@ -143,8 +143,8 @@ def _load_asr_model(model_id: str, device: str, compute_type: Optional[str]):
             f"whisperx is not installed: {e}. Please add 'whisperx' to dependencies."
         )
 
-    # Try to prefer local models if mirrored into data/models/<id>
-    local_dir = get_data_dir() / "models" / model_id
+    # Try to prefer local models if mirrored into HF cache
+    local_dir = get_hf_model_cache_path(model_id)
     model_source: str | None = None
     if local_dir.exists():
         model_source = str(local_dir)
