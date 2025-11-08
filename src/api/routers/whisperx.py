@@ -57,14 +57,16 @@ def _device_and_dtype(compute_type: Optional[str]) -> tuple[str, Optional[str]]:
 
 
 def _ensure_torchaudio_compat() -> None:
-    """Alias torchaudio.io.AudioMetaData to torchaudio.AudioMetaData.
+    """Ensure torchaudio.AudioMetaData is available.
 
-    Keep implementation minimal and let errors bubble up if dependencies
-    are missing or incompatible.
+    In torchaudio <2.9, AudioMetaData is available directly in torchaudio module.
+    This function is a no-op for compatibility, as the class is already accessible.
     """
     import torchaudio  # type: ignore
-    from torchaudio.io import AudioMetaData as _AMD  # type: ignore
-    torchaudio.AudioMetaData = _AMD  # type: ignore[attr-defined]
+    # In torchaudio 2.8.0, AudioMetaData is already available as torchaudio.AudioMetaData
+    # No aliasing needed, just verify it exists
+    if not hasattr(torchaudio, 'AudioMetaData'):
+        raise ImportError("torchaudio.AudioMetaData not found. Ensure torchaudio<2.9 is installed.")
 
 
 
