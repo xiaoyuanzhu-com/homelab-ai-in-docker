@@ -56,6 +56,18 @@ def _device_and_dtype(compute_type: Optional[str]) -> tuple[str, Optional[str]]:
     return device, ("float16" if device == "cuda" else "float32")
 
 
+def _ensure_torchaudio_compat() -> None:
+    """Alias torchaudio.io.AudioMetaData to torchaudio.AudioMetaData.
+
+    Keep implementation minimal and let errors bubble up if dependencies
+    are missing or incompatible.
+    """
+    import torchaudio  # type: ignore
+    from torchaudio.io import AudioMetaData as _AMD  # type: ignore
+    torchaudio.AudioMetaData = _AMD  # type: ignore[attr-defined]
+
+
+
 def check_and_cleanup_idle_model():
     global _last_access_time, _asr_model_cache
     if _asr_model_cache is None or _last_access_time is None:
@@ -136,12 +148,8 @@ def _load_asr_model(model_id: str, device: str, compute_type: Optional[str]):
     if _asr_model_cache is not None and _asr_model_name == model_id:
         return _asr_model_cache
 
-    try:
-        import whisperx  # type: ignore
-    except Exception as e:
-        raise RuntimeError(
-            f"whisperx is not installed: {e}. Please add 'whisperx' to dependencies."
-        )
+    _ensure_torchaudio_compat()
+    import whisperx  # type: ignore
 
     # Try to prefer local models if mirrored into HF cache
     local_dir = get_hf_model_cache_path(model_id)
@@ -168,12 +176,8 @@ def _load_asr_model(model_id: str, device: str, compute_type: Optional[str]):
 
 def _load_align_model(language_code: str, device: str):
     global _align_cache
-    try:
-        import whisperx  # type: ignore
-    except Exception as e:
-        raise RuntimeError(
-            f"whisperx is not installed: {e}. Please add 'whisperx' to dependencies."
-        )
+    _ensure_torchaudio_compat()
+    import whisperx  # type: ignore
 
     if _align_cache and _align_cache[2] == language_code:
         return _align_cache[0], _align_cache[1]
@@ -189,12 +193,8 @@ def _load_align_model(language_code: str, device: str):
 
 def _load_diar_pipeline(device: str):
     global _diar_cache
-    try:
-        import whisperx  # type: ignore
-    except Exception as e:
-        raise RuntimeError(
-            f"whisperx is not installed: {e}. Please add 'whisperx' to dependencies."
-        )
+    _ensure_torchaudio_compat()
+    import whisperx  # type: ignore
 
     if _diar_cache is not None:
         return _diar_cache
@@ -339,4 +339,3 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                 audio_path.unlink()
             except Exception:
                 pass
-

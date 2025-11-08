@@ -12,8 +12,9 @@ dependencies = [
     "playwright-stealth>=1.8.0",
     "pydantic>=2.0.0",
     "sentence-transformers>=3.0.0",
-    "torch>=2.7.0",
-    "torchvision>=0.20.0",
+    # Pin Torch stack and ensure all use the same CUDA build
+    "torch==2.9.0",
+    "torchvision==0.24.0",
     "pillow>=10.0.0",
     "transformers>=4.51.0",
     "tokenizers>=0.20.3",
@@ -34,7 +35,7 @@ dependencies = [
     "librosa>=0.10.0",
     "pyannote.audio>=3.1.0",
     "omegaconf>=2.0.0",
-    "torchaudio>=2.7.0",
+    "torchaudio==2.9.0",
     "whisperx>=3.1.0",
     "mcp>=1.8.0",
     "mkdocs-material>=9.5.0",
@@ -66,6 +67,7 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu126" }
 torchvision = { index = "pytorch-cu126" }
+torchaudio = { index = "pytorch-cu126" }
 flash-attn = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.4.12/flash_attn-2.8.3%2Bcu126torch2.7-cp313-cp313-linux_x86_64.whl" }
 # Custom safetensors build with paddle framework support for PaddleOCR-VL
 safetensors = { url = "https://paddle-whl.bj.bcebos.com/nightly/cu126/safetensors/safetensors-0.6.2.dev0-cp38-abi3-linux_x86_64.whl" }

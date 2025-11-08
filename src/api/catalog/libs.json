@@ -25,6 +25,19 @@
       "requires_quantization": false,
       "requires_download": false,
       "reference_url": "https://github.com/unclecode/crawl4ai"
+    },
+    {
+      "id": "whisperx/whisperx",
+      "label": "WhisperX",
+      "provider": "WhisperX",
+      "tasks": ["automatic-speech-recognition"],
+      "architecture": "whisperx",
+      "default_prompt": null,
+      "platform_requirements": "Included with container (whisperx>=3.1). Optional diarization via pyannote requires HuggingFace token. Alignment/diarization models download on first use.",
+      "supports_markdown": false,
+      "requires_quantization": false,
+      "requires_download": false,
+      "reference_url": "https://github.com/m-bain/whisperX"
     }
   ]
 }

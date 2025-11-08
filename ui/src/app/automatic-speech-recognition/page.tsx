@@ -32,18 +32,13 @@ interface TranscriptionResult {
   num_speakers?: number;
 }
 
-interface SkillInfo {
+type ChoiceType = "model" | "lib";
+interface ChoiceInfo {
   id: string;
   label: string;
   provider: string;
-  tasks: string[];
-  size_mb: number;
-  parameters_m: number;
-  gpu_memory_mb: number;
-  reference_url: string;
   status: string;
-  downloaded_size_mb?: number;
-  error_message?: string;
+  type: ChoiceType;
 }
 
 interface ASRRequestBody {
@@ -62,11 +57,13 @@ function AutomaticSpeechRecognitionContent() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>("");
-  const [availableModels, setAvailableModels] = useState<SkillInfo[]>([]);
+  const [selectedChoice, setSelectedChoice] = useState<string>("");
+  const [choices, setChoices] = useState<ChoiceInfo[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [language, setLanguage] = useState<string>("");
   const [outputFormat, setOutputFormat] = useState<"transcription" | "diarization">("transcription");
+  // WhisperX-specific state
+  const [whisperxAsrModel, setWhisperxAsrModel] = useState<string>("large-v3");
 
   // Diarization-specific state
   const [minSpeakers, setMinSpeakers] = useState<string>("");
@@ -88,38 +85,44 @@ function AutomaticSpeechRecognitionContent() {
       setIsRecordingSupported(supported);
     }
 
-    // Fetch available models
-    const fetchModels = async () => {
+    // Fetch available choices (models + libs) for ASR
+    const fetchChoices = async () => {
       try {
-        const response = await fetch("/api/models?task=automatic-speech-recognition");
-        if (!response.ok) {
-          throw new Error("Failed to fetch models");
-        }
+        const response = await fetch("/api/task-options?task=automatic-speech-recognition");
+        if (!response.ok) throw new Error("Failed to fetch ASR options");
         const data = await response.json();
-        // Filter for ready models only in Try tab
-        const downloadedModels = data.models.filter(
-          (s: SkillInfo) => s.status === "ready"
-        );
-        setAvailableModels(downloadedModels);
+        const merged: ChoiceInfo[] = (data.options || [])
+          .filter((o: any) => o.status === "ready")
+          .map((o: any) => ({ id: o.id, label: o.label, provider: o.provider, status: o.status, type: o.type as ChoiceType }));
+        setChoices(merged);
 
-        // Check if model or legacy skill query param is provided
-        const skillParam = searchParams.get("skill") || searchParams.get("model");
-        if (skillParam && downloadedModels.some((s: SkillInfo) => s.id === skillParam)) {
-          // Pre-select the skill from query param if it exists and is ready
-          setSelectedModel(skillParam);
-        } else if (downloadedModels.length > 0) {
-          // Set first downloaded model as default
-          setSelectedModel(downloadedModels[0].id);
+        // Preselect logic: prefer explicit model/lib URL params, then legacy skill param, then first available
+        const modelParam = searchParams.get("model");
+        const libParam = searchParams.get("lib");
+        const skillParam = searchParams.get("skill");
+        const findChoice = (t: ChoiceType, id: string) => merged.find(c => c.type === t && c.id === id);
+        if (modelParam && findChoice("model", modelParam)) {
+          setSelectedChoice(`model:${modelParam}`);
+        } else if (libParam && findChoice("lib", libParam)) {
+          setSelectedChoice(`lib:${libParam}`);
+        } else if (skillParam) {
+          const m = findChoice("model", skillParam);
+          const l = findChoice("lib", skillParam);
+          if (m) setSelectedChoice(`model:${skillParam}`);
+          else if (l) setSelectedChoice(`lib:${skillParam}`);
+          else if (merged.length > 0) setSelectedChoice(`${merged[0].type}:${merged[0].id}`);
+        } else if (merged.length > 0) {
+          setSelectedChoice(`${merged[0].type}:${merged[0].id}`);
         }
       } catch (err) {
         console.error("Error fetching models:", err);
-        toast.error("Failed to load available models");
+        toast.error("Failed to load available ASR engines");
       } finally {
         setModelsLoading(false);
       }
     };
 
-    fetchModels();
+    fetchChoices();
   }, [searchParams]);
 
   useEffect(() => {
@@ -226,7 +229,7 @@ function AutomaticSpeechRecognitionContent() {
   };
 
   const handleTranscribe = async () => {
-    if (!audioFile || !selectedModel) return;
+    if (!audioFile || !selectedChoice) return;
 
     setLoading(true);
     setError(null);
@@ -239,29 +242,46 @@ function AutomaticSpeechRecognitionContent() {
         const base64Data = (reader.result as string).split(",")[1];
 
         try {
-          const requestBody: ASRRequestBody = {
-            audio: base64Data,
-            model: selectedModel,
-            output_format: outputFormat,
-          };
+          const isModel = selectedChoice.startsWith("model:");
+          const isLib = selectedChoice.startsWith("lib:");
+          const id = selectedChoice.split(":", 2)[1];
 
-          // Add transcription-specific params
-          if (outputFormat === "transcription") {
-            requestBody.language = language || undefined;
-            requestBody.return_timestamps = false;
+          let response: Response;
+          if (isModel) {
+            const requestBody: ASRRequestBody = {
+              audio: base64Data,
+              model: id,
+              output_format: outputFormat,
+            };
+            if (outputFormat === "transcription") {
+              requestBody.language = language || undefined;
+              requestBody.return_timestamps = false;
+            }
+            if (outputFormat === "diarization") {
+              if (minSpeakers) requestBody.min_speakers = parseInt(minSpeakers);
+              if (maxSpeakers) requestBody.max_speakers = parseInt(maxSpeakers);
+            }
+            response = await fetch("/api/automatic-speech-recognition", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(requestBody),
+            });
+          } else if (isLib && id === "whisperx/whisperx") {
+            // WhisperX library path
+            const requestBody = {
+              audio: base64Data,
+              asr_model: whisperxAsrModel,
+              language: language || undefined,
+              diarize: outputFormat === "diarization",
+            };
+            response = await fetch("/api/whisperx/transcribe", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(requestBody),
+            });
+          } else {
+            throw new Error("Unsupported ASR engine selected");
           }
-
-          // Add diarization-specific params
-          if (outputFormat === "diarization") {
-            if (minSpeakers) requestBody.min_speakers = parseInt(minSpeakers);
-            if (maxSpeakers) requestBody.max_speakers = parseInt(maxSpeakers);
-          }
-
-          const response = await fetch("/api/automatic-speech-recognition", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-          });
 
           if (!response.ok) {
             const errorData = await response.json();
@@ -269,7 +289,16 @@ function AutomaticSpeechRecognitionContent() {
           }
 
           const data = await response.json();
-          setResult(data);
+          // For WhisperX, compute number of speakers for display if diarization
+          if (selectedChoice.startsWith("lib:") && id === "whisperx/whisperx") {
+            const speakers = new Set<string>();
+            if (Array.isArray(data.segments)) {
+              data.segments.forEach((s: any) => { if (s.speaker) speakers.add(s.speaker); });
+            }
+            setResult({ ...data, num_speakers: speakers.size || undefined });
+          } else {
+            setResult(data);
+          }
           const successMsg = outputFormat === "diarization" ? "Speaker analysis completed!" : "Transcription completed!";
           toast.success(successMsg, {
             description: `Processed in ${data.processing_time_ms}ms`,
@@ -291,13 +320,13 @@ function AutomaticSpeechRecognitionContent() {
     }
   };
 
-  const modelOptions = availableModels.map((skill) => ({
-    value: skill.id,
-    label: `${skill.label} (${skill.parameters_m}M params)`,
+  const modelOptions = choices.map((c) => ({
+    value: `${c.type}:${c.id}`,
+    label: `${c.label} (${c.provider}) [${c.type}]`,
   }));
 
   const rawRequestPayload = {
-    model: selectedModel || null,
+    engine: selectedChoice || null,
     output_format: outputFormat,
     language: language || "auto",
     min_speakers: minSpeakers || null,
@@ -315,14 +344,14 @@ function AutomaticSpeechRecognitionContent() {
   const inputPanel = (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="model">Model</Label>
+        <Label htmlFor="model">Engine</Label>
         <ModelSelector
-          value={selectedModel}
-          onChange={setSelectedModel}
+          value={selectedChoice}
+          onChange={setSelectedChoice}
           options={modelOptions}
           loading={modelsLoading}
           disabled={loading}
-          emptyMessage="No ASR models downloaded. Visit the Models page to install one."
+          emptyMessage="No ASR engines ready. Visit Models/Libs to set them up."
         />
       </div>
 
@@ -394,6 +423,28 @@ function AutomaticSpeechRecognitionContent() {
               onChange={(e) => setMaxSpeakers(e.target.value)}
             />
           </div>
+        </div>
+      )}
+
+      {/* WhisperX-specific ASR model selection */}
+      {selectedChoice.startsWith("lib:") && selectedChoice.endsWith("whisperx/whisperx") && (
+        <div className="space-y-2">
+          <Label htmlFor="whisperx-asr">WhisperX ASR Model</Label>
+          <Select value={whisperxAsrModel} onValueChange={(val) => setWhisperxAsrModel(val)}>
+            <SelectTrigger id="whisperx-asr">
+              <SelectValue placeholder="Select ASR model" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tiny">tiny</SelectItem>
+              <SelectItem value="base">base</SelectItem>
+              <SelectItem value="small">small</SelectItem>
+              <SelectItem value="small.en">small.en</SelectItem>
+              <SelectItem value="medium">medium</SelectItem>
+              <SelectItem value="medium.en">medium.en</SelectItem>
+              <SelectItem value="large-v2">large-v2</SelectItem>
+              <SelectItem value="large-v3">large-v3</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       )}
 
@@ -526,7 +577,7 @@ function AutomaticSpeechRecognitionContent() {
           footer: (
             <Button
               onClick={handleTranscribe}
-              disabled={!hasAudioInput || !selectedModel || loading}
+              disabled={!hasAudioInput || !selectedChoice || loading}
               className="w-full"
             >
               {loading ? (
