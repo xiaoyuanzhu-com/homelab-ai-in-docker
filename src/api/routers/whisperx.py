@@ -32,10 +32,11 @@ router = APIRouter(prefix="/api/whisperx", tags=["whisperx"])
 # Caches for models/pipelines
 _asr_model_cache: Optional[Any] = None
 _asr_model_name: str = ""
-_align_cache: Optional[tuple[Any, Any, str]] = None  # (align_model, metadata, language_code)
+_align_cache: Optional[tuple[Any, Any, str, str]] = None  # (align_model, metadata, language_code, align_device)
 _diar_cache: Optional[Any] = None
 _last_access_time: Optional[float] = None
 _idle_cleanup_task: Optional[asyncio.Task] = None
+_infer_lock: asyncio.Lock = asyncio.Lock()
 
 
 def _set_hf_env() -> str:
@@ -158,6 +159,7 @@ def _load_asr_model(model_id: str, device: str, compute_type: Optional[str]):
     global _asr_model_cache, _asr_model_name
     check_and_cleanup_idle_model()
     if _asr_model_cache is not None and _asr_model_name == model_id:
+        logger.info(f"WhisperX: reusing cached ASR model '{model_id}' on {device}")
         return _asr_model_cache
 
     _ensure_torchaudio_compat()
@@ -177,6 +179,9 @@ def _load_asr_model(model_id: str, device: str, compute_type: Optional[str]):
         kwargs["compute_type"] = compute_type
 
     try:
+        logger.info(
+            f"WhisperX: loading ASR model '{model_source}' with kwargs={kwargs}"
+        )
         model = whisperx.load_model(model_source, **kwargs)
     except Exception as e:
         raise RuntimeError(f"Failed to load WhisperX model '{model_id}': {e}")
@@ -192,15 +197,33 @@ def _load_align_model(language_code: str, device: str):
     import whisperx  # type: ignore
 
     if _align_cache and _align_cache[2] == language_code:
-        return _align_cache[0], _align_cache[1]
+        logger.info(
+            f"WhisperX: reusing cached align model for '{language_code}' on {_align_cache[3]}"
+        )
+        return _align_cache[0], _align_cache[1], _align_cache[3]
 
     try:
-        align_model, metadata = whisperx.load_align_model(language_code=language_code, device=device)
+        # Prefer running alignment on CPU to avoid GPU OOM with large ASR
+        try:
+            from ...db.settings import get_setting  # lazy import
+
+            align_dev_pref = (get_setting("whisperx_align_device") or "cpu").lower()
+        except Exception:
+            align_dev_pref = "cpu"
+
+        align_device = align_dev_pref if align_dev_pref in {"cpu", "cuda"} else "cpu"
+        if align_device != device:
+            logger.info(
+                f"WhisperX: loading align model on {align_device} (ASR on {device})"
+            )
+        align_model, metadata = whisperx.load_align_model(
+            language_code=language_code, device=align_device
+        )
     except Exception as e:
         raise RuntimeError(f"Failed to load alignment model for '{language_code}': {e}")
 
-    _align_cache = (align_model, metadata, language_code)
-    return align_model, metadata
+    _align_cache = (align_model, metadata, language_code, align_device)
+    return align_model, metadata, align_device
 
 
 def _load_diar_pipeline(device: str):
@@ -209,6 +232,7 @@ def _load_diar_pipeline(device: str):
     import whisperx  # type: ignore
 
     if _diar_cache is not None:
+        logger.info("WhisperX: reusing cached diarization pipeline")
         return _diar_cache
 
     token = _set_hf_env()
@@ -217,7 +241,20 @@ def _load_diar_pipeline(device: str):
             "HuggingFace token is required for diarization. Set 'hf_token' in settings."
         )
     try:
-        diar = whisperx.DiarizationPipeline(use_auth_token=token, device=device)
+        # Prefer diarization on CPU to reduce VRAM pressure; configurable via settings
+        try:
+            from ...db.settings import get_setting  # lazy import
+
+            diar_dev_pref = (get_setting("whisperx_diar_device") or "cpu").lower()
+        except Exception:
+            diar_dev_pref = "cpu"
+
+        diar_device = diar_dev_pref if diar_dev_pref in {"cpu", "cuda"} else "cpu"
+        if diar_device != device:
+            logger.info(
+                f"WhisperX: loading diarization on {diar_device} (ASR on {device})"
+            )
+        diar = whisperx.DiarizationPipeline(use_auth_token=token, device=diar_device)
     except Exception as e:
         raise RuntimeError(f"Failed to load diarization pipeline: {e}")
 
@@ -259,9 +296,11 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
             if not language:
                 language = "unknown"
 
-            # Align words
-            align_model, metadata = _load_align_model(language, device)
-            aligned = whisperx.align(result["segments"], align_model, metadata, audio, device)
+            # Align words (use the device the align model was created on)
+            align_model, metadata, align_device = _load_align_model(language, device)
+            aligned = whisperx.align(
+                result["segments"], align_model, metadata, audio, align_device
+            )
 
             diar_segments = None
             if request.diarize:
@@ -271,7 +310,9 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
 
             return language, aligned
 
-        language, aligned = await asyncio.to_thread(_run_pipeline)
+        # Serialize WhisperX runs to avoid concurrent GPU spikes / OOM
+        async with _infer_lock:
+            language, aligned = await asyncio.to_thread(_run_pipeline)
 
         # Build response segments
         segments_out: list[WhisperXSegment] = []
