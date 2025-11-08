@@ -328,6 +328,36 @@ source .venv/bin/activate
 uvicorn main:app --reload
 ```
 
+### WhisperX + CUDA Troubleshooting
+
+If you see errors like:
+
+- `Unable to load any of {libcudnn_cnn.so.9.1.0, libcudnn_cnn.so.9.1, libcudnn_cnn.so.9, libcudnn_cnn.so}`
+- `Invalid handle. Cannot load symbol cudnnCreateConvolutionDescriptor`
+
+You’re hitting a CUDA shared library discovery issue (common on Python 3.13). This repo includes a robust fix:
+
+- Runtime fix in-app: CUDA library paths are initialized before importing Torch.
+- Docker fix: `LD_LIBRARY_PATH` includes the pip-installed NVIDIA libraries.
+- Dependency fix: cuDNN/cuBLAS/CUDA runtime pinned to match `torch==2.8.0+cu126`.
+
+Local venv usage (outside Docker):
+
+```bash
+# Activate your venv, then source the helper to expose NVIDIA libs
+source scripts/setup_cuda_env.sh
+
+# Now run your tests or the server
+python -c "import torch; print(torch.backends.cudnn.is_available())"
+python main.py
+```
+
+If you still see cuDNN errors, verify the HuggingFace token is set for diarization:
+
+```bash
+export HUGGING_FACE_HUB_TOKEN=hf_...
+```
+
 ## License
 
 MIT

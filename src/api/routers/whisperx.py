@@ -12,7 +12,6 @@ import uuid
 from pathlib import Path
 from typing import Optional, Any
 
-import torch
 from fastapi import APIRouter, HTTPException
 
 from ..models.whisperx import (
@@ -49,7 +48,13 @@ def _set_hf_env() -> str:
 
 
 def _device_and_dtype(compute_type: Optional[str]) -> tuple[str, Optional[str]]:
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Import torch lazily to allow CUDA lib setup to run first
+    try:
+        import torch  # type: ignore
+        has_cuda = torch.cuda.is_available()
+    except Exception:
+        has_cuda = False
+    device = "cuda" if has_cuda else "cpu"
     # WhisperX uses string compute types; default sensibly
     if compute_type:
         return device, compute_type
@@ -124,9 +129,14 @@ def cleanup():
         _diar_cache = None
         _asr_model_name = ""
         _last_access_time = None
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
+        try:
+            import torch  # type: ignore
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except Exception:
+            pass
     except Exception as e:
         logger.warning(f"Error releasing WhisperX resources: {e}")
 

@@ -1,5 +1,14 @@
 """Main FastAPI application for Homelab AI Services."""
 
+# Initialize CUDA/NVIDIA library paths before any torch/whisperx imports
+try:
+    from src.runtime.cuda_paths import setup_cuda_libraries  # type: ignore
+
+    setup_cuda_libraries()
+except Exception:
+    # Non-fatal; continue without explicit CUDA lib setup
+    pass
+
 import asyncio
 import json
 import logging
