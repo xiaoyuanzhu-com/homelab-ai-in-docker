@@ -13,7 +13,7 @@ import torch
 
 from ..models.text_to_embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
-from ...config import get_data_dir, get_hf_endpoint
+from ...config import get_data_dir, get_hf_endpoint, get_hf_model_cache_path
 from ...db.catalog import get_model_dict
 
 logger = logging.getLogger(__name__)
@@ -123,14 +123,14 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
         # Set HuggingFace endpoint for model loading
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
 
-        # Check for local download at data/models/{org}/{model}
-        local_model_dir = get_data_dir() / "models" / target_model
+        # Check for local download at HF standard cache path
+        local_model_dir = get_hf_model_cache_path(target_model)
         if local_model_dir.exists() and (local_model_dir / "config.json").exists():
             # Load from local directory
             model_path = str(local_model_dir)
             logger.info(f"Using locally downloaded model from {model_path}")
         else:
-            # Fall back to model ID (will download from HuggingFace)
+            # Fall back to model ID (will download from HuggingFace to cache)
             model_path = target_model
             logger.info(f"Model not found locally, will download from HuggingFace: {target_model}")
 

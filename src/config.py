@@ -34,11 +34,38 @@ def get_data_dir() -> Path:
     return get_app_root() / "data"
 
 
+def get_hf_model_cache_path(model_id: str) -> Path:
+    """
+    Get the HuggingFace cache path for a model following HF conventions.
+
+    Converts model_id to HF cache path: $HF_HOME/hub/models--{model_id with '/' replaced by '--'}
+
+    Args:
+        model_id: HuggingFace model identifier (e.g., 'sentence-transformers/all-MiniLM-L6-v2')
+
+    Returns:
+        Path to model cache directory in HF format
+
+    Examples:
+        >>> get_hf_model_cache_path('bert-base-uncased')
+        Path('/haid/data/models/hub/models--bert-base-uncased')
+        >>> get_hf_model_cache_path('sentence-transformers/all-MiniLM-L6-v2')
+        Path('/haid/data/models/hub/models--sentence-transformers--all-MiniLM-L6-v2')
+    """
+    hf_home = Path(os.getenv("HF_HOME", get_data_dir() / "models"))
+    # Convert model_id to HF cache format: replace '/' with '--'
+    safe_model_id = model_id.replace("/", "--")
+    return hf_home / "hub" / f"models--{safe_model_id}"
+
+
 def get_model_cache_dir(service: str, model_name: str) -> Path:
     """
     Get the cache directory for a specific model.
 
-    Uses storage structure: data/models/{org}/{model}
+    DEPRECATED: Use get_hf_model_cache_path() instead.
+    This function is kept for backward compatibility.
+
+    Uses HuggingFace standard storage structure: data/models/hub/models--{org}--{model}
 
     Args:
         service: Service name (deprecated, kept for compatibility)
@@ -47,11 +74,7 @@ def get_model_cache_dir(service: str, model_name: str) -> Path:
     Returns:
         Path to model cache directory
     """
-    # Path: data/models/sentence-transformers/all-MiniLM-L6-v2
-    cache_dir = get_data_dir() / "models" / model_name
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    return cache_dir
+    return get_hf_model_cache_path(model_name)
 
 
 # Environment variable names for HuggingFace cache

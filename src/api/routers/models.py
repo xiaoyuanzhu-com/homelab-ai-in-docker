@@ -22,7 +22,7 @@ from ...db.catalog import get_model_dict, list_models
 from ...db.models import update_model_status
 from ...db.status import DownloadStatus
 from ...db.download_logs import add_log_line, clear_logs, get_logs
-from ...config import get_data_dir, get_hf_endpoint, get_hf_token, get_hf_username
+from ...config import get_data_dir, get_hf_endpoint, get_hf_token, get_hf_username, get_hf_model_cache_path
 
 
 router = APIRouter(prefix="/api", tags=["models"])
@@ -91,9 +91,18 @@ async def get_model_download_logs(model_id: str):
 
 
 def _model_cache_dir(hf_model: str) -> Path:
-    cache_root = get_data_dir() / "models"
-    parts = hf_model.split("/")
-    return cache_root.joinpath(*parts)
+    """
+    Get the HuggingFace cache directory for a model.
+
+    Uses HF standard path: $HF_HOME/hub/models--{org}--{model}
+
+    Args:
+        hf_model: HuggingFace model identifier (e.g., 'sentence-transformers/all-MiniLM-L6-v2')
+
+    Returns:
+        Path to model cache directory
+    """
+    return get_hf_model_cache_path(hf_model)
 
 
 async def _download_model_with_progress(

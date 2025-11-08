@@ -211,9 +211,9 @@ def get_model(model_name: str):
         _current_model_config = model_config
 
     if _model_cache is None or _processor_cache is None:
-        # Check for local download at data/models/{org}/{model}
-        from ...config import get_hf_endpoint, get_data_dir
-        local_model_dir = get_data_dir() / "models" / _current_model_name
+        # Check for local download at HF standard cache path
+        from ...config import get_hf_endpoint, get_hf_model_cache_path
+        local_model_dir = get_hf_model_cache_path(_current_model_name)
 
         if local_model_dir.exists() and (local_model_dir / "config.json").exists():
             model_path = str(local_model_dir)
@@ -221,7 +221,7 @@ def get_model(model_name: str):
             extra_kwargs = {"local_files_only": True}
         else:
             model_path = _current_model_name
-            logger.info(f"Model not found locally, will download from HuggingFace: {model_path}")
+            logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
             extra_kwargs = {}
 
         # Set HuggingFace endpoint for model loading

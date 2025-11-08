@@ -52,17 +52,17 @@ def get_model(model_name: str):
 
     from pyannote.audio import Model, Inference
     from ...db.settings import get_setting
-    from ...config import get_hf_endpoint, get_data_dir
+    from ...config import get_hf_endpoint, get_hf_model_cache_path
 
-    # Check for local download at data/models/{org}/{model}
-    local_model_dir = get_data_dir() / "models" / model_name
+    # Check for local download at HF standard cache path
+    local_model_dir = get_hf_model_cache_path(model_name)
 
     if local_model_dir.exists() and list(local_model_dir.glob("*.bin")):
         model_path = str(local_model_dir)
         logger.info(f"Using locally downloaded model from {model_path}")
     else:
         model_path = model_name
-        logger.info(f"Model not found locally, will download from HuggingFace: {model_path}")
+        logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
 
     # Set HuggingFace endpoint and token
     os.environ["HF_ENDPOINT"] = get_hf_endpoint()
