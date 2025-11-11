@@ -25,6 +25,7 @@ import torch
 from ..models.image_captioning import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
 from ...db.catalog import get_model_dict, list_models
+from ...services.model_coordinator import get_coordinator
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +39,8 @@ except ImportError:
 
 router = APIRouter(prefix="/api", tags=["image-captioning"])
 
-# Global model cache
-_model_cache: Optional[Any] = None
-_processor_cache: Optional[Any] = None
+# Track current model name (coordinator manages the actual model cache)
 _current_model_name: str = ""
-_current_model_config: Optional[Dict[str, Any]] = None
-_last_access_time: Optional[float] = None
-_idle_cleanup_task: Optional[asyncio.Task] = None
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -98,92 +94,35 @@ def validate_model(model_name: str) -> None:
 
 
 def check_and_cleanup_idle_model():
-    """Check if model has been idle too long and cleanup if needed."""
-    global _model_cache, _last_access_time, _current_model_name
+    """
+    Check if model has been idle too long and cleanup if needed.
 
-    if _model_cache is None or _last_access_time is None:
-        return
-
-    # Get idle timeout from settings
+    This function is called by periodic cleanup in main.py.
+    Delegates to the global model coordinator for memory management.
+    """
     from ...db.settings import get_setting_int
     idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
 
-    # Check if model has been idle too long
-    idle_duration = time.time() - _last_access_time
-    if idle_duration >= idle_timeout:
-        logger.info(
-            f"Image captioning model '{_current_model_name}' idle for {idle_duration:.1f}s "
-            f"(timeout: {idle_timeout}s), unloading from GPU..."
-        )
-        # Preserve name for accurate post-cleanup logging
-        unloaded_name = _current_model_name
-        cleanup()
-        logger.info(f"Image captioning model '{unloaded_name}' unloaded from GPU")
-
-
-def schedule_idle_cleanup() -> None:
-    """Schedule background cleanup after idle timeout.
-
-    Ensures model unload even if no further captioning requests arrive.
-    """
-    global _idle_cleanup_task
+    coordinator = get_coordinator()
+    # Use asyncio.create_task to run cleanup asynchronously
     try:
         loop = asyncio.get_running_loop()
+        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
     except RuntimeError:
-        return
-
-    from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-
-    if _idle_cleanup_task and not _idle_cleanup_task.done():
-        _idle_cleanup_task.cancel()
-
-    async def _watchdog(timeout_s: int):
-        try:
-            await asyncio.sleep(timeout_s)
-            if _last_access_time is None:
-                return
-            idle_duration = time.time() - _last_access_time
-            if idle_duration >= timeout_s and _model_cache is not None:
-                logger.info(
-                    f"Image captioning model '{_current_model_name}' idle for {idle_duration:.1f}s "
-                    f"(timeout: {timeout_s}s), unloading from GPU..."
-                )
-                cleanup()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            # Clear task reference if it's the current task
-            global _idle_cleanup_task
-            try:
-                current = asyncio.current_task()
-            except Exception:
-                current = None
-            if current is not None and _idle_cleanup_task is current:
-                _idle_cleanup_task = None
-
-    _idle_cleanup_task = loop.create_task(_watchdog(idle_timeout))
+        # No event loop, skip cleanup
+        pass
 
 
-def get_model(model_name: str):
+async def _load_model_impl(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
     """
-    Get or load the image captioning model using Auto classes.
+    Internal async function to load the image captioning model.
 
     Args:
-        model_name: Model identifier to load. If different from currently
-                   loaded model, will reload with the new model.
+        model_name: Model ID to load
 
     Returns:
         Tuple of (processor, model, model_config)
-
-    Raises:
-        ValueError: If model is not supported
     """
-    global _model_cache, _processor_cache, _current_model_name, _current_model_config, _last_access_time
-
-    # Check if current model should be cleaned up due to idle timeout
-    check_and_cleanup_idle_model()
-
     # Validate model is supported and get config
     validate_model(model_name)
     model_config = get_model_config(model_name)
@@ -198,129 +137,156 @@ def get_model(model_name: str):
             f"On Linux, install with: pip install bitsandbytes"
         )
 
-    # Check if we need to reload the model
-    if model_name != _current_model_name:
-        # Clear existing cache
-        if _model_cache is not None:
-            del _model_cache
-            _model_cache = None
-        if _processor_cache is not None:
-            del _processor_cache
-            _processor_cache = None
-        _current_model_name = model_name
-        _current_model_config = model_config
+    # Check for local download at HF standard cache path
+    from ...config import get_hf_endpoint, get_hf_model_cache_path
+    local_model_dir = get_hf_model_cache_path(model_name)
 
-    if _model_cache is None or _processor_cache is None:
-        # Check for local download at HF standard cache path
-        from ...config import get_hf_endpoint, get_hf_model_cache_path
-        local_model_dir = get_hf_model_cache_path(_current_model_name)
+    if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+        model_path = str(local_model_dir)
+        logger.info(f"Using locally downloaded model from {model_path}")
+        extra_kwargs = {"local_files_only": True}
+    else:
+        model_path = model_name
+        logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
+        extra_kwargs = {}
 
-        if local_model_dir.exists() and (local_model_dir / "config.json").exists():
-            model_path = str(local_model_dir)
-            logger.info(f"Using locally downloaded model from {model_path}")
-            extra_kwargs = {"local_files_only": True}
+    # Set HuggingFace endpoint for model loading
+    os.environ["HF_ENDPOINT"] = get_hf_endpoint()
+
+    # Load processor and model in thread pool to avoid blocking
+    def _load():
+        # Load processor using Auto class (works for all architectures)
+        processor = AutoProcessor.from_pretrained(
+            model_path, use_fast=True, **extra_kwargs
+        )
+
+        # Load model based on architecture
+        architecture = model_config.get("architecture", "").lower()
+
+        # Common loading kwargs
+        load_kwargs = {
+            "low_cpu_mem_usage": True,     # Reduce CPU memory usage
+            **extra_kwargs,
+        }
+
+        # Check if this model requires quantization (from database)
+        if model_config.get("requires_quantization"):
+            # Pre-quantized models already have quantization config baked in
+            # Only need device_map - the model handles its own quantization
+            load_kwargs["device_map"] = "auto"
         else:
-            model_path = _current_model_name
-            logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
-            extra_kwargs = {}
+            # Non-quantized models - use fp16 for efficiency
+            load_kwargs["dtype"] = torch.float16
 
-        # Set HuggingFace endpoint for model loading
-        os.environ["HF_ENDPOINT"] = get_hf_endpoint()
-
-        try:
-            # Load processor using Auto class (works for all architectures)
-            _processor_cache = AutoProcessor.from_pretrained(
-                model_path, use_fast=True, **extra_kwargs
+        if architecture == "llava":
+            # LLaVA requires specific class
+            model = LlavaForConditionalGeneration.from_pretrained(
+                model_path, **load_kwargs
+            )
+        elif architecture == "llava_next":
+            # LLaVA-NeXT (v1.6) uses different class
+            model = LlavaNextForConditionalGeneration.from_pretrained(
+                model_path, **load_kwargs
+            )
+        elif architecture == "blip2":
+            # BLIP-2 uses specific class
+            model = Blip2ForConditionalGeneration.from_pretrained(
+                model_path, **load_kwargs
+            )
+        else:
+            # BLIP and others use AutoModelForVision2Seq
+            model = AutoModelForVision2Seq.from_pretrained(
+                model_path, **load_kwargs
             )
 
-            # Load model based on architecture
-            architecture = model_config.get("architecture", "").lower()
+        return processor, model
 
-            # Common loading kwargs
-            load_kwargs = {
-                "low_cpu_mem_usage": True,     # Reduce CPU memory usage
-                **extra_kwargs,
-            }
+    try:
+        processor, model = await asyncio.to_thread(_load)
+        return processor, model, model_config
+    except Exception as e:
+        error_msg = f"Failed to load model '{model_name}': {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise RuntimeError(error_msg)
 
-            # Check if this model requires quantization (from database)
-            if model_config.get("requires_quantization"):
-                # Pre-quantized models already have quantization config baked in
-                # Only need device_map - the model handles its own quantization
-                load_kwargs["device_map"] = "auto"
-            else:
-                # Non-quantized models - use fp16 for efficiency
-                load_kwargs["dtype"] = torch.float16
 
-            if architecture == "llava":
-                # LLaVA requires specific class
-                _model_cache = LlavaForConditionalGeneration.from_pretrained(
-                    model_path, **load_kwargs
-                )
-            elif architecture == "llava_next":
-                # LLaVA-NeXT (v1.6) uses different class
-                _model_cache = LlavaNextForConditionalGeneration.from_pretrained(
-                    model_path, **load_kwargs
-                )
-            elif architecture == "blip2":
-                # BLIP-2 uses specific class
-                _model_cache = Blip2ForConditionalGeneration.from_pretrained(
-                    model_path, **load_kwargs
-                )
-            else:
-                # BLIP and others use AutoModelForVision2Seq
-                _model_cache = AutoModelForVision2Seq.from_pretrained(
-                    model_path, **load_kwargs
-                )
+async def _unload_model(model_tuple: tuple[Any, Any, Dict[str, Any]]) -> None:
+    """
+    Internal async function to unload and cleanup model.
 
-        except Exception as e:
-            error_msg = f"Failed to load model '{model_name}': {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            raise RuntimeError(error_msg)
+    Args:
+        model_tuple: Tuple of (processor, model, config) to unload
+    """
+    processor, model, config = model_tuple
 
-    # Update last access time
-    _last_access_time = time.time()
+    # Move model to CPU first (helps with cleanup)
+    try:
+        if hasattr(model, 'cpu'):
+            await asyncio.to_thread(model.cpu)
+            logger.debug("Moved image captioning model to CPU")
+    except Exception as e:
+        logger.warning(f"Error moving image captioning model to CPU during cleanup: {e}")
 
-    return _processor_cache, _model_cache, _current_model_config
+    # Delete references
+    del processor
+    del model
+    del config
+
+
+async def get_model(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
+    """
+    Get or load the image captioning model via the global coordinator.
+
+    Models are managed by the coordinator to prevent OOM errors.
+    The coordinator will preemptively unload other models if needed.
+
+    Args:
+        model_name: Model identifier to load
+
+    Returns:
+        Tuple of (processor, model, model_config)
+
+    Raises:
+        ValueError: If model is not supported
+        RuntimeError: If model loading fails
+    """
+    global _current_model_name
+
+    _current_model_name = model_name
+
+    # Get model info for memory estimation
+    model_config = get_model_config(model_name)
+    estimated_memory_mb = model_config.get("gpu_memory_mb") if model_config else None
+
+    # Load through coordinator (handles preemptive unload)
+    coordinator = get_coordinator()
+    model_tuple = await coordinator.load_model(
+        key=f"image-caption:{model_name}",
+        loader_fn=lambda: _load_model_impl(model_name),
+        unloader_fn=_unload_model,
+        estimated_memory_mb=estimated_memory_mb,
+        model_type="image-captioning",
+    )
+
+    return model_tuple
 
 
 def cleanup():
     """
-    Release model and processor resources immediately.
-    Forces GPU memory cleanup to free resources for other services.
+    Release model resources immediately.
+
+    This function is called during app shutdown.
+    Delegates to the global model coordinator.
     """
-    global _model_cache, _processor_cache, _current_model_name, _current_model_config, _last_access_time
-
-    model_name = _current_model_name  # Save for logging
-
-    if _model_cache is not None:
-        # Move model to CPU first (helps with cleanup)
-        try:
-            if hasattr(_model_cache, 'cpu'):
-                _model_cache.cpu()
-                logger.debug(f"Moved image captioning model '{model_name}' to CPU")
-        except Exception as e:
-            logger.warning(f"Error moving model to CPU during cleanup: {e}")
-
-        # Remove reference
-        del _model_cache
-        _model_cache = None
-
-    if _processor_cache is not None:
-        del _processor_cache
-        _processor_cache = None
-
-    _current_model_name = ""
-    _current_model_config = None
-    _last_access_time = None
-
-    # Force GPU memory release
+    coordinator = get_coordinator()
+    # Use asyncio to run cleanup synchronously
     try:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()  # Wait for GPU operations to finish
-            logger.debug("GPU cache cleared and synchronized for image captioning model")
-    except Exception as e:
-        logger.warning(f"Error releasing GPU memory: {e}")
+        loop = asyncio.get_running_loop()
+        # Create task to unload all image captioning models
+        loop.create_task(coordinator.unload_model(f"image-caption:{_current_model_name}", _unload_model))
+    except RuntimeError:
+        # No event loop, can't cleanup
+        pass
 
 
 def decode_image(image_data: str) -> Image.Image:
@@ -369,8 +335,8 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
         # Decode image off the event loop
         image = await asyncio.to_thread(decode_image, request.image)
 
-        # Load model and get config off the event loop
-        processor, model, model_config = await asyncio.to_thread(get_model, request.model)
+        # Load model via coordinator (handles preemptive unload)
+        processor, model, model_config = await get_model(request.model)
 
         # Run the full preprocessing + generation pipeline in a worker thread
         def _run_inference():
@@ -431,8 +397,7 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
             status="success",
         )
 
-        # Schedule background idle cleanup after request completes
-        schedule_idle_cleanup()
+        # Note: Idle cleanup is handled by the global model coordinator
         return response
 
     except ValueError as e:

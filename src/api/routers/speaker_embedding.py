@@ -25,31 +25,25 @@ from ..models.speaker_embedding import (
     MatchResult,
     MatchCandidate,
 )
+from ...services.model_coordinator import get_coordinator
 
 router = APIRouter(prefix="/api/speaker-embedding", tags=["speaker-embedding"])
 logger = logging.getLogger(__name__)
 
-# Global model cache
-_model_cache = None
-_inference_cache = None
-_current_model_name = None
-_last_used_time = None
-
-# Model idle timeout (in seconds)
-MODEL_IDLE_TIMEOUT = 300  # 5 minutes
+# Track current model name (coordinator manages the actual model cache)
+_current_model_name: str = ""
 
 
-def get_model(model_name: str):
-    """Load and cache the pyannote embedding model."""
-    global _model_cache, _inference_cache, _current_model_name, _last_used_time
+async def _load_model_impl(model_name: str) -> tuple:
+    """
+    Internal async function to load the speaker embedding model.
 
-    # Update last used time
-    _last_used_time = time.time()
+    Args:
+        model_name: Model ID to load
 
-    # Return cached model if same model is requested
-    if _model_cache is not None and _current_model_name == model_name:
-        return _model_cache, _inference_cache
-
+    Returns:
+        Tuple of (model, inference)
+    """
     from pyannote.audio import Model, Inference
     from ...db.settings import get_setting
     from ...config import get_hf_endpoint, get_hf_model_cache_path
@@ -71,22 +65,22 @@ def get_model(model_name: str):
         os.environ["HF_TOKEN"] = hf_token
 
     try:
-        # Load model (TF32 is configured globally in main.py)
-        model = Model.from_pretrained(model_path, use_auth_token=hf_token if hf_token else None)
+        # Load model in thread pool to avoid blocking
+        def _load():
+            # Load model (TF32 is configured globally in main.py)
+            model = Model.from_pretrained(model_path, use_auth_token=hf_token if hf_token else None)
 
-        # Move to GPU if available
-        if torch.cuda.is_available():
-            model = model.to(torch.device("cuda"))
+            # Move to GPU if available
+            if torch.cuda.is_available():
+                model = model.to(torch.device("cuda"))
 
-        # Create inference wrapper
-        inference = Inference(model, window="whole")
+            # Create inference wrapper
+            inference = Inference(model, window="whole")
 
-        # Cache the model and inference
-        _model_cache = model
-        _inference_cache = inference
-        _current_model_name = model_name
+            return model, inference
 
-        logger.info(f"Successfully loaded model: {model_name}")
+        model, inference = await asyncio.to_thread(_load)
+        logger.info(f"Successfully loaded speaker embedding model: {model_name}")
         return model, inference
 
     except Exception as e:
@@ -95,6 +89,66 @@ def get_model(model_name: str):
             status_code=500,
             detail=f"Failed to load embedding model: {str(e)}"
         )
+
+
+async def _unload_model(model_tuple: tuple) -> None:
+    """
+    Internal async function to unload and cleanup model.
+
+    Args:
+        model_tuple: Tuple of (model, inference) to unload
+    """
+    model, inference = model_tuple
+
+    # Move model to CPU first (helps with cleanup)
+    try:
+        if hasattr(model, 'cpu'):
+            await asyncio.to_thread(model.cpu)
+            logger.debug("Moved speaker embedding model to CPU")
+    except Exception as e:
+        logger.warning(f"Error moving speaker embedding model to CPU during cleanup: {e}")
+
+    # Delete references
+    del model
+    del inference
+
+
+async def get_model(model_name: str) -> tuple:
+    """
+    Get or load the speaker embedding model via the global coordinator.
+
+    Models are managed by the coordinator to prevent OOM errors.
+    The coordinator will preemptively unload other models if needed.
+
+    Args:
+        model_name: Model identifier to load
+
+    Returns:
+        Tuple of (model, inference)
+
+    Raises:
+        HTTPException: If model loading fails
+    """
+    global _current_model_name
+
+    _current_model_name = model_name
+
+    # Get model info for memory estimation
+    from ...db.catalog import get_model_dict
+    model_info = get_model_dict(model_name)
+    estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
+
+    # Load through coordinator (handles preemptive unload)
+    coordinator = get_coordinator()
+    model_tuple = await coordinator.load_model(
+        key=f"speaker:{model_name}",
+        loader_fn=lambda: _load_model_impl(model_name),
+        unloader_fn=_unload_model,
+        estimated_memory_mb=estimated_memory_mb,
+        model_type="speaker-embedding",
+    )
+
+    return model_tuple
 
 
 async def decode_audio(base64_audio: str) -> Path:
@@ -131,8 +185,8 @@ async def extract_embedding(request: EmbeddingRequest) -> EmbeddingResponse:
         # Decode audio
         audio_path = await decode_audio(request.audio)
 
-        # Load model
-        model, inference = get_model(request.model)
+        # Load model via coordinator (handles preemptive unload)
+        model, inference = await get_model(request.model)
 
         # Extract embedding based on mode
         def _extract():
@@ -215,8 +269,8 @@ async def compare_embeddings(request: CompareEmbeddingsRequest) -> CompareEmbedd
         audio_path1 = await decode_audio(request.audio1)
         audio_path2 = await decode_audio(request.audio2)
 
-        # Load model
-        model, inference = get_model(request.model)
+        # Load model via coordinator (handles preemptive unload)
+        model, inference = await get_model(request.model)
 
         # Extract embeddings
         def _compare():
@@ -274,7 +328,7 @@ async def batch_extract_embeddings(request: BatchEmbeddingRequest) -> BatchEmbed
 
     try:
         audio_path = await decode_audio(request.audio)
-        model, inference = get_model(request.model)
+        model, inference = await get_model(request.model)
 
         def _batch():
             from pyannote.core import Segment
@@ -392,30 +446,39 @@ async def match_embeddings(request: MatchRequest) -> MatchResponse:
         raise HTTPException(status_code=500, detail=f"Failed to match embeddings: {e}")
 
 
-def cleanup_model():
-    """Cleanup cached model to free memory."""
-    global _model_cache, _inference_cache, _current_model_name, _last_used_time
-    if _model_cache is not None:
-        logger.info(f"Cleaning up speaker embedding model: {_current_model_name}")
-        _model_cache = None
-        _inference_cache = None
-        _current_model_name = None
-        _last_used_time = None
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+def cleanup():
+    """
+    Release model resources immediately.
+
+    This function is called during app shutdown.
+    Delegates to the global model coordinator.
+    """
+    coordinator = get_coordinator()
+    # Use asyncio to run cleanup synchronously
+    try:
+        loop = asyncio.get_running_loop()
+        # Create task to unload all speaker embedding models
+        loop.create_task(coordinator.unload_model(f"speaker:{_current_model_name}", _unload_model))
+    except RuntimeError:
+        # No event loop, can't cleanup
+        pass
 
 
 def check_and_cleanup_idle_model():
-    """Check if model has been idle and cleanup if necessary."""
-    global _last_used_time, _model_cache
+    """
+    Check if model has been idle too long and cleanup if needed.
 
-    if _model_cache is None:
-        return
+    This function is called by periodic cleanup in main.py.
+    Delegates to the global model coordinator for memory management.
+    """
+    from ...db.settings import get_setting_int
+    idle_timeout = get_setting_int("model_idle_timeout_seconds", 300)
 
-    if _last_used_time is None:
-        return
-
-    idle_time = time.time() - _last_used_time
-    if idle_time > MODEL_IDLE_TIMEOUT:
-        logger.info(f"Model has been idle for {idle_time:.1f}s (timeout: {MODEL_IDLE_TIMEOUT}s), cleaning up")
-        cleanup_model()
+    coordinator = get_coordinator()
+    # Use asyncio.create_task to run cleanup asynchronously
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
+    except RuntimeError:
+        # No event loop, skip cleanup
+        pass

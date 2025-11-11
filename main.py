@@ -82,56 +82,32 @@ async def periodic_model_cleanup():
     Runs every second to check if models have exceeded their idle timeout.
     When a model is idle too long, it's automatically unloaded from GPU
     to free memory for other services.
+
+    With ModelCoordinator, this now handles cleanup centrally for all models.
     """
     logger = logging.getLogger(__name__)
     logger.info("Periodic model cleanup task started (checks every 1 second)")
+
+    from src.services.model_coordinator import get_coordinator
+    from src.db.settings import get_setting_int
 
     while True:
         try:
             # Check every second for idle models
             await asyncio.sleep(1)
 
-            # Check image captioning models
-            try:
-                image_captioning.check_and_cleanup_idle_model()
-            except Exception as e:
-                logger.debug(f"Error checking idle image captioning model: {e}")
+            # Get idle timeout from settings
+            idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
 
-            # Check image OCR models
+            # Use the global coordinator to cleanup ALL idle models at once
+            # This is more efficient than calling each router separately
             try:
-                image_ocr.check_and_cleanup_idle_model()
+                coordinator = get_coordinator()
+                unloaded_models = await coordinator.cleanup_idle_models(idle_timeout)
+                if unloaded_models:
+                    logger.info(f"Cleaned up {len(unloaded_models)} idle models: {unloaded_models}")
             except Exception as e:
-                logger.debug(f"Error checking idle image OCR model: {e}")
-
-            # Check text-to-embedding models
-            try:
-                text_to_embedding.check_and_cleanup_idle_model()
-            except Exception as e:
-                logger.debug(f"Error checking idle text-to-embedding model: {e}")
-
-            # Check text generation models
-            try:
-                text_generation.check_and_cleanup_idle_model()
-            except Exception as e:
-                logger.debug(f"Error checking idle text generation model: {e}")
-
-            # Check ASR models
-            try:
-                automatic_speech_recognition.check_and_cleanup_idle_model()
-            except Exception as e:
-                logger.debug(f"Error checking idle ASR model: {e}")
-
-            # Check speaker embedding models
-            try:
-                speaker_embedding.check_and_cleanup_idle_model()
-            except Exception as e:
-                logger.debug(f"Error checking idle speaker embedding model: {e}")
-
-            # Check WhisperX models
-            try:
-                whisperx.check_and_cleanup_idle_model()
-            except Exception as e:
-                logger.debug(f"Error checking idle WhisperX model: {e}")
+                logger.debug(f"Error in coordinator idle cleanup: {e}")
 
         except asyncio.CancelledError:
             logger.info("Periodic model cleanup task cancelled")
@@ -163,8 +139,24 @@ async def lifespan(app: FastAPI):
         init_download_logs_table()
 
         # Initialize settings table
-        from src.db.settings import init_settings_table
+        from src.db.settings import init_settings_table, get_setting_int, get_setting_bool, get_setting_float
         init_settings_table()
+
+        # Initialize global model coordinator with database settings
+        from src.services.model_coordinator import init_coordinator
+        max_models = get_setting_int("max_models_in_memory", default=1)
+        enable_preemptive = get_setting_bool("enable_preemptive_unload", default=True)
+        max_memory = get_setting_float("max_memory_mb", default=None)
+
+        coordinator = await init_coordinator(
+            max_models=max_models,
+            max_memory_mb=max_memory,
+            enable_preemptive_unload=enable_preemptive,
+        )
+        logger.info(
+            f"Model coordinator initialized: max_models={max_models}, "
+            f"max_memory_mb={max_memory}, preemptive_unload={enable_preemptive}"
+        )
 
         # Initialize history storage (creates request_history table)
         from src.storage.history import history_storage
@@ -288,44 +280,15 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning(f"Error shutting down MCP server lifespan: {e}", exc_info=True)
 
-        # Clean up ML model resources
-        from src.api.routers import text_to_embedding, text_generation, image_captioning, image_ocr, automatic_speech_recognition
-
+        # Clean up ML model resources via coordinator
         try:
-            logger.info("Releasing text embedding model resources...")
-            text_to_embedding.cleanup()
+            from src.services.model_coordinator import get_coordinator
+            logger.info("Releasing all model resources via coordinator...")
+            coordinator = get_coordinator()
+            count = await coordinator.unload_all()
+            logger.info(f"Successfully unloaded {count} models")
         except Exception as e:
-            logger.warning(f"Error cleaning up text embedding model: {e}")
-
-        try:
-            logger.info("Releasing text generation model resources...")
-            text_generation.cleanup()
-        except Exception as e:
-            logger.warning(f"Error cleaning up text generation model: {e}")
-
-        try:
-            logger.info("Releasing image captioning model resources...")
-            image_captioning.cleanup()
-        except Exception as e:
-            logger.warning(f"Error cleaning up image captioning model: {e}")
-
-        try:
-            logger.info("Releasing image OCR model resources...")
-            image_ocr.cleanup()
-        except Exception as e:
-            logger.warning(f"Error cleaning up image OCR model: {e}")
-
-        try:
-            logger.info("Releasing ASR model resources...")
-            automatic_speech_recognition.cleanup()
-        except Exception as e:
-            logger.warning(f"Error cleaning up ASR model: {e}")
-
-        try:
-            logger.info("Releasing WhisperX resources...")
-            whisperx.cleanup()
-        except Exception as e:
-            logger.warning(f"Error cleaning up WhisperX: {e}")
+            logger.warning(f"Error cleaning up models via coordinator: {e}")
 
         # Best-effort shutdown of any joblib/loky process executors to avoid
         # leaked semaphore warnings from Python's resource_tracker on exit.

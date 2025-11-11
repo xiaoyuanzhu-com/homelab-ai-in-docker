@@ -17,18 +17,15 @@ from ..models.image_ocr import OCRRequest, OCRResponse
 from ...storage.history import history_storage
 from ...db.catalog import list_models, list_libs, get_model_dict, get_lib_dict
 from ...worker.manager import manager as ocr_manager
+from ...services.model_coordinator import get_coordinator
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["image-ocr"])
 
-# Global model cache (unused in isolated mode; kept for compatibility)
-_model_cache: Optional[Any] = None
+# Track current model name (coordinator manages the actual model cache)
+# Note: Model cache is unused in isolated mode; kept for compatibility with legacy code paths
 _current_model_name: str = ""
-_current_language: str = ""
-_current_model_config: Optional[Dict[str, Any]] = None
-_last_access_time: Optional[float] = None
-_idle_cleanup_task: Optional[asyncio.Task] = None
 
 
 # Ensure Paddle's SIGTERM handler (which logs a FatalError message) doesn't
@@ -102,99 +99,40 @@ def validate_model(model_name: str) -> None:  # pragma: no cover - compatibility
 
 
 def check_and_cleanup_idle_model():
-    """Check if model has been idle too long and cleanup if needed."""
-    global _model_cache, _last_access_time, _current_model_name
+    """
+    Check if model has been idle too long and cleanup if needed.
 
-    if _model_cache is None or _last_access_time is None:
-        return
-
-    # Get idle timeout from settings
+    This function is called by periodic cleanup in main.py.
+    Delegates to the global model coordinator for memory management.
+    Note: Worker manager handles its own cleanup in isolated mode.
+    """
     from ...db.settings import get_setting_int
     idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
 
-    # Check if model has been idle too long
-    idle_duration = time.time() - _last_access_time
-    if idle_duration >= idle_timeout:
-        logger.info(
-            f"OCR model '{_current_model_name}' idle for {idle_duration:.1f}s "
-            f"(timeout: {idle_timeout}s), unloading from GPU..."
-        )
-        cleanup()
-        logger.info(f"OCR model '{_current_model_name}' unloaded from GPU")
-
-
-def schedule_idle_cleanup() -> None:
-    """Schedule a background task that will cleanup the model after idle timeout.
-
-    This ensures cleanup happens even if no further requests arrive.
-    """
-    global _idle_cleanup_task
-
-    # Attempt to get the running loop; if not available, skip scheduling
+    coordinator = get_coordinator()
+    # Use asyncio.create_task to run cleanup asynchronously
     try:
         loop = asyncio.get_running_loop()
+        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
     except RuntimeError:
-        return
-
-    # Fetch timeout each time so changes to settings apply dynamically
-    from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-
-    # Cancel any pending watchdog
-    if _idle_cleanup_task and not _idle_cleanup_task.done():
-        _idle_cleanup_task.cancel()
-
-    async def _watchdog(start_time: float, timeout_s: int):
-        try:
-            # Sleep for the configured timeout, then verify we are still idle
-            await asyncio.sleep(timeout_s)
-            # Double-check idle state to avoid races with new activity
-            if _last_access_time is None:
-                return
-            idle_duration = time.time() - _last_access_time
-            if idle_duration >= timeout_s and _model_cache is not None:
-                logger.info(
-                    f"OCR model '{_current_model_name}' idle for {idle_duration:.1f}s "
-                    f"(timeout: {timeout_s}s), unloading from GPU..."
-                )
-                cleanup()
-        except asyncio.CancelledError:
-            # Expected during reschedule; ignore
-            pass
-        finally:
-            # Clear the task reference when finished if still current
-            global _idle_cleanup_task
-            try:
-                current = asyncio.current_task()
-            except Exception:
-                current = None
-            if current is not None and _idle_cleanup_task is current:
-                _idle_cleanup_task = None
-
-    _idle_cleanup_task = loop.create_task(_watchdog(time.time(), idle_timeout))
+        # No event loop, skip cleanup
+        pass
 
 
-
-def get_model(model_name: str, language: Optional[str] = None):
+async def _load_model_impl(model_name: str, language: Optional[str] = None) -> tuple[Any, Dict[str, Any]]:
     """
-    Get or load the OCR model.
+    Internal async function to load the OCR model.
+
+    Note: This is legacy code kept for compatibility. The current implementation
+    uses worker manager for isolation.
 
     Args:
-        model_name: Model identifier to load
+        model_name: Model ID to load
         language: Language code for OCR (e.g., 'ch', 'en', 'fr'). Defaults to 'ch' for multilingual.
 
     Returns:
-        Loaded model and configuration
-
-    Raises:
-        ValueError: If model is not supported
-        RuntimeError: If model loading fails
+        Tuple of (model, model_config)
     """
-    global _model_cache, _current_model_name, _current_language, _current_model_config, _last_access_time
-
-    # Check if current model should be cleaned up due to idle timeout
-    check_and_cleanup_idle_model()
-
     # Validate model is supported and get config
     validate_model(model_name)
     model_config = get_model_config(model_name)
@@ -203,72 +141,115 @@ def get_model(model_name: str, language: Optional[str] = None):
     # 'ch' supports Chinese (Simplified/Traditional) + English + Japanese + Pinyin
     lang = language or model_config.get("language", "ch")
 
-    # Check if we need to reload the model (model name or language changed)
-    if model_name != _current_model_name or lang != _current_language:
-        # Clear existing cache
-        if _model_cache is not None:
-            _model_cache.cleanup()
-            _model_cache = None
-        _current_model_name = model_name
-        _current_language = lang
-        _current_model_config = model_config
+    # Load model in thread pool to avoid blocking
+    def _load():
+        # Install SIGTERM forwarder for PaddleOCR models
+        arch = model_config.get("architecture", "paddleocr-legacy")
+        if arch in ("paddleocr", "paddleocr-legacy"):
+            _install_sigterm_forwarder()
 
-    if _model_cache is None:
-        try:
-            # Install SIGTERM forwarder for PaddleOCR models
-            arch = model_config.get("architecture", "paddleocr-legacy")
-            if arch in ("paddleocr", "paddleocr-legacy"):
-                _install_sigterm_forwarder()
+        logger.info(f"Loading OCR model '{model_name}' with language='{lang}'...")
 
-            logger.info(f"Loading OCR model '{model_name}' with language='{lang}'...")
+        # Note: OCRInferenceEngine would be imported here if this code was active
+        # Since this is legacy code, we'll raise NotImplementedError
+        raise NotImplementedError(
+            "Direct model loading is deprecated. OCR now uses worker manager for isolation."
+        )
 
-            # Create inference engine
-            # Note: output_format will be set per request in get_model
-            _model_cache = OCRInferenceEngine(
-                model_id=model_name,
-                architecture=arch,
-                model_config=model_config,
-                language=lang,
-                output_format="text",  # Default, will be updated per request
-            )
+    try:
+        model = await asyncio.to_thread(_load)
+        return model, model_config
+    except Exception as e:
+        logger.error(f"Failed to load OCR model '{model_name}': {e}", exc_info=True)
+        raise RuntimeError(f"Failed to load OCR model: {str(e)}")
 
-            # Load the model
-            _model_cache.load()
 
-            logger.info(f"OCR model '{model_name}' loaded successfully")
+async def _unload_model(model_tuple: tuple[Any, Dict[str, Any]]) -> None:
+    """
+    Internal async function to unload and cleanup model.
 
-        except Exception as e:
-            logger.error(f"Failed to load OCR model '{model_name}': {e}", exc_info=True)
-            raise RuntimeError(f"Failed to load OCR model: {str(e)}")
+    Note: This is legacy code kept for compatibility. The current implementation
+    uses worker manager for isolation.
 
-    # Update last access time
-    _last_access_time = time.time()
+    Args:
+        model_tuple: Tuple of (model, config) to unload
+    """
+    model, config = model_tuple
 
-    return _model_cache, _current_model_config
+    # Cleanup model if it has a cleanup method
+    try:
+        if hasattr(model, 'cleanup'):
+            await asyncio.to_thread(model.cleanup)
+            logger.debug("Cleaned up OCR model")
+    except Exception as e:
+        logger.warning(f"Error cleaning up OCR model during unload: {e}")
+
+    # Delete references
+    del model
+    del config
+
+
+async def get_model(model_name: str, language: Optional[str] = None) -> tuple[Any, Dict[str, Any]]:
+    """
+    Get or load the OCR model via the global coordinator.
+
+    Note: This is legacy code kept for compatibility. The current implementation
+    uses worker manager for isolation (see ocr_image endpoint).
+
+    Models are managed by the coordinator to prevent OOM errors.
+    The coordinator will preemptively unload other models if needed.
+
+    Args:
+        model_name: Model identifier to load
+        language: Language code for OCR
+
+    Returns:
+        Tuple of (model, model_config)
+
+    Raises:
+        ValueError: If model is not supported
+        RuntimeError: If model loading fails
+    """
+    global _current_model_name
+
+    _current_model_name = model_name
+
+    # Get model info for memory estimation
+    model_config = get_model_config(model_name)
+    estimated_memory_mb = model_config.get("gpu_memory_mb") if model_config else None
+
+    # Load through coordinator (handles preemptive unload)
+    coordinator = get_coordinator()
+    model_tuple = await coordinator.load_model(
+        key=f"ocr:{model_name}:{language or 'ch'}",
+        loader_fn=lambda: _load_model_impl(model_name, language),
+        unloader_fn=_unload_model,
+        estimated_memory_mb=estimated_memory_mb,
+        model_type="ocr",
+    )
+
+    return model_tuple
 
 
 def cleanup():
     """
     Release model resources immediately.
-    Forces GPU memory cleanup to free resources for other services.
+
+    This function is called during app shutdown.
+    Delegates to the global model coordinator.
+    Note: Worker manager handles its own cleanup in isolated mode.
     """
-    global _model_cache, _current_model_name, _current_language, _current_model_config, _last_access_time
-
-    model_name = _current_model_name  # Save for logging
-
-    if _model_cache is not None:
-        try:
-            logger.debug(f"Cleaning up OCR model '{model_name}'")
-            _model_cache.cleanup()
-        except Exception as e:
-            logger.warning(f"Error cleaning up OCR model: {e}")
-
-        _model_cache = None
-
-    _current_model_name = ""
-    _current_language = ""
-    _current_model_config = None
-    _last_access_time = None
+    coordinator = get_coordinator()
+    # Use asyncio to run cleanup synchronously
+    try:
+        loop = asyncio.get_running_loop()
+        # Create task to unload all OCR models
+        # Note: This is legacy cleanup; worker manager handles its own resources
+        if _current_model_name:
+            loop.create_task(coordinator.unload_model(f"ocr:{_current_model_name}", _unload_model))
+    except RuntimeError:
+        # No event loop, can't cleanup
+        pass
 
 
 def decode_image(image_data: str) -> Image.Image:

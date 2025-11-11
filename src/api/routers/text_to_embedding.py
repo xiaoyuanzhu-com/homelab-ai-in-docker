@@ -15,87 +15,95 @@ from ..models.text_to_embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
 from ...config import get_data_dir, get_hf_endpoint, get_hf_model_cache_path
 from ...db.catalog import get_model_dict
+from ...services.model_coordinator import get_coordinator
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["text-to-embedding"])
 
-# Global model cache
-_model_cache: Optional[SentenceTransformer] = None
+# Track current model name (coordinator manages the actual model cache)
 _current_model_name: str = "all-MiniLM-L6-v2"
-_last_access_time: Optional[float] = None
-_idle_cleanup_task: Optional[asyncio.Task] = None
 
 
 def check_and_cleanup_idle_model():
-    """Check if model has been idle too long and cleanup if needed."""
-    global _model_cache, _last_access_time, _current_model_name
+    """
+    Check if model has been idle too long and cleanup if needed.
 
-    if _model_cache is None or _last_access_time is None:
-        return
-
-    # Get idle timeout from settings
+    This function is called by periodic cleanup in main.py.
+    Delegates to the global model coordinator for memory management.
+    """
     from ...db.settings import get_setting_int
     idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
 
-    # Check if model has been idle too long
-    idle_duration = time.time() - _last_access_time
-    if idle_duration >= idle_timeout:
-        logger.info(
-            f"Embedding model '{_current_model_name}' idle for {idle_duration:.1f}s "
-            f"(timeout: {idle_timeout}s), unloading from GPU..."
-        )
-        cleanup()
-        logger.info(f"Embedding model '{_current_model_name}' unloaded from GPU")
-
-
-def schedule_idle_cleanup() -> None:
-    """Schedule background cleanup after idle timeout."""
-    global _idle_cleanup_task
+    coordinator = get_coordinator()
+    # Use asyncio.create_task to run cleanup asynchronously
     try:
         loop = asyncio.get_running_loop()
+        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
     except RuntimeError:
-        return
-
-    from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-
-    if _idle_cleanup_task and not _idle_cleanup_task.done():
-        _idle_cleanup_task.cancel()
-
-    async def _watchdog(timeout_s: int):
-        try:
-            await asyncio.sleep(timeout_s)
-            if _last_access_time is None:
-                return
-            idle_duration = time.time() - _last_access_time
-            if idle_duration >= timeout_s and _model_cache is not None:
-                logger.info(
-                    f"Embedding model '{_current_model_name}' idle for {idle_duration:.1f}s "
-                    f"(timeout: {timeout_s}s), unloading from GPU..."
-                )
-                cleanup()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            # Clear task reference if it's the current task
-            global _idle_cleanup_task
-            try:
-                current = asyncio.current_task()
-            except Exception:
-                current = None
-            if current is not None and _idle_cleanup_task is current:
-                _idle_cleanup_task = None
-
-    _idle_cleanup_task = loop.create_task(_watchdog(idle_timeout))
+        # No event loop, skip cleanup
+        pass
 
 
-def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
+async def _load_model_impl(model_name: str) -> SentenceTransformer:
     """
-    Get or load the embedding model.
+    Internal async function to load the embedding model.
 
-    Models downloaded are stored at: data/models/{org}/{model}
-    Falls back to downloading from HuggingFace if not found locally.
+    Args:
+        model_name: Model ID to load
+
+    Returns:
+        Loaded SentenceTransformer model
+    """
+    # Get model info from catalog
+    model_info = get_model_dict(model_name)
+    if model_info is None:
+        raise ValueError(f"Model '{model_name}' not found in catalog")
+
+    # Set HuggingFace endpoint for model loading
+    os.environ["HF_ENDPOINT"] = get_hf_endpoint()
+
+    # Check for local download at HF standard cache path
+    local_model_dir = get_hf_model_cache_path(model_name)
+    if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+        # Load from local directory
+        model_path = str(local_model_dir)
+        logger.info(f"Using locally downloaded model from {model_path}")
+    else:
+        # Fall back to model ID (will download from HuggingFace to cache)
+        model_path = model_name
+        logger.info(f"Model not found locally, will download from HuggingFace: {model_name}")
+
+    # Load model in thread pool to avoid blocking
+    model = await asyncio.to_thread(SentenceTransformer, model_path)
+    return model
+
+
+async def _unload_model(model: SentenceTransformer) -> None:
+    """
+    Internal async function to unload and cleanup model.
+
+    Args:
+        model: Model to unload
+    """
+    # Move model to CPU first (helps with cleanup)
+    try:
+        if hasattr(model, 'cpu'):
+            await asyncio.to_thread(model.cpu)
+            logger.debug("Moved embedding model to CPU")
+    except Exception as e:
+        logger.warning(f"Error moving embedding model to CPU during cleanup: {e}")
+
+    # Delete model reference
+    del model
+
+
+async def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
+    """
+    Get or load the embedding model via the global coordinator.
+
+    Models are managed by the coordinator to prevent OOM errors.
+    The coordinator will preemptively unload other models if needed.
 
     Args:
         model_name: Skill ID of the model to load (optional)
@@ -106,76 +114,44 @@ def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
     Raises:
         HTTPException: If skill not found or not downloaded
     """
-    global _model_cache, _current_model_name, _last_access_time
-
-    # Check if current model should be cleaned up due to idle timeout
-    check_and_cleanup_idle_model()
+    global _current_model_name
 
     target_model = model_name or _current_model_name
+    _current_model_name = target_model
 
-    # Load model if not cached or if different model requested
-    if _model_cache is None or target_model != _current_model_name:
-        # Get model info from catalog
-        model_info = get_model_dict(target_model)
-        if model_info is None:
-            raise ValueError(f"Model '{target_model}' not found in catalog")
+    # Get model info for memory estimation
+    model_info = get_model_dict(target_model)
+    estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-        # Set HuggingFace endpoint for model loading
-        os.environ["HF_ENDPOINT"] = get_hf_endpoint()
+    # Load through coordinator (handles preemptive unload)
+    coordinator = get_coordinator()
+    model = await coordinator.load_model(
+        key=f"embedding:{target_model}",
+        loader_fn=lambda: _load_model_impl(target_model),
+        unloader_fn=_unload_model,
+        estimated_memory_mb=estimated_memory_mb,
+        model_type="embedding",
+    )
 
-        # Check for local download at HF standard cache path
-        local_model_dir = get_hf_model_cache_path(target_model)
-        if local_model_dir.exists() and (local_model_dir / "config.json").exists():
-            # Load from local directory
-            model_path = str(local_model_dir)
-            logger.info(f"Using locally downloaded model from {model_path}")
-        else:
-            # Fall back to model ID (will download from HuggingFace to cache)
-            model_path = target_model
-            logger.info(f"Model not found locally, will download from HuggingFace: {target_model}")
-
-        _model_cache = SentenceTransformer(model_path)
-        _current_model_name = target_model
-
-    # Update last access time
-    _last_access_time = time.time()
-
-    return _model_cache
+    return model
 
 
 def cleanup():
     """
     Release model resources immediately.
-    Forces GPU memory cleanup to free resources for other services.
+
+    This function is called during app shutdown.
+    Delegates to the global model coordinator.
     """
-    global _model_cache, _current_model_name, _last_access_time
-
-    model_name = _current_model_name  # Save for logging
-
-    if _model_cache is not None:
-        # Move model to CPU first (helps with cleanup)
-        try:
-            if hasattr(_model_cache, 'cpu'):
-                _model_cache.cpu()
-                logger.debug(f"Moved embedding model '{model_name}' to CPU")
-        except Exception as e:
-            logger.warning(f"Error moving embedding model to CPU during cleanup: {e}")
-
-        # Remove reference
-        del _model_cache
-        _model_cache = None
-
-    _current_model_name = "all-MiniLM-L6-v2"
-    _last_access_time = None
-
-    # Force GPU memory release
+    coordinator = get_coordinator()
+    # Use asyncio to run cleanup synchronously
     try:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()  # Wait for GPU operations to finish
-            logger.debug("GPU cache cleared and synchronized for embedding model")
-    except Exception as e:
-        logger.warning(f"Error releasing GPU memory: {e}")
+        loop = asyncio.get_running_loop()
+        # Create task to unload all embedding models
+        loop.create_task(coordinator.unload_model(f"embedding:{_current_model_name}", _unload_model))
+    except RuntimeError:
+        # No event loop, can't cleanup
+        pass
 
 
 @router.post("/text-to-embedding", response_model=EmbeddingResponse)
@@ -199,8 +175,8 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
     start_time = time.time()
 
     try:
-        # Load model off the event loop
-        model = await asyncio.to_thread(get_model, request.model)
+        # Load model via coordinator (handles preemptive unload)
+        model = await get_model(request.model)
 
         # Generate embeddings off the event loop
         embeddings = await asyncio.to_thread(model.encode, request.texts, convert_to_numpy=True)
@@ -233,8 +209,7 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
             status="success",
         )
 
-        # Schedule background idle cleanup after request completes
-        schedule_idle_cleanup()
+        # Note: Idle cleanup is handled by the global model coordinator
         return response
 
     except Exception as e:

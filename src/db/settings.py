@@ -22,6 +22,9 @@ def init_settings_table():
         # Insert default settings if not exists
         defaults = [
             ("model_idle_timeout_seconds", "5", "Seconds of inactivity before unloading models from GPU memory"),
+            ("max_models_in_memory", "1", "Maximum number of models to keep loaded in memory simultaneously (1=aggressive, 2+=allow multiple if memory permits)"),
+            ("enable_preemptive_unload", "true", "Unload previous model before loading next one to prevent OOM (true/false)"),
+            ("max_memory_mb", "", "Maximum GPU memory usage in MB (empty=no limit, for multi-model mode)"),
             ("hf_endpoint", "https://huggingface.co", "HuggingFace endpoint URL for model downloads and loading"),
             ("hf_username", "", "HuggingFace username for accessing gated models (optional, not email)"),
             ("hf_token", "", "HuggingFace API token for accessing private models (optional)"),
@@ -56,11 +59,11 @@ def get_setting(key: str, default: Any = None) -> Optional[str]:
 def get_setting_int(key: str, default: int = 0) -> int:
     """
     Get a setting value as integer.
-    
+
     Args:
         key: Setting key
         default: Default value if setting not found or invalid
-        
+
     Returns:
         Setting value as integer
     """
@@ -69,6 +72,43 @@ def get_setting_int(key: str, default: int = 0) -> int:
         return default
     try:
         return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def get_setting_bool(key: str, default: bool = False) -> bool:
+    """
+    Get a setting value as boolean.
+
+    Args:
+        key: Setting key
+        default: Default value if setting not found or invalid
+
+    Returns:
+        Setting value as boolean
+    """
+    value = get_setting(key)
+    if value is None:
+        return default
+    return value.lower() in ("true", "1", "yes", "on")
+
+
+def get_setting_float(key: str, default: Optional[float] = None) -> Optional[float]:
+    """
+    Get a setting value as float.
+
+    Args:
+        key: Setting key
+        default: Default value if setting not found or invalid
+
+    Returns:
+        Setting value as float, or None if empty/invalid
+    """
+    value = get_setting(key)
+    if not value or value.strip() == "":
+        return default
+    try:
+        return float(value)
     except (ValueError, TypeError):
         return default
 
