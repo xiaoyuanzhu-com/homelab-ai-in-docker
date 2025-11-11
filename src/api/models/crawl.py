@@ -38,6 +38,10 @@ class CrawlRequest(BaseModel):
         default=False,
         description="Also capture a full-page screenshot (stitched). Shares width/height with viewport",
     )
+    include_html: bool = Field(
+        default=False,
+        description="Include raw HTML content in the response (off by default to reduce response size)",
+    )
 
 
 class CrawlResponse(BaseResponse):
@@ -46,12 +50,9 @@ class CrawlResponse(BaseResponse):
     url: str = Field(..., description="Crawled URL")
     title: Optional[str] = Field(None, description="Page title")
     markdown: str = Field(..., description="Extracted content in Markdown format")
-    html: Optional[str] = Field(None, description="Raw HTML content")
+    html: Optional[str] = Field(None, description="Raw HTML content (only included if include_html=true)")
     screenshot_base64: Optional[str] = Field(
-        None, description="Base64-encoded screenshot"
-    )
-    screenshot_viewport_base64: Optional[str] = Field(
-        None, description="Base64-encoded viewport (first screen) screenshot, if requested"
+        None, description="Base64-encoded screenshot (viewport screenshot if requested, otherwise full-page)"
     )
     screenshot_fullpage_base64: Optional[str] = Field(
         None, description="Base64-encoded full-page screenshot, if requested"

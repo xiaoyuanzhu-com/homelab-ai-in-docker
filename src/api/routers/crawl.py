@@ -602,9 +602,6 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
 
         # Screenshot is already base64-encoded by crawl4ai
         screenshot_base64 = result.get("screenshot") if request.screenshot else None
-        screenshot_viewport_base64 = (
-            result.get("screenshot_viewport") if request.screenshot else None
-        )
         screenshot_fullpage_base64 = (
             result.get("screenshot_fullpage") if request.screenshot else None
         )
@@ -614,9 +611,8 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
             url=result["url"],
             title=result.get("title"),
             markdown=result["markdown"] or "",
-            html=result.get("html"),
+            html=result.get("html") if request.include_html else None,
             screenshot_base64=screenshot_base64,
-            screenshot_viewport_base64=screenshot_viewport_base64,
             screenshot_fullpage_base64=screenshot_fullpage_base64,
             processing_time_ms=processing_time_ms,
             success=result["success"],
@@ -631,7 +627,6 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
                 exclude={
                     "html",
                     "screenshot_base64",
-                    "screenshot_viewport_base64",
                     "screenshot_fullpage_base64",
                 }
             ),
