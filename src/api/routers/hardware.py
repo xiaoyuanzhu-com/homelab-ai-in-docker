@@ -150,6 +150,41 @@ async def get_hardware_stats():
         # Determine which device will be used for inference
         inference_device = "cuda" if cuda_available else "cpu"
 
+        # Get model coordinator stats
+        model_coordinator_stats = None
+        try:
+            from ...services.model_coordinator import get_coordinator
+            from ...db.settings import get_setting_int, get_setting_bool, get_setting_float
+
+            coordinator = get_coordinator()
+            memory_stats = await coordinator.get_memory_stats()
+
+            # Get coordinator configuration from database
+            max_models = get_setting_int("max_models_in_memory", 1)
+            enable_preemptive = get_setting_bool("enable_preemptive_unload", True)
+            max_memory = get_setting_float("max_memory_mb", None)
+            idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
+
+            model_coordinator_stats = {
+                "config": {
+                    "max_models_in_memory": max_models,
+                    "enable_preemptive_unload": enable_preemptive,
+                    "max_memory_mb": max_memory,
+                    "idle_timeout_seconds": idle_timeout,
+                },
+                "models_loaded": memory_stats.get("models_loaded", 0),
+                "loaded_models": memory_stats.get("model_details", []),
+                "gpu_memory": {
+                    "available": memory_stats.get("gpu_available", False),
+                    "total_mb": round(memory_stats.get("gpu_total_mb", 0), 2) if memory_stats.get("gpu_total_mb") else None,
+                    "used_mb": round(memory_stats.get("gpu_used_mb", 0), 2) if memory_stats.get("gpu_used_mb") else None,
+                    "cached_mb": round(memory_stats.get("gpu_cached_mb", 0), 2) if memory_stats.get("gpu_cached_mb") else None,
+                    "free_mb": round(memory_stats.get("gpu_free_mb", 0), 2) if memory_stats.get("gpu_free_mb") else None,
+                },
+            }
+        except Exception as e:
+            logger.debug(f"Could not get model coordinator stats: {e}")
+
         return {
             "cpu": {
                 "usage_percent": cpu_percent,
@@ -173,6 +208,7 @@ async def get_hardware_stats():
                 "device": inference_device,
                 "description": f"AI models will use {inference_device.upper()} for inference",
             },
+            "model_coordinator": model_coordinator_stats,
         }
     except Exception as e:
         logger.error(f"Error getting hardware stats: {e}")

@@ -23,19 +23,21 @@ from ..models.whisperx import (
 from ...db.settings import get_setting, get_setting_int
 from ...config import get_hf_endpoint, get_hf_model_cache_path
 from ...storage.history import history_storage
+from ...services.model_coordinator import get_coordinator
 
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/whisperx", tags=["whisperx"])
 
-# Caches for models/pipelines
-_asr_model_cache: Optional[Any] = None
+# Track current ASR model name (coordinator manages the ASR model cache)
 _asr_model_name: str = ""
+
+# Caches for auxiliary models (alignment and diarization)
 _align_cache: Optional[tuple[Any, Any, str, str]] = None  # (align_model, metadata, language_code, align_device)
 _diar_cache: Optional[Any] = None
-_last_access_time: Optional[float] = None
-_idle_cleanup_task: Optional[asyncio.Task] = None
+
+# Lock for serializing inference to avoid concurrent GPU spikes
 _infer_lock: asyncio.Lock = asyncio.Lock()
 
 
@@ -77,69 +79,47 @@ def _ensure_torchaudio_compat() -> None:
 
 
 def check_and_cleanup_idle_model():
-    global _last_access_time, _asr_model_cache
-    if _asr_model_cache is None or _last_access_time is None:
-        return
+    """
+    Check if model has been idle too long and cleanup if needed.
+
+    This function is called by periodic cleanup in main.py.
+    Delegates to the global model coordinator for memory management.
+    """
     idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-    idle_duration = time.time() - _last_access_time
-    if idle_duration >= idle_timeout:
-        logger.info(
-            f"WhisperX ASR idle for {idle_duration:.1f}s (timeout: {idle_timeout}s), unloading..."
-        )
-        cleanup()
 
-
-def schedule_idle_cleanup() -> None:
-    global _idle_cleanup_task
+    coordinator = get_coordinator()
+    # Use asyncio.create_task to run cleanup asynchronously
     try:
         loop = asyncio.get_running_loop()
+        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_asr_model))
     except RuntimeError:
-        return
-
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-
-    if _idle_cleanup_task and not _idle_cleanup_task.done():
-        _idle_cleanup_task.cancel()
-
-    async def _watchdog(timeout_s: int):
-        try:
-            await asyncio.sleep(timeout_s)
-            if _last_access_time is None:
-                return
-            if (time.time() - _last_access_time) >= timeout_s and _asr_model_cache is not None:
-                cleanup()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            global _idle_cleanup_task
-            try:
-                current = asyncio.current_task()
-            except Exception:
-                current = None
-            if current is not None and _idle_cleanup_task is current:
-                _idle_cleanup_task = None
-
-    _idle_cleanup_task = loop.create_task(_watchdog(idle_timeout))
+        # No event loop, skip cleanup
+        pass
 
 
 def cleanup():
-    global _asr_model_cache, _align_cache, _diar_cache, _asr_model_name, _last_access_time
-    try:
-        _asr_model_cache = None
-        _align_cache = None
-        _diar_cache = None
-        _asr_model_name = ""
-        _last_access_time = None
-        try:
-            import torch  # type: ignore
+    """
+    Release model resources immediately.
 
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-        except Exception:
-            pass
-    except Exception as e:
-        logger.warning(f"Error releasing WhisperX resources: {e}")
+    This function is called during app shutdown.
+    Delegates to the global model coordinator for ASR model,
+    and cleans up auxiliary models (align/diar) directly.
+    """
+    global _align_cache, _diar_cache
+
+    # Clean up auxiliary models
+    _align_cache = None
+    _diar_cache = None
+
+    # Delegate ASR model cleanup to coordinator
+    coordinator = get_coordinator()
+    try:
+        loop = asyncio.get_running_loop()
+        # Create task to unload WhisperX ASR model
+        loop.create_task(coordinator.unload_model(f"whisperx:{_asr_model_name}", _unload_asr_model))
+    except RuntimeError:
+        # No event loop, can't cleanup
+        pass
 
 
 def _decode_audio_to_file(audio_b64: str) -> Path:
@@ -155,13 +135,18 @@ def _decode_audio_to_file(audio_b64: str) -> Path:
         raise ValueError(f"Failed to decode audio: {e}")
 
 
-def _load_asr_model(model_id: str, device: str, compute_type: Optional[str]):
-    global _asr_model_cache, _asr_model_name
-    check_and_cleanup_idle_model()
-    if _asr_model_cache is not None and _asr_model_name == model_id:
-        logger.info(f"WhisperX: reusing cached ASR model '{model_id}' on {device}")
-        return _asr_model_cache
+async def _load_asr_model_impl(model_id: str, device: str, compute_type: Optional[str]) -> Any:
+    """
+    Internal async function to load the WhisperX ASR model.
 
+    Args:
+        model_id: Model ID to load
+        device: Device to load model on (cuda/cpu)
+        compute_type: Compute type for inference (float16/float32)
+
+    Returns:
+        Loaded WhisperX ASR model
+    """
     _ensure_torchaudio_compat()
     import whisperx  # type: ignore
 
@@ -182,12 +167,73 @@ def _load_asr_model(model_id: str, device: str, compute_type: Optional[str]):
         logger.info(
             f"WhisperX: loading ASR model '{model_source}' with kwargs={kwargs}"
         )
-        model = whisperx.load_model(model_source, **kwargs)
+        # Load in thread pool to avoid blocking
+        model = await asyncio.to_thread(whisperx.load_model, model_source, **kwargs)
+        return model
     except Exception as e:
         raise RuntimeError(f"Failed to load WhisperX model '{model_id}': {e}")
 
-    _asr_model_cache = model
+
+async def _unload_asr_model(model: Any) -> None:
+    """
+    Internal async function to unload and cleanup ASR model.
+
+    Args:
+        model: WhisperX model to unload
+    """
+    # Clean up auxiliary models too
+    global _align_cache, _diar_cache
+    _align_cache = None
+    _diar_cache = None
+
+    # Delete model reference
+    del model
+
+    # Clear GPU cache
+    try:
+        import torch  # type: ignore
+        if torch.cuda.is_available():
+            await asyncio.to_thread(torch.cuda.empty_cache)
+            await asyncio.to_thread(torch.cuda.synchronize)
+            logger.debug("GPU cache cleared for WhisperX model")
+    except Exception as e:
+        logger.warning(f"Error clearing GPU cache during WhisperX cleanup: {e}")
+
+
+async def get_asr_model(model_id: str, device: str, compute_type: Optional[str]) -> Any:
+    """
+    Get or load the WhisperX ASR model via the global coordinator.
+
+    Models are managed by the coordinator to prevent OOM errors.
+    The coordinator will preemptively unload other models if needed.
+
+    Args:
+        model_id: Model ID to load
+        device: Device to load model on (cuda/cpu)
+        compute_type: Compute type for inference (float16/float32)
+
+    Returns:
+        Loaded WhisperX ASR model
+    """
+    global _asr_model_name
+
     _asr_model_name = model_id
+
+    # Get model info for memory estimation
+    from ...db.catalog import get_model_dict
+    model_info = get_model_dict(model_id)
+    estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
+
+    # Load through coordinator (handles preemptive unload)
+    coordinator = get_coordinator()
+    model = await coordinator.load_model(
+        key=f"whisperx:{model_id}",
+        loader_fn=lambda: _load_asr_model_impl(model_id, device, compute_type),
+        unloader_fn=_unload_asr_model,
+        estimated_memory_mb=estimated_memory_mb,
+        model_type="whisperx",
+    )
+
     return model
 
 
@@ -276,8 +322,8 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
         # Decode audio off the event loop
         audio_path = await asyncio.to_thread(_decode_audio_to_file, request.audio)
 
-        # Load WhisperX ASR model
-        asr_model = _load_asr_model(request.asr_model, device, compute_type)
+        # Load WhisperX ASR model via coordinator (handles preemptive unload)
+        asr_model = await get_asr_model(request.asr_model, device, compute_type)
 
         # Import whisperx in the worker thread to avoid blocking
         import whisperx  # type: ignore
@@ -360,11 +406,6 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
             segments=segments_out,
         )
 
-        # Cache last access
-        global _last_access_time
-        _last_access_time = time.time()
-        schedule_idle_cleanup()
-
         # Save to history (exclude audio)
         history_storage.add_request(
             service="whisperx",
@@ -378,6 +419,7 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
             status="success",
         )
 
+        # Note: Idle cleanup is handled by the global model coordinator
         return response
 
     except RuntimeError as e:

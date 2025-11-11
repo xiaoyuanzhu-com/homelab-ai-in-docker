@@ -21,18 +21,15 @@ import torch
 from ..models.automatic_speech_recognition import TranscriptionRequest, TranscriptionResponse
 from ...storage.history import history_storage
 from ...db.catalog import get_model_dict, list_models
+from ...services.model_coordinator import get_coordinator
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["automatic-speech-recognition"])
 
-# Global model cache
-_model_cache: Optional[Any] = None
-_processor_cache: Optional[Any] = None
+# Track current model name (coordinator manages the actual model cache)
 _current_model_name: str = ""
 _current_model_config: Optional[Dict[str, Any]] = None
-_last_access_time: Optional[float] = None
-_idle_cleanup_task: Optional[asyncio.Task] = None
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -86,195 +83,157 @@ def validate_model(model_name: str) -> None:
 
 
 def check_and_cleanup_idle_model():
-    """Check if model has been idle too long and cleanup if needed."""
-    global _model_cache, _last_access_time, _current_model_name
+    """
+    Check if model has been idle too long and cleanup if needed.
 
-    if _model_cache is None or _last_access_time is None:
-        return
-
-    # Get idle timeout from settings
+    This function is called by periodic cleanup in main.py.
+    Delegates to the global model coordinator for memory management.
+    """
     from ...db.settings import get_setting_int
     idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
 
-    # Check if model has been idle too long
-    idle_duration = time.time() - _last_access_time
-    if idle_duration >= idle_timeout:
-        logger.info(
-            f"ASR model '{_current_model_name}' idle for {idle_duration:.1f}s "
-            f"(timeout: {idle_timeout}s), unloading from GPU..."
-        )
-        # Preserve name for accurate post-cleanup logging
-        unloaded_name = _current_model_name
-        cleanup()
-        logger.info(f"ASR model '{unloaded_name}' unloaded from GPU")
-
-
-def schedule_idle_cleanup() -> None:
-    """Schedule background cleanup after idle timeout.
-
-    Ensures model unload even if no further transcription requests arrive.
-    """
-    global _idle_cleanup_task
+    coordinator = get_coordinator()
+    # Use asyncio.create_task to run cleanup asynchronously
     try:
         loop = asyncio.get_running_loop()
+        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
     except RuntimeError:
-        return
-
-    from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-
-    if _idle_cleanup_task and not _idle_cleanup_task.done():
-        _idle_cleanup_task.cancel()
-
-    async def _watchdog(timeout_s: int):
-        try:
-            await asyncio.sleep(timeout_s)
-            if _last_access_time is None:
-                return
-            idle_duration = time.time() - _last_access_time
-            if idle_duration >= timeout_s and _model_cache is not None:
-                logger.info(
-                    f"ASR model '{_current_model_name}' idle for {idle_duration:.1f}s "
-                    f"(timeout: {timeout_s}s), unloading from GPU..."
-                )
-                cleanup()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            # Clear task reference if it's the current task
-            global _idle_cleanup_task
-            try:
-                current = asyncio.current_task()
-            except Exception:
-                current = None
-            if current is not None and _idle_cleanup_task is current:
-                _idle_cleanup_task = None
-
-    _idle_cleanup_task = loop.create_task(_watchdog(idle_timeout))
+        # No event loop, skip cleanup
+        pass
 
 
-def get_model(model_name: str):
+async def _load_model_impl(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
     """
-    Get or load the ASR model using Auto classes.
+    Internal async function to load the ASR model and processor.
 
     Args:
-        model_name: Model identifier to load. If different from currently
-                   loaded model, will reload with the new model.
+        model_name: Model ID to load
+
+    Returns:
+        Tuple of (processor, model, model_config)
+    """
+    # Validate model is supported and get config
+    validate_model(model_name)
+    model_config = get_model_config(model_name)
+
+    # Check for local download at HF standard cache path
+    from ...config import get_hf_model_cache_path, get_hf_endpoint
+    local_model_dir = get_hf_model_cache_path(model_name)
+
+    if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+        model_path = str(local_model_dir)
+        logger.info(f"Using locally downloaded model from {model_path}")
+        extra_kwargs = {"local_files_only": True}
+    else:
+        model_path = model_name
+        logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
+        extra_kwargs = {}
+
+    # Set HuggingFace endpoint for model loading
+    os.environ["HF_ENDPOINT"] = get_hf_endpoint()
+
+    # Determine device and dtype
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+
+    # Load processor and model in thread pool to avoid blocking
+    def _load():
+        processor = AutoProcessor.from_pretrained(model_path, **extra_kwargs)
+        model = AutoModelForSpeechSeq2Seq.from_pretrained(
+            model_path,
+            attn_implementation="sdpa",  # Use scaled dot product attention for better performance
+            low_cpu_mem_usage=True,
+            use_safetensors=True,
+            **extra_kwargs
+        )
+        model.to(device, dtype=dtype)
+        return processor, model
+
+    processor, model = await asyncio.to_thread(_load)
+    return processor, model, model_config
+
+
+async def _unload_model(model_tuple: tuple[Any, Any, Dict[str, Any]]) -> None:
+    """
+    Internal async function to unload and cleanup model.
+
+    Args:
+        model_tuple: Tuple of (processor, model, config) to unload
+    """
+    processor, model, config = model_tuple
+
+    # Move model to CPU first (helps with cleanup)
+    try:
+        if hasattr(model, 'cpu'):
+            await asyncio.to_thread(model.cpu)
+            logger.debug("Moved ASR model to CPU")
+    except Exception as e:
+        logger.warning(f"Error moving ASR model to CPU during cleanup: {e}")
+
+    # Delete references
+    del processor
+    del model
+    del config
+
+
+async def get_model(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
+    """
+    Get or load the ASR model via the global coordinator.
+
+    Models are managed by the coordinator to prevent OOM errors.
+    The coordinator will preemptively unload other models if needed.
+
+    Args:
+        model_name: Model identifier to load
 
     Returns:
         Tuple of (processor, model, model_config)
 
     Raises:
         ValueError: If model is not supported
+        RuntimeError: If model loading fails
     """
-    global _model_cache, _processor_cache, _current_model_name, _current_model_config, _last_access_time
+    global _current_model_name, _current_model_config
 
-    # Check if current model should be cleaned up due to idle timeout
-    check_and_cleanup_idle_model()
+    _current_model_name = model_name
 
-    # Validate model is supported and get config
-    validate_model(model_name)
-    model_config = get_model_config(model_name)
+    # Get model info for memory estimation
+    model_info = get_model_dict(model_name)
+    estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-    # Check if we need to reload the model
-    if model_name != _current_model_name:
-        # Clear existing cache
-        if _model_cache is not None:
-            del _model_cache
-            _model_cache = None
-        if _processor_cache is not None:
-            del _processor_cache
-            _processor_cache = None
-        _current_model_name = model_name
-        _current_model_config = model_config
+    # Load through coordinator (handles preemptive unload)
+    coordinator = get_coordinator()
+    model_tuple = await coordinator.load_model(
+        key=f"asr:{model_name}",
+        loader_fn=lambda: _load_model_impl(model_name),
+        unloader_fn=_unload_model,
+        estimated_memory_mb=estimated_memory_mb,
+        model_type="asr",
+    )
 
-    if _model_cache is None or _processor_cache is None:
-        # Check for local download at HF standard cache path
-        from ...config import get_hf_model_cache_path, get_hf_endpoint
-        local_model_dir = get_hf_model_cache_path(_current_model_name)
+    # Update current config from the tuple
+    _current_model_config = model_tuple[2]
 
-        if local_model_dir.exists() and (local_model_dir / "config.json").exists():
-            model_path = str(local_model_dir)
-            logger.info(f"Using locally downloaded model from {model_path}")
-            extra_kwargs = {"local_files_only": True}
-        else:
-            model_path = _current_model_name
-            logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
-            extra_kwargs = {}
-
-        # Set HuggingFace endpoint for model loading
-        os.environ["HF_ENDPOINT"] = get_hf_endpoint()
-
-        try:
-            # Determine device and dtype
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-
-            # Load processor
-            _processor_cache = AutoProcessor.from_pretrained(
-                model_path,
-                **extra_kwargs
-            )
-
-            # Load model with dtype parameter (not torch_dtype which is deprecated)
-            _model_cache = AutoModelForSpeechSeq2Seq.from_pretrained(
-                model_path,
-                attn_implementation="sdpa",  # Use scaled dot product attention for better performance
-                low_cpu_mem_usage=True,
-                use_safetensors=True,
-                **extra_kwargs
-            )
-            _model_cache.to(device, dtype=dtype)
-
-        except Exception as e:
-            error_msg = f"Failed to load model '{model_name}': {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            raise RuntimeError(error_msg)
-
-    # Update last access time
-    _last_access_time = time.time()
-
-    return _processor_cache, _model_cache, _current_model_config
+    return model_tuple
 
 
 def cleanup():
     """
-    Release model and processor resources immediately.
-    Forces GPU memory cleanup to free resources for other services.
+    Release model resources immediately.
+
+    This function is called during app shutdown.
+    Delegates to the global model coordinator.
     """
-    global _model_cache, _processor_cache, _current_model_name, _current_model_config, _last_access_time
-
-    model_name = _current_model_name  # Save for logging
-
-    if _model_cache is not None:
-        # Move model to CPU first (helps with cleanup)
-        try:
-            if hasattr(_model_cache, 'cpu'):
-                _model_cache.cpu()
-                logger.debug(f"Moved ASR model '{model_name}' to CPU")
-        except Exception as e:
-            logger.warning(f"Error moving model to CPU during cleanup: {e}")
-
-        # Remove reference
-        del _model_cache
-        _model_cache = None
-
-    if _processor_cache is not None:
-        del _processor_cache
-        _processor_cache = None
-
-    _current_model_name = ""
-    _current_model_config = None
-    _last_access_time = None
-
-    # Force GPU memory release
+    coordinator = get_coordinator()
+    # Use asyncio to run cleanup synchronously
     try:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()  # Wait for GPU operations to finish
-            logger.debug("GPU cache cleared and synchronized for ASR model")
-    except Exception as e:
-        logger.warning(f"Error releasing GPU memory: {e}")
+        loop = asyncio.get_running_loop()
+        # Create task to unload all ASR models
+        if _current_model_name:
+            loop.create_task(coordinator.unload_model(f"asr:{_current_model_name}", _unload_model))
+    except RuntimeError:
+        # No event loop, can't cleanup
+        pass
 
 
 def decode_audio(audio_data: str) -> Path:
@@ -357,8 +316,8 @@ async def _process_transcription(request: TranscriptionRequest, request_id: str,
         # Decode audio off the event loop
         audio_path = await asyncio.to_thread(decode_audio, request.audio)
 
-        # Load model and get config off the event loop
-        processor, model, model_config = await asyncio.to_thread(get_model, request.model)
+        # Load model and get config via coordinator (handles preemptive unload)
+        processor, model, model_config = await get_model(request.model)
 
         # Run the full preprocessing + generation pipeline in a worker thread
         def _run_inference():
@@ -454,8 +413,7 @@ async def _process_transcription(request: TranscriptionRequest, request_id: str,
             status="success",
         )
 
-        # Schedule background idle cleanup after request completes
-        schedule_idle_cleanup()
+        # Note: Idle cleanup is handled by the global model coordinator
         return response
 
     finally:
@@ -575,7 +533,7 @@ async def _process_diarization(request: TranscriptionRequest, request_id: str, s
             status="success",
         )
 
-        schedule_idle_cleanup()
+        # Note: Idle cleanup is handled by the global model coordinator
         return response
 
     finally:
