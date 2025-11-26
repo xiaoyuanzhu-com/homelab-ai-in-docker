@@ -258,6 +258,12 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
         # Convert to list of lists
         embeddings_list = embeddings.tolist()
 
+        # Clean up GPU memory immediately after conversion
+        # This prevents OOM during continuous requests by releasing intermediate tensors
+        del embeddings
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         processing_time_ms = int((time.time() - start_time) * 1000)
 
         response = EmbeddingResponse(
@@ -283,10 +289,13 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
             status="success",
         )
 
-        # Note: Idle cleanup is handled by the global model coordinator
         return response
 
     except Exception as e:
+        # Clean up GPU memory on error as well
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         error_msg = f"Failed to generate embeddings: {str(e)}"
         logger.error(f"Embedding failed for request {request_id}: {error_msg}", exc_info=True)
         raise HTTPException(
