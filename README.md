@@ -62,6 +62,7 @@ services:
 | Image OCR | ✅ |
 | Automatic Speech Recognition | ✅ |
 | Web Crawling | ✅ |
+| Doc to Markdown (MarkItDown) | ✅ |
 | Remote MCP Server | ✅ |
 | Speaker Embedding | Not yet |
 | Text Classification | Not yet |
@@ -259,6 +260,7 @@ All endpoints are under the `/api` prefix:
 - `GET /api/health` - Health check
 - `GET /api/ready` - Readiness check
 - `GET /api/docs` - Interactive API documentation (Swagger UI)
+- `POST /api/doc-to-markdown` - Convert documents (PDF, DOCX, PPTX, etc.) to Markdown
 - **`/mcp`** - Model Context Protocol (MCP) server endpoint (Streamable HTTP)
 
 ### MCP (Model Context Protocol) Support

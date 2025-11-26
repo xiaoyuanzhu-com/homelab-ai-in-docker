@@ -206,6 +206,14 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
+        id: "doc-to-markdown",
+        title: "Doc to Markdown",
+        description: "Convert PDFs, DOCX, PPTX and more to Markdown",
+        icon: <FileText className="h-5 w-5" />,
+        href: "/doc-to-markdown",
+        available: true
+      },
+      {
         id: "tabular-regression",
         title: "Tabular Regression",
         description: "Predict continuous values",

@@ -47,6 +47,7 @@ export const TASK_DISPLAY_NAMES: Record<string, string> = {
 
   // Other tasks
   "web-crawling": "Web Crawling",
+  "doc-to-markdown": "Doc to Markdown",
   "tabular-classification": "Tabular Classification",
   "tabular-regression": "Tabular Regression",
   "reinforcement-learning": "Reinforcement Learning",

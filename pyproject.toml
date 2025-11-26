@@ -10,6 +10,7 @@ dependencies = [
     "crawl4ai>=0.7.0",
     "playwright>=1.43.0",
     "playwright-stealth>=1.8.0",
+    "markitdown",
     "pydantic>=2.0.0",
     "sentence-transformers>=3.0.0",
     # Pin Torch stack and ensure all use the same CUDA build
@@ -45,8 +46,8 @@ dependencies = [
     "nvidia-cublas-cu12>=12.6,<12.7; platform_system=='Linux'",
     "nvidia-cufft-cu12>=11.3,<11.4; platform_system=='Linux'",
     "nvidia-nvjitlink-cu12>=12.6,<12.7; platform_system=='Linux'",
-    # Torch 2.8.0 cu126 is built against cuDNN 9.1.x; pin to that minor.
-    "nvidia-cudnn-cu12>=9.1,<9.2; platform_system=='Linux'",
+    # Torch 2.8.0+cu126 requires cuDNN 9.10.x per upstream wheels
+    "nvidia-cudnn-cu12==9.10.2.21; platform_system=='Linux'",
     "mcp>=1.8.0",
     "mkdocs-material>=9.5.0",
 ]

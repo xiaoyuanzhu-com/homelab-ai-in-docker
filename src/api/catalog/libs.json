@@ -27,6 +27,19 @@
       "reference_url": "https://github.com/unclecode/crawl4ai"
     },
     {
+      "id": "microsoft/markitdown",
+      "label": "MarkItDown",
+      "provider": "Microsoft",
+      "tasks": ["doc-to-markdown"],
+      "architecture": "markitdown",
+      "default_prompt": null,
+      "platform_requirements": "Included with container; Python-only document conversion (no browser).",
+      "supports_markdown": true,
+      "requires_quantization": false,
+      "requires_download": false,
+      "reference_url": "https://github.com/microsoft/markitdown"
+    },
+    {
       "id": "whisperx/whisperx",
       "label": "WhisperX",
       "provider": "WhisperX",
