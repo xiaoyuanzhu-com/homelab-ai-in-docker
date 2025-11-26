@@ -28,6 +28,8 @@ def init_settings_table():
             ("hf_endpoint", "https://huggingface.co", "HuggingFace endpoint URL for model downloads and loading"),
             ("hf_username", "", "HuggingFace username for accessing gated models (optional, not email)"),
             ("hf_token", "", "HuggingFace API token for accessing private models (optional)"),
+            ("embedding_memory_per_batch_mb", "2048", "GPU memory used per embedding batch in MB (2048 = 2GB per batch)"),
+            ("embedding_max_batch_size", "32", "Maximum batch size for embedding generation (prevents excessive batching)"),
         ]
         
         for key, value, description in defaults:

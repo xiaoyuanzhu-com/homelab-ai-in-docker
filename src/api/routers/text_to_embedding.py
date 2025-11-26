@@ -25,6 +25,75 @@ router = APIRouter(prefix="/api", tags=["text-to-embedding"])
 _current_model_name: str = "all-MiniLM-L6-v2"
 
 
+def get_total_gpu_memory_mb() -> float:
+    """
+    Get total GPU memory in MB.
+
+    Returns:
+        Total GPU memory in MB, or 0 if no GPU available
+    """
+    if not torch.cuda.is_available():
+        return 0.0
+
+    try:
+        # Get current device
+        device = torch.cuda.current_device()
+        # Get total memory in bytes
+        total_memory_bytes = torch.cuda.mem_get_info(device)[1]
+        # Convert to MB
+        total_memory_mb = total_memory_bytes / (1024 * 1024)
+        return total_memory_mb
+    except Exception as e:
+        logger.warning(f"Failed to get GPU memory info: {e}")
+        return 0.0
+
+
+def calculate_batch_size(total_memory_mb: float, memory_per_batch_mb: float = 2048, max_batch_size: int = 32) -> int:
+    """
+    Calculate optimal batch size based on total GPU memory.
+
+    Uses the formula: batch_size = floor(total_memory / memory_per_batch)
+
+    Args:
+        total_memory_mb: Total GPU memory in MB
+        memory_per_batch_mb: Memory consumption per batch (default: 2048 MB = 2 GB)
+        max_batch_size: Maximum batch size cap (default: 32)
+
+    Returns:
+        Calculated batch size (minimum 1, maximum max_batch_size)
+    """
+    if total_memory_mb <= 0:
+        # No GPU or no memory info, use conservative default
+        logger.warning("No GPU memory available, using batch_size=1")
+        return 1
+
+    # Calculate batch size: total_memory / memory_per_batch
+    calculated_batch = int(total_memory_mb / memory_per_batch_mb)
+
+    # Clamp between 1 and max_batch_size
+    batch_size = max(1, min(calculated_batch, max_batch_size))
+
+    logger.info(
+        f"Calculated batch_size={batch_size} "
+        f"(total_memory={total_memory_mb:.0f}MB, "
+        f"memory_per_batch={memory_per_batch_mb}MB)"
+    )
+
+    return batch_size
+
+
+# Calculate batch size once at module initialization
+from ...db.settings import get_setting_int
+_memory_per_batch_mb = get_setting_int("embedding_memory_per_batch_mb", 2048)
+_max_batch_size = get_setting_int("embedding_max_batch_size", 32)
+_total_gpu_memory = get_total_gpu_memory_mb()
+_default_batch_size = calculate_batch_size(
+    total_memory_mb=_total_gpu_memory,
+    memory_per_batch_mb=_memory_per_batch_mb,
+    max_batch_size=_max_batch_size
+)
+
+
 def check_and_cleanup_idle_model():
     """
     Check if model has been idle too long and cleanup if needed.
@@ -178,8 +247,13 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
         # Load model via coordinator (handles preemptive unload)
         model = await get_model(request.model)
 
-        # Generate embeddings off the event loop
-        embeddings = await asyncio.to_thread(model.encode, request.texts, convert_to_numpy=True)
+        # Generate embeddings off the event loop with pre-calculated batch size
+        embeddings = await asyncio.to_thread(
+            model.encode,
+            request.texts,
+            batch_size=_default_batch_size,
+            convert_to_numpy=True
+        )
 
         # Convert to list of lists
         embeddings_list = embeddings.tolist()
