@@ -248,6 +248,10 @@ curl -X POST http://localhost:8000/api/crawl \
 }
 ```
 
+**Convert a document to Markdown:**
+
+See full request/response in API Reference: docs/api-reference.md#doc-to-markdown
+
 ## API Endpoints
 
 All endpoints are under the `/api` prefix:
@@ -311,6 +315,7 @@ The service exposes all AI capabilities as **remote MCP tools** at the `/mcp` en
 
 - [Product Design](docs/product-design.md) - User-focused overview
 - [Technical Design](docs/tech-design.md) - Implementation details
+- [API Reference](docs/api-reference.md) - Full endpoint reference and examples
 - [Deployment Guide](docs/deployment.md) - Docker, GHCR, and production deployment
 - [CLAUDE.md](CLAUDE.md) - AI assistant context
 

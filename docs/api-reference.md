@@ -607,6 +607,54 @@ Implementation notes
 
 ---
 
+## Doc to Markdown
+
+Convert documents (PDF, DOCX, PPTX, XLSX, HTML, TXT, and more) to Markdown using Microsoft MarkItDown.
+
+### Endpoint
+
+```
+POST /api/doc-to-markdown
+```
+
+### Request
+
+```json
+{
+  "file": "base64-encoded-file-or-data-url",
+  "filename": "sample.pdf",
+  "lib": "microsoft/markitdown"
+}
+```
+
+You can provide `file` either as a raw base64 string or as a data URL, e.g. `data:application/pdf;base64,<...>`. Supplying `filename` helps infer the file type/extension for accurate conversion.
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `file` | string | Yes | Base64-encoded content or data URL of the document |
+| `filename` | string | No | Optional filename (e.g., `report.pdf`) used to detect format |
+| `lib` | string | No | Conversion engine; must be `microsoft/markitdown` (default) |
+
+### Response
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 742,
+  "markdown": "# Title\n...converted content...",
+  "model": "microsoft/markitdown"
+}
+```
+
+Notes
+- Supported formats include PDF, DOCX, PPTX, XLSX, HTML, TXT, and more (handled by MarkItDown).
+- Available engines/libs for this task: `GET /api/task-options?task=doc-to-markdown`.
+- The container includes the MarkItDown dependency; no browser is required.
+
+---
+
 ## Management Endpoints
 
 ### List Available Models
