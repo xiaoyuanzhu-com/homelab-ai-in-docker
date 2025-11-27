@@ -16,6 +16,9 @@ const eslintConfig = [
       // Disable img element warning for self-hosted homelab environment
       // where bandwidth optimization is not a concern
       "@next/next/no-img-element": "off",
+      // Downgrade to warnings instead of errors for dev-friendly builds
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unused-vars": "warn",
     },
   },
   {
