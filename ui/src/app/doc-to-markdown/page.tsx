@@ -32,6 +32,7 @@ function DocToMarkdownContent() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ConvertResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedLib, setSelectedLib] = useState<string>("microsoft/markitdown");
   const [libsReady, setLibsReady] = useState<boolean>(true);
   const [viewMode, setViewMode] = useState<"raw" | "rendered">("rendered");

@@ -91,9 +91,16 @@ function AutomaticSpeechRecognitionContent() {
         const response = await fetch("/api/task-options?task=automatic-speech-recognition");
         if (!response.ok) throw new Error("Failed to fetch ASR options");
         const data = await response.json();
+        interface OptionData {
+          id: string;
+          label: string;
+          provider: string;
+          status: string;
+          type: string;
+        }
         const merged: ChoiceInfo[] = (data.options || [])
-          .filter((o: any) => o.status === "ready")
-          .map((o: any) => ({ id: o.id, label: o.label, provider: o.provider, status: o.status, type: o.type as ChoiceType }));
+          .filter((o: OptionData) => o.status === "ready")
+          .map((o: OptionData) => ({ id: o.id, label: o.label, provider: o.provider, status: o.status, type: o.type as ChoiceType }));
         setChoices(merged);
 
         // Preselect logic: prefer explicit model/lib URL params, then legacy skill param, then first available
@@ -293,7 +300,7 @@ function AutomaticSpeechRecognitionContent() {
           if (selectedChoice.startsWith("lib:") && id === "whisperx/whisperx") {
             const speakers = new Set<string>();
             if (Array.isArray(data.segments)) {
-              data.segments.forEach((s: any) => { if (s.speaker) speakers.add(s.speaker); });
+              data.segments.forEach((s: SpeakerSegment) => { if (s.speaker) speakers.add(s.speaker); });
             }
             setResult({ ...data, num_speakers: speakers.size || undefined });
           } else {
