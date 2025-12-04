@@ -191,21 +191,23 @@ async def _unload_asr_model(model: Any) -> None:
     Args:
         model: WhisperX model to unload
     """
-    # Clean up auxiliary models too
-    global _align_cache, _diar_cache
-    _align_cache = None
-    _diar_cache = None
-
-    # Delete model reference
+    # Delete ASR model reference first
     del model
 
-    # Clear GPU cache
+    # Clear GPU cache and force defragmentation
     try:
         import torch  # type: ignore
+        import gc
+
+        # Force garbage collection to release references
+        gc.collect()
+
+        # Clear GPU cache to defragment memory
         if torch.cuda.is_available():
             await asyncio.to_thread(torch.cuda.empty_cache)
             await asyncio.to_thread(torch.cuda.synchronize)
-            logger.debug("GPU cache cleared for WhisperX model")
+            logger.debug("GPU cache cleared for WhisperX ASR model")
+
     except Exception as e:
         logger.warning(f"Error clearing GPU cache during WhisperX cleanup: {e}")
 
@@ -265,15 +267,15 @@ def _load_diar_pipeline(device: str):
             "HuggingFace token is required for diarization. Set 'hf_token' in settings."
         )
     try:
-        # Prefer diarization on CPU to reduce VRAM pressure; configurable via settings
+        # Prefer diarization on CUDA by default for better performance; configurable via settings
         try:
             from ...db.settings import get_setting  # lazy import
 
-            diar_dev_pref = (get_setting("whisperx_diar_device") or "cpu").lower()
+            diar_dev_pref = (get_setting("whisperx_diar_device") or "cuda").lower()
         except Exception:
-            diar_dev_pref = "cpu"
+            diar_dev_pref = "cuda"
 
-        diar_device = diar_dev_pref if diar_dev_pref in {"cpu", "cuda"} else "cpu"
+        diar_device = diar_dev_pref if diar_dev_pref in {"cpu", "cuda"} else "cuda"
         if diar_device != device:
             logger.info(
                 f"WhisperX: loading diarization on {diar_device} (ASR on {device})"
@@ -359,6 +361,15 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                 )
                 logger.info(f"⏱️  Align: {(time.time() - t0)*1000:.0f}ms")
 
+                # Clean up transcription result to free memory
+                del result
+                import torch
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                logger.debug("Cleaned up transcription intermediate tensors")
+
                 # Diarization (if enabled)
                 if request.diarize:
                     t0 = time.time()
@@ -398,6 +409,15 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                     t0 = time.time()
                     aligned = await asyncio.to_thread(whisperx.assign_word_speakers, diar_segments, aligned)
                     logger.info(f"⏱️  Assign speakers: {(time.time() - t0)*1000:.0f}ms")
+
+                    # Clean up diarization intermediate tensors
+                    del diar_segments
+                    import torch
+                    import gc
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    logger.debug("Cleaned up diarization intermediate tensors")
 
                 # Model automatically released when context exits
                 language, aligned = language, aligned
