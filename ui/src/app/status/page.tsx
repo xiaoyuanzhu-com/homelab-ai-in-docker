@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { TaskHistoryList } from "@/components/task-history";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 interface HardwareStats {
   cpu: {
@@ -51,6 +53,35 @@ interface TaskStats {
   total: number;
 }
 
+interface GPUMemoryDetails {
+  devices: Array<{
+    device_id: number;
+    name: string;
+    nvml_stats: {
+      total_mb: number;
+      used_mb: number;
+      free_mb: number;
+      usage_percent: number;
+    };
+    pytorch_stats: {
+      allocated_mb: number;
+      reserved_mb: number;
+      cached_mb: number;
+      explanation: {
+        allocated: string;
+        reserved: string;
+        cached: string;
+      };
+    };
+    memory_summary: string | null;
+  }>;
+  loaded_models: Array<{
+    model_id: string;
+    size_mb: number;
+  }>;
+  tip: string;
+}
+
 // Helper function to get color based on usage percentage
 function getUsageColor(usage: number): string {
   if (usage < 25) return "bg-green-600";
@@ -63,6 +94,9 @@ export default function StatsPage() {
   const [hardwareStats, setHardwareStats] = useState<HardwareStats | null>(null);
   const [taskStats, setTaskStats] = useState<TaskStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [gpuMemoryExpanded, setGpuMemoryExpanded] = useState(false);
+  const [gpuMemoryDetails, setGpuMemoryDetails] = useState<GPUMemoryDetails | null>(null);
+  const [loadingGpuDetails, setLoadingGpuDetails] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -103,6 +137,28 @@ export default function StatsPage() {
       }
     };
   }, []);
+
+  const handleGpuMemoryInspect = async () => {
+    if (gpuMemoryExpanded) {
+      setGpuMemoryExpanded(false);
+      return;
+    }
+
+    setGpuMemoryExpanded(true);
+    setLoadingGpuDetails(true);
+
+    try {
+      const res = await fetch("/api/hardware/gpu/memory");
+      const data = await res.json();
+      if (!data.error) {
+        setGpuMemoryDetails(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch GPU memory details:", err);
+    } finally {
+      setLoadingGpuDetails(false);
+    }
+  };
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -242,7 +298,20 @@ export default function StatsPage() {
               </div>
 
               <div className="p-4 bg-muted/30 rounded-lg">
-                <h3 className="text-sm font-medium mb-2">GPU Memory</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium">GPU Memory</h3>
+                  {hardwareStats.gpu.available && hardwareStats.gpu.devices.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleGpuMemoryInspect}
+                      className="h-6 px-2 text-xs"
+                    >
+                      {gpuMemoryExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      <span className="ml-1">Inspect</span>
+                    </Button>
+                  )}
+                </div>
                 {hardwareStats.gpu.available && hardwareStats.gpu.devices.length > 0 ? (
                   <>
                     <div className="flex items-center justify-between mb-2">
@@ -265,6 +334,67 @@ export default function StatsPage() {
                       <p className="text-xs text-muted-foreground mt-1">
                         PyTorch: {hardwareStats.gpu.devices[0].pytorch_reserved_gb.toFixed(2)} GB cached
                       </p>
+                    )}
+
+                    {/* Expanded GPU Memory Details */}
+                    {gpuMemoryExpanded && (
+                      <div className="mt-4 pt-4 border-t border-muted">
+                        {loadingGpuDetails ? (
+                          <Skeleton className="h-32 w-full" />
+                        ) : gpuMemoryDetails ? (
+                          <div className="space-y-3">
+                            {gpuMemoryDetails.devices.map((device) => (
+                              <div key={device.device_id} className="space-y-2">
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div>
+                                    <span className="text-muted-foreground">NVML Total:</span>
+                                    <span className="ml-1 font-medium">{device.nvml_stats.total_mb.toFixed(0)} MB</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">NVML Used:</span>
+                                    <span className="ml-1 font-medium">{device.nvml_stats.used_mb.toFixed(0)} MB</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">PyTorch Allocated:</span>
+                                    <span className="ml-1 font-medium">{(device.pytorch_stats.allocated_mb ?? 0).toFixed(0)} MB</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-muted-foreground">PyTorch Reserved:</span>
+                                    <span className="ml-1 font-medium">{(device.pytorch_stats.reserved_mb ?? 0).toFixed(0)} MB</span>
+                                  </div>
+                                  <div className="col-span-2">
+                                    <span className="text-muted-foreground">PyTorch Cached:</span>
+                                    <span className="ml-1 font-medium">{(device.pytorch_stats.cached_mb ?? 0).toFixed(0)} MB</span>
+                                    <span className="ml-1 text-muted-foreground text-xs">
+                                      (can be freed)
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {gpuMemoryDetails.loaded_models.length > 0 && (
+                                  <div className="mt-3">
+                                    <p className="text-xs font-medium mb-1">Loaded Models:</p>
+                                    <div className="space-y-1">
+                                      {gpuMemoryDetails.loaded_models.map((model, idx) => (
+                                        <div key={idx} className="text-xs text-muted-foreground flex justify-between">
+                                          <span>{model.model_id}</span>
+                                          <span>{model.size_mb.toFixed(0)} MB</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                <p className="text-xs text-muted-foreground italic mt-2">
+                                  {gpuMemoryDetails.tip}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">Failed to load details</p>
+                        )}
+                      </div>
                     )}
                   </>
                 ) : (

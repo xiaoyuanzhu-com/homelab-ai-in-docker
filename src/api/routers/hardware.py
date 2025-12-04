@@ -13,6 +13,98 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["hardware"])
 
 
+@router.get("/hardware/gpu/memory")
+async def get_gpu_memory_details():
+    """Get detailed GPU memory breakdown showing what's using memory.
+
+    This provides a breakdown similar to nvidia-smi but with PyTorch-specific
+    details about allocated vs cached memory, and which models are loaded.
+    """
+    if not torch.cuda.is_available():
+        return {
+            "error": "CUDA is not available",
+        }
+
+    try:
+        pynvml.nvmlInit()
+        device_count = pynvml.nvmlDeviceGetCount()
+
+        devices = []
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+
+            # Get NVML memory info (matches nvidia-smi)
+            mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            nvml_total_mb = mem_info.total / (1024**2)
+            nvml_used_mb = mem_info.used / (1024**2)
+            nvml_free_mb = mem_info.free / (1024**2)
+
+            # Get PyTorch memory info
+            try:
+                torch_allocated_mb = torch.cuda.memory_allocated(i) / (1024**2)
+                torch_reserved_mb = torch.cuda.memory_reserved(i) / (1024**2)
+                torch_cached_mb = torch_reserved_mb - torch_allocated_mb
+            except Exception:
+                torch_allocated_mb = 0.0
+                torch_reserved_mb = 0.0
+                torch_cached_mb = 0.0
+
+            # Get memory summary from PyTorch
+            try:
+                memory_summary = torch.cuda.memory_summary(i)
+            except Exception:
+                memory_summary = None
+
+            device_info = {
+                "device_id": i,
+                "name": pynvml.nvmlDeviceGetName(handle),
+                "nvml_stats": {
+                    "total_mb": round(nvml_total_mb, 2),
+                    "used_mb": round(nvml_used_mb, 2),
+                    "free_mb": round(nvml_free_mb, 2),
+                    "usage_percent": round((nvml_used_mb / nvml_total_mb) * 100, 1),
+                },
+                "pytorch_stats": {
+                    "allocated_mb": round(torch_allocated_mb, 2),
+                    "reserved_mb": round(torch_reserved_mb, 2),
+                    "cached_mb": round(torch_cached_mb, 2),
+                    "explanation": {
+                        "allocated": "Memory actively used by tensors/models",
+                        "reserved": "Memory reserved by PyTorch from GPU",
+                        "cached": "Reserved but unused memory (can be freed with torch.cuda.empty_cache())",
+                    }
+                },
+                "memory_summary": memory_summary,
+            }
+
+            devices.append(device_info)
+
+        pynvml.nvmlShutdown()
+
+        # Get loaded models from coordinator
+        loaded_models = []
+        try:
+            from ...services.model_coordinator import get_coordinator
+            coordinator = get_coordinator()
+            memory_stats = await coordinator.get_memory_stats()
+            loaded_models = memory_stats.get("model_details", [])
+        except Exception as e:
+            logger.debug(f"Could not get loaded models: {e}")
+
+        return {
+            "devices": devices,
+            "loaded_models": loaded_models,
+            "tip": "If cached_mb is high with no models loaded, PyTorch is holding onto freed memory. This is normal and the cache will be reused for future allocations.",
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting GPU memory details: {e}")
+        return {
+            "error": "Failed to retrieve GPU memory details",
+            "detail": str(e),
+        }
+
+
 @router.get("/hardware")
 async def get_hardware_stats():
     """Get current hardware statistics including CPU, memory, and GPU."""
