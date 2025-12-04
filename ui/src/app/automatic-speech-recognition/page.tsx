@@ -77,6 +77,7 @@ function AutomaticSpeechRecognitionContent() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  const [rawRequest, setRawRequest] = useState<any>(null);
 
   useEffect(() => {
     // Check if recording is supported
@@ -254,6 +255,8 @@ function AutomaticSpeechRecognitionContent() {
           const id = selectedChoice.split(":", 2)[1];
 
           let response: Response;
+          let actualRequestBody: any; // Store the actual request body sent to API
+
           if (isModel) {
             const requestBody: ASRRequestBody = {
               audio: base64Data,
@@ -268,6 +271,7 @@ function AutomaticSpeechRecognitionContent() {
               if (minSpeakers) requestBody.min_speakers = parseInt(minSpeakers);
               if (maxSpeakers) requestBody.max_speakers = parseInt(maxSpeakers);
             }
+            actualRequestBody = requestBody; // Save actual request
             response = await fetch("/api/automatic-speech-recognition", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -281,6 +285,7 @@ function AutomaticSpeechRecognitionContent() {
               language: language || undefined,
               diarize: outputFormat === "diarization",
             };
+            actualRequestBody = requestBody; // Save actual request
             response = await fetch("/api/whisperx/transcribe", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -306,6 +311,13 @@ function AutomaticSpeechRecognitionContent() {
           } else {
             setResult(data);
           }
+
+          // Update raw request with actual truncated audio data
+          setRawRequest({
+            ...actualRequestBody,
+            audio: actualRequestBody.audio.substring(0, 100) + "...",
+          });
+
           const successMsg = outputFormat === "diarization" ? "Speaker analysis completed!" : "Transcription completed!";
           toast.success(successMsg, {
             description: `Processed in ${data.processing_time_ms}ms`,
@@ -332,21 +344,45 @@ function AutomaticSpeechRecognitionContent() {
     label: `${c.label} (${c.provider}) [${c.type}]`,
   }));
 
-  const rawRequestPayload = {
-    engine: selectedChoice || null,
-    output_format: outputFormat,
-    language: language || "auto",
-    min_speakers: minSpeakers || null,
-    max_speakers: maxSpeakers || null,
-    audio_source: recordedAudioUrl
-      ? "recorded"
-      : audioFile
-      ? audioFile.name
-      : null,
-  };
-
   const rawResponsePayload = result;
   const hasAudioInput = Boolean(audioFile || recordedBlob);
+
+  // Update raw request preview whenever form changes
+  useEffect(() => {
+    if (!selectedChoice) {
+      setRawRequest(null);
+      return;
+    }
+
+    const isModel = selectedChoice.startsWith("model:");
+    const isLib = selectedChoice.startsWith("lib:");
+    const id = selectedChoice.split(":", 2)[1];
+
+    if (isModel) {
+      const requestBody: any = {
+        audio: "<base64 audio data>",
+        model: id,
+        output_format: outputFormat,
+      };
+      if (outputFormat === "transcription") {
+        requestBody.language = language || undefined;
+        requestBody.return_timestamps = false;
+      }
+      if (outputFormat === "diarization") {
+        if (minSpeakers) requestBody.min_speakers = parseInt(minSpeakers);
+        if (maxSpeakers) requestBody.max_speakers = parseInt(maxSpeakers);
+      }
+      setRawRequest(requestBody);
+    } else if (isLib && id === "whisperx/whisperx") {
+      const requestBody = {
+        audio: "<base64 audio data>",
+        asr_model: whisperxAsrModel,
+        language: language || undefined,
+        diarize: outputFormat === "diarization",
+      };
+      setRawRequest(requestBody);
+    }
+  }, [selectedChoice, outputFormat, language, minSpeakers, maxSpeakers, whisperxAsrModel]);
 
   const inputPanel = (
     <div className="space-y-4">
@@ -600,10 +636,10 @@ function AutomaticSpeechRecognitionContent() {
               )}
             </Button>
           ),
-          rawPayload: {
+          rawPayload: rawRequest ? {
             label: "View Raw Request",
-            payload: rawRequestPayload,
-          },
+            payload: rawRequest,
+          } : undefined,
         }}
         output={{
           title: "Results",

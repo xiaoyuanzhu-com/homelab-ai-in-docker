@@ -350,7 +350,8 @@ async def _process_transcription(request: TranscriptionRequest, request_id: str,
             processing_time_ms=processing_time_ms,
         )
 
-        # Save to history (exclude audio data to save space)
+        # Save to history (truncate audio data to save space)
+        truncated_audio = request.audio[:100] + "..." if len(request.audio) > 100 else request.audio
         history_storage.add_request(
             service="automatic-speech-recognition",
             request_id=request_id,
@@ -358,6 +359,7 @@ async def _process_transcription(request: TranscriptionRequest, request_id: str,
                 "model": request.model,
                 "language": request.language,
                 "return_timestamps": request.return_timestamps,
+                "audio": truncated_audio,
             },
             response_data=response.model_dump(),
             status="success",
@@ -469,7 +471,8 @@ async def _process_diarization(request: TranscriptionRequest, request_id: str, s
             processing_time_ms=processing_time_ms,
         )
 
-        # Save to history
+        # Save to history (truncate audio data to save space)
+        truncated_audio = request.audio[:100] + "..." if len(request.audio) > 100 else request.audio
         history_storage.add_request(
             service="automatic-speech-recognition",
             request_id=request_id,
@@ -478,6 +481,7 @@ async def _process_diarization(request: TranscriptionRequest, request_id: str, s
                 "min_speakers": request.min_speakers,
                 "max_speakers": request.max_speakers,
                 "num_speakers": request.num_speakers,
+                "audio": truncated_audio,
             },
             response_data=response.model_dump(),
             status="success",
