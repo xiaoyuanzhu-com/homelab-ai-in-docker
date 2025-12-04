@@ -173,6 +173,13 @@ async def _load_asr_model_impl(model_id: str, device: str, compute_type: Optiona
     if compute_type:
         kwargs["compute_type"] = compute_type
 
+    # Add VAD options to reduce hallucination
+    # Higher thresholds = more aggressive filtering of non-speech
+    kwargs["vad_options"] = {
+        "vad_onset": 0.500,  # Default, tune higher to be more conservative
+        "vad_offset": 0.363,  # Default, tune higher to filter out more silence
+    }
+
     try:
         logger.info(
             f"WhisperX: loading ASR model '{model_source}' with kwargs={kwargs}"
@@ -370,6 +377,9 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                     torch.cuda.empty_cache()
                 logger.debug("Cleaned up transcription intermediate tensors")
 
+                # Initialize diarization data (will be populated if diarization is enabled)
+                diar_turns_data = None
+
                 # Diarization (if enabled)
                 if request.diarize:
                     t0 = time.time()
@@ -437,7 +447,12 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                         logger.warning("WhisperX: diarization returned None")
 
                     t0 = time.time()
-                    aligned = await asyncio.to_thread(whisperx.assign_word_speakers, diar_segments, aligned)
+                    aligned = await asyncio.to_thread(
+                        whisperx.assign_word_speakers,
+                        diar_segments,
+                        aligned,
+                        fill_nearest=True
+                    )
                     logger.info(f"⏱️  Assign speakers: {(time.time() - t0)*1000:.0f}ms")
 
                     # Log word-level speaker assignments (all words for debugging)
@@ -507,52 +522,6 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
 
             # Split segments based on speaker changes
             words_raw = seg["words"]
-
-            # First pass: Fix speaker labels using diarization ground truth
-            # WhisperX's assign_word_speakers sometimes creates bad assignments with inflated end times
-            if request.diarize and 'diar_turns_data' in locals():
-                for i in range(len(words_raw)):
-                    w = words_raw[i]
-                    w_start = w.get("start")
-                    w_end = w.get("end")
-                    w_speaker = w.get("speaker")
-
-                    if w_start is not None and w_end is not None:
-                        word_duration = w_end - w_start
-
-                        # Check for unrealistically long word duration (>2 seconds) or suspicious gaps
-                        if word_duration > 2.0:
-                            # Use diarization ground truth to find correct speaker
-                            # Calculate overlap with each diarization segment
-                            best_speaker = None
-                            max_overlap = 0.0
-
-                            for turn in diar_turns_data:
-                                turn_start = turn["start"]
-                                turn_end = turn["end"]
-                                turn_speaker = turn["speaker"]
-
-                                # Calculate overlap between word and diarization segment
-                                overlap_start = max(w_start, turn_start)
-                                overlap_end = min(w_start + 0.5, turn_end)  # Use word start + 0.5s for realistic duration
-                                overlap_duration = max(0, overlap_end - overlap_start)
-
-                                if overlap_duration > max_overlap:
-                                    max_overlap = overlap_duration
-                                    best_speaker = turn_speaker
-
-                            # If we found a better speaker assignment based on diarization
-                            if best_speaker and best_speaker != w_speaker and max_overlap > 0.1:
-                                # Fix the end time to be realistic
-                                if i + 1 < len(words_raw):
-                                    next_start = words_raw[i + 1].get("start")
-                                    if next_start:
-                                        words_raw[i]["end"] = min(w_start + 0.5, next_start - 0.05)
-                                else:
-                                    words_raw[i]["end"] = w_start + 0.3  # Assume 300ms word duration
-
-                                words_raw[i]["speaker"] = best_speaker
-                                logger.info(f"Fixed word '{w.get('word')}' speaker from {w_speaker} to {best_speaker} using diarization (bad timestamp {word_duration:.1f}s)")
 
             current_speaker = None
             current_words: list[WhisperXWord] = []
