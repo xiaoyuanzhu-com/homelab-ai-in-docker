@@ -150,6 +150,15 @@ async def _load_asr_model_impl(model_id: str, device: str, compute_type: Optiona
     """
     _ensure_torchaudio_compat()
     import whisperx  # type: ignore
+    import torch  # type: ignore
+
+    # Enable TF32 for faster inference on Ampere+ GPUs
+    # TF32 provides ~10-20% speedup with negligible accuracy impact
+    # See: https://pytorch.org/docs/stable/notes/numerical_accuracy.html
+    if device == "cuda" and torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        logger.debug("TF32 enabled for WhisperX inference")
 
     # Try to prefer local models if mirrored into HF cache
     local_dir = get_hf_model_cache_path(model_id)
