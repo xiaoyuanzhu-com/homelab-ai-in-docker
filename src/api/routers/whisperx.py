@@ -300,7 +300,8 @@ def _load_diar_pipeline(device: str):
             logger.info(
                 f"WhisperX: loading diarization on {diar_device} (ASR on {device})"
             )
-        diar = whisperx.DiarizationPipeline(use_auth_token=token, device=diar_device)
+        # WhisperX 3.3.4+ moved DiarizationPipeline to whisperx.diarize submodule
+        diar = whisperx.diarize.DiarizationPipeline(use_auth_token=token, device=diar_device)
     except Exception as e:
         raise RuntimeError(f"Failed to load diarization pipeline: {e}")
 
@@ -318,6 +319,14 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
         # Prepare env + device/dtype
         _set_hf_env()
         device, compute_type = _device_and_dtype(request.compute_type)
+
+        # Log request parameters
+        logger.info(
+            f"WhisperX transcription request: model={request.asr_model}, "
+            f"batch_size={request.batch_size}, language={request.language}, "
+            f"diarize={request.diarize}, min_speakers={request.min_speakers}, "
+            f"max_speakers={request.max_speakers}, device={device}, compute_type={compute_type}"
+        )
 
         # Decode audio off the event loop
         audio_path = await asyncio.to_thread(_decode_audio_to_file, request.audio)
@@ -357,7 +366,35 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
             if request.diarize:
                 await coordinator.touch_model(f"whisperx:{request.asr_model}")
                 diar = await asyncio.to_thread(_load_diar_pipeline, device)
-                diar_segments = await asyncio.to_thread(diar, audio)
+
+                # Build diarization kwargs with optional speaker constraints
+                diar_kwargs = {}
+                if request.min_speakers is not None:
+                    diar_kwargs["min_speakers"] = request.min_speakers
+                if request.max_speakers is not None:
+                    diar_kwargs["max_speakers"] = request.max_speakers
+
+                logger.info(
+                    f"WhisperX: starting diarization with kwargs={diar_kwargs}, "
+                    f"audio duration={len(audio)/16000:.1f}s"
+                )
+                diar_segments = await asyncio.to_thread(diar, audio, **diar_kwargs)
+
+                # Log diarization results
+                if diar_segments is not None:
+                    # Try to extract speaker count from diarization result
+                    try:
+                        speakers = set()
+                        for turn, _, speaker in diar_segments.itertracks(yield_label=True):
+                            speakers.add(speaker)
+                        logger.info(
+                            f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"WhisperX: could not extract speaker info from diarization result: {e}")
+                else:
+                    logger.warning("WhisperX: diarization returned None")
+
                 aligned = await asyncio.to_thread(whisperx.assign_word_speakers, diar_segments, aligned)
 
             return language, aligned

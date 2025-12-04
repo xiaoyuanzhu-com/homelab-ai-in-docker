@@ -42,6 +42,14 @@ class WhisperXTranscriptionRequest(BaseModel):
         default=False,
         description="Enable speaker diarization via WhisperX's pyannote integration",
     )
+    min_speakers: Optional[int] = Field(
+        default=1,
+        description="Minimum number of speakers for diarization (default: 1)",
+    )
+    max_speakers: Optional[int] = Field(
+        default=5,
+        description="Maximum number of speakers for diarization (default: 5)",
+    )
     batch_size: int = Field(
         default=4, description="Batch size for ASR model inference"
     )
