@@ -331,34 +331,40 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
         # Load audio
         audio = whisperx.load_audio(str(audio_path))
 
-        def _run_pipeline():
+        async def _run_pipeline_async():
             # Transcribe
             transcribe_kwargs = {"batch_size": request.batch_size}
             if request.language:
                 transcribe_kwargs["language"] = request.language
-            result = asr_model.transcribe(audio, **transcribe_kwargs)
+            result = await asyncio.to_thread(asr_model.transcribe, audio, **transcribe_kwargs)
+
+            # Touch model to prevent idle cleanup during alignment
+            coordinator = get_coordinator()
+            await coordinator.touch_model(f"whisperx:{request.asr_model}")
 
             language = result.get("language") or request.language
             if not language:
                 language = "unknown"
 
             # Align words (use the device the align model was created on)
-            align_model, metadata, align_device = _load_align_model(language, device)
-            aligned = whisperx.align(
+            align_model, metadata, align_device = await asyncio.to_thread(_load_align_model, language, device)
+            aligned = await asyncio.to_thread(
+                whisperx.align,
                 result["segments"], align_model, metadata, audio, align_device
             )
 
-            diar_segments = None
+            # Touch model again before diarization (if enabled)
             if request.diarize:
-                diar = _load_diar_pipeline(device)
-                diar_segments = diar(audio)
-                aligned = whisperx.assign_word_speakers(diar_segments, aligned)
+                await coordinator.touch_model(f"whisperx:{request.asr_model}")
+                diar = await asyncio.to_thread(_load_diar_pipeline, device)
+                diar_segments = await asyncio.to_thread(diar, audio)
+                aligned = await asyncio.to_thread(whisperx.assign_word_speakers, diar_segments, aligned)
 
             return language, aligned
 
         # Serialize WhisperX runs to avoid concurrent GPU spikes / OOM
         async with _infer_lock:
-            language, aligned = await asyncio.to_thread(_run_pipeline)
+            language, aligned = await _run_pipeline_async()
 
         # Build response segments
         segments_out: list[WhisperXSegment] = []

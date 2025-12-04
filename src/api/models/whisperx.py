@@ -43,7 +43,7 @@ class WhisperXTranscriptionRequest(BaseModel):
         description="Enable speaker diarization via WhisperX's pyannote integration",
     )
     batch_size: int = Field(
-        default=16, description="Batch size for ASR model inference"
+        default=4, description="Batch size for ASR model inference"
     )
     compute_type: Optional[str] = Field(
         default=None,
