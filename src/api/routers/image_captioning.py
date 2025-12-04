@@ -25,7 +25,7 @@ import torch
 from ..models.image_captioning import CaptionRequest, CaptionResponse
 from ...storage.history import history_storage
 from ...db.catalog import get_model_dict, list_models
-from ...services.model_coordinator import get_coordinator
+from ...services.model_coordinator import use_model
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +38,6 @@ except ImportError:
 
 
 router = APIRouter(prefix="/api", tags=["image-captioning"])
-
-# Track current model name (coordinator manages the actual model cache)
-_current_model_name: str = ""
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -100,17 +97,8 @@ def check_and_cleanup_idle_model():
     This function is called by periodic cleanup in main.py.
     Delegates to the global model coordinator for memory management.
     """
-    from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-
-    coordinator = get_coordinator()
-    # Use asyncio.create_task to run cleanup asynchronously
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
-    except RuntimeError:
-        # No event loop, skip cleanup
-        pass
+    # Cleanup now handled entirely by the global model coordinator
+    pass
 
 
 async def _load_model_impl(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
@@ -233,60 +221,14 @@ async def _unload_model(model_tuple: tuple[Any, Any, Dict[str, Any]]) -> None:
     del config
 
 
-async def get_model(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
-    """
-    Get or load the image captioning model via the global coordinator.
-
-    Models are managed by the coordinator to prevent OOM errors.
-    The coordinator will preemptively unload other models if needed.
-
-    Args:
-        model_name: Model identifier to load
-
-    Returns:
-        Tuple of (processor, model, model_config)
-
-    Raises:
-        ValueError: If model is not supported
-        RuntimeError: If model loading fails
-    """
-    global _current_model_name
-
-    _current_model_name = model_name
-
-    # Get model info for memory estimation
-    model_config = get_model_config(model_name)
-    estimated_memory_mb = model_config.get("gpu_memory_mb") if model_config else None
-
-    # Load through coordinator (handles preemptive unload)
-    coordinator = get_coordinator()
-    model_tuple = await coordinator.load_model(
-        key=f"image-caption:{model_name}",
-        loader_fn=lambda: _load_model_impl(model_name),
-        unloader_fn=_unload_model,
-        estimated_memory_mb=estimated_memory_mb,
-        model_type="image-captioning",
-    )
-
-    return model_tuple
-
-
 def cleanup():
     """
     Release model resources immediately.
 
     This function is called during app shutdown.
-    Delegates to the global model coordinator.
+    Cleanup now handled entirely by the global model coordinator.
     """
-    coordinator = get_coordinator()
-    # Use asyncio to run cleanup synchronously
-    try:
-        loop = asyncio.get_running_loop()
-        # Create task to unload all image captioning models
-        loop.create_task(coordinator.unload_model(f"image-caption:{_current_model_name}", _unload_model))
-    except RuntimeError:
-        # No event loop, can't cleanup
-        pass
+    pass
 
 
 def decode_image(image_data: str) -> Image.Image:
@@ -335,49 +277,62 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
         # Decode image off the event loop
         image = await asyncio.to_thread(decode_image, request.image)
 
-        # Load model via coordinator (handles preemptive unload)
-        processor, model, model_config = await get_model(request.model)
+        # Get model info for memory estimation
+        model_config = get_model_config(request.model)
+        estimated_memory_mb = model_config.get("gpu_memory_mb") if model_config else None
 
-        # Run the full preprocessing + generation pipeline in a worker thread
-        def _run_inference():
-            prompt = request.prompt
-            if prompt is None and model_config.get("default_prompt"):
-                prompt = model_config["default_prompt"]
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"image-caption:{request.model}",
+            loader_fn=lambda: _load_model_impl(request.model),
+            model_type="image-captioning",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=_unload_model,
+        ) as model_tuple:
+            processor, model, model_config = model_tuple
 
-            # Process image and generate caption with unified interface
-            if prompt:
-                inputs = processor(text=prompt, images=image, return_tensors="pt")
-            else:
-                inputs = processor(images=image, return_tensors="pt")
+            # Run the full preprocessing + generation pipeline in a worker thread
+            def _run_inference():
+                prompt = request.prompt
+                if prompt is None and model_config.get("default_prompt"):
+                    prompt = model_config["default_prompt"]
 
-            # When a model is dispatched with Accelerate (device_map="auto"),
-            # different submodules can live on different devices (CPU/GPU).
-            # We need to move inputs to the device of the first layer.
-            # Reference: https://huggingface.co/docs/accelerate/en/concept_guides/big_model_inference
-            if hasattr(model, 'hf_device_map') and model.hf_device_map:
-                # Get first layer's device from the device map
-                first_device = model.hf_device_map[next(iter(model.hf_device_map))]
-                inputs = {k: v.to(first_device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-            else:
-                # Model on single device - use model's device
-                model_device = next(model.parameters()).device
-                inputs = {k: v.to(model_device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+                # Process image and generate caption with unified interface
+                if prompt:
+                    inputs = processor(text=prompt, images=image, return_tensors="pt")
+                else:
+                    inputs = processor(images=image, return_tensors="pt")
 
-            with torch.no_grad():
-                output_ids = model.generate(**inputs, max_new_tokens=150)
+                # When a model is dispatched with Accelerate (device_map="auto"),
+                # different submodules can live on different devices (CPU/GPU).
+                # We need to move inputs to the device of the first layer.
+                # Reference: https://huggingface.co/docs/accelerate/en/concept_guides/big_model_inference
+                if hasattr(model, 'hf_device_map') and model.hf_device_map:
+                    # Get first layer's device from the device map
+                    first_device = model.hf_device_map[next(iter(model.hf_device_map))]
+                    inputs = {k: v.to(first_device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+                else:
+                    # Model on single device - use model's device
+                    model_device = next(model.parameters()).device
+                    inputs = {k: v.to(model_device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
 
-            # Decode output
-            _caption = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
+                with torch.no_grad():
+                    output_ids = model.generate(**inputs, max_new_tokens=150)
 
-            # Clean up caption formatting if necessary
-            if "ASSISTANT:" in _caption:
-                _caption = _caption.split("ASSISTANT:")[-1].strip()
-            elif prompt and _caption.startswith(prompt):
-                _caption = _caption[len(prompt):].strip()
+                # Decode output
+                _caption = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
 
-            return _caption
+                # Clean up caption formatting if necessary
+                if "ASSISTANT:" in _caption:
+                    _caption = _caption.split("ASSISTANT:")[-1].strip()
+                elif prompt and _caption.startswith(prompt):
+                    _caption = _caption[len(prompt):].strip()
 
-        caption = await asyncio.to_thread(_run_inference)
+                return _caption
+
+            caption = await asyncio.to_thread(_run_inference)
+
+            # Model automatically released when context exits
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 

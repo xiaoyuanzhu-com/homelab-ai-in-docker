@@ -17,15 +17,10 @@ from ..models.image_ocr import OCRRequest, OCRResponse
 from ...storage.history import history_storage
 from ...db.catalog import list_models, list_libs, get_model_dict, get_lib_dict
 from ...worker.manager import manager as ocr_manager
-from ...services.model_coordinator import get_coordinator
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["image-ocr"])
-
-# Track current model name (coordinator manages the actual model cache)
-# Note: Model cache is unused in isolated mode; kept for compatibility with legacy code paths
-_current_model_name: str = ""
 
 
 # Ensure Paddle's SIGTERM handler (which logs a FatalError message) doesn't
@@ -103,20 +98,10 @@ def check_and_cleanup_idle_model():
     Check if model has been idle too long and cleanup if needed.
 
     This function is called by periodic cleanup in main.py.
-    Delegates to the global model coordinator for memory management.
-    Note: Worker manager handles its own cleanup in isolated mode.
+    Note: OCR uses worker manager for isolation - cleanup handled by worker manager.
     """
-    from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-
-    coordinator = get_coordinator()
-    # Use asyncio.create_task to run cleanup asynchronously
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
-    except RuntimeError:
-        # No event loop, skip cleanup
-        pass
+    # Worker manager handles its own cleanup
+    pass
 
 
 async def _load_model_impl(model_name: str, language: Optional[str] = None) -> tuple[Any, Dict[str, Any]]:
@@ -191,13 +176,10 @@ async def _unload_model(model_tuple: tuple[Any, Dict[str, Any]]) -> None:
 
 async def get_model(model_name: str, language: Optional[str] = None) -> tuple[Any, Dict[str, Any]]:
     """
-    Get or load the OCR model via the global coordinator.
+    Get or load the OCR model.
 
-    Note: This is legacy code kept for compatibility. The current implementation
+    Note: This is legacy code - NOT USED. The current implementation
     uses worker manager for isolation (see ocr_image endpoint).
-
-    Models are managed by the coordinator to prevent OOM errors.
-    The coordinator will preemptively unload other models if needed.
 
     Args:
         model_name: Model identifier to load
@@ -207,28 +189,11 @@ async def get_model(model_name: str, language: Optional[str] = None) -> tuple[An
         Tuple of (model, model_config)
 
     Raises:
-        ValueError: If model is not supported
-        RuntimeError: If model loading fails
+        NotImplementedError: This function is deprecated
     """
-    global _current_model_name
-
-    _current_model_name = model_name
-
-    # Get model info for memory estimation
-    model_config = get_model_config(model_name)
-    estimated_memory_mb = model_config.get("gpu_memory_mb") if model_config else None
-
-    # Load through coordinator (handles preemptive unload)
-    coordinator = get_coordinator()
-    model_tuple = await coordinator.load_model(
-        key=f"ocr:{model_name}:{language or 'ch'}",
-        loader_fn=lambda: _load_model_impl(model_name, language),
-        unloader_fn=_unload_model,
-        estimated_memory_mb=estimated_memory_mb,
-        model_type="ocr",
+    raise NotImplementedError(
+        "Direct model loading is deprecated. OCR now uses worker manager for isolation."
     )
-
-    return model_tuple
 
 
 def cleanup():
@@ -236,20 +201,10 @@ def cleanup():
     Release model resources immediately.
 
     This function is called during app shutdown.
-    Delegates to the global model coordinator.
-    Note: Worker manager handles its own cleanup in isolated mode.
+    Note: OCR uses worker manager - cleanup handled by worker manager.
     """
-    coordinator = get_coordinator()
-    # Use asyncio to run cleanup synchronously
-    try:
-        loop = asyncio.get_running_loop()
-        # Create task to unload all OCR models
-        # Note: This is legacy cleanup; worker manager handles its own resources
-        if _current_model_name:
-            loop.create_task(coordinator.unload_model(f"ocr:{_current_model_name}", _unload_model))
-    except RuntimeError:
-        # No event loop, can't cleanup
-        pass
+    # Worker manager handles its own cleanup
+    pass
 
 
 def decode_image(image_data: str) -> Image.Image:

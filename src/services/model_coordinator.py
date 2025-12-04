@@ -15,8 +15,9 @@ Key Features:
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, AsyncIterator
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class ModelInfo:
     estimated_memory_mb: Optional[float] = None
     actual_memory_mb: Optional[float] = None
     model_type: Optional[str] = None  # e.g., "embedding", "asr", "ocr"
+    active_refs: int = 0  # Number of active inference operations using this model
 
 
 class ModelCoordinator:
@@ -67,7 +69,7 @@ class ModelCoordinator:
             f"max_memory_mb={max_memory_mb}, preemptive_unload={enable_preemptive_unload}"
         )
 
-    async def load_model(
+    async def prepare_model(
         self,
         key: str,
         loader_fn: Callable,
@@ -76,40 +78,46 @@ class ModelCoordinator:
         model_type: Optional[str] = None,
     ) -> Any:
         """
-        Load a model with memory-aware policies.
+        Prepare a model for use, waiting if necessary.
 
         This is the main entry point for all model loading. It:
-        1. Checks if model is already loaded (returns cached)
-        2. Applies preemptive unload policy if needed
+        1. Checks if model is already loaded (increments ref count)
+        2. If not loaded, waits for other models to release
         3. Loads the model via the provided loader function
-        4. Tracks memory usage and metadata
+        4. Returns with active_refs=1 (caller MUST call release_model)
+
+        The returned model is protected from unloading until release_model() is called.
 
         Args:
             key: Unique identifier for the model (e.g., "whisper-base", "all-MiniLM-L6-v2")
             loader_fn: Async function that loads and returns the model
-            unloader_fn: Optional async function to unload this specific model
+            unloader_fn: Optional async function to unload this specific model (stored for later)
             estimated_memory_mb: Estimated memory usage (for planning)
             model_type: Type of model (e.g., "embedding", "asr", "ocr")
 
         Returns:
-            The loaded model object
+            The loaded model object with active_refs=1
+
+        IMPORTANT: Must be paired with release_model() call, preferably in a try/finally block
         """
         async with self._lock:
             # Check if model is already loaded
             if key in self._models:
                 logger.info(f"Model '{key}' already loaded, reusing cached instance")
+                self._models[key].active_refs += 1
                 self._models[key].last_used = time.time()
+                logger.debug(f"Acquired ref for '{key}', active_refs={self._models[key].active_refs}")
                 return self._models[key].model
 
             # Get current memory stats before loading
             memory_before = await self._get_memory_stats()
             logger.info(
-                f"Loading model '{key}' (type: {model_type}, estimated: {estimated_memory_mb}MB). "
+                f"Preparing model '{key}' (type: {model_type}, estimated: {estimated_memory_mb}MB). "
                 f"Current memory: GPU={memory_before.get('gpu_used_mb', 'N/A')}MB, "
                 f"Models loaded: {len(self._models)}"
             )
 
-            # Apply preemptive unload policy
+            # Wait for other models and unload them
             if self._enable_preemptive_unload:
                 await self._apply_unload_policy(key, estimated_memory_mb)
 
@@ -126,7 +134,7 @@ class ModelCoordinator:
             if memory_before.get('gpu_used_mb') and memory_after.get('gpu_used_mb'):
                 actual_memory_mb = memory_after['gpu_used_mb'] - memory_before['gpu_used_mb']
 
-            # Register the model
+            # Register the model with active_refs=1 (protected from the start)
             now = time.time()
             model_info = ModelInfo(
                 key=key,
@@ -136,17 +144,20 @@ class ModelCoordinator:
                 estimated_memory_mb=estimated_memory_mb,
                 actual_memory_mb=actual_memory_mb,
                 model_type=model_type,
+                active_refs=1,  # ← Starts with 1 ref!
             )
             self._models[key] = model_info
 
             logger.info(
-                f"Model '{key}' loaded successfully. "
+                f"Model '{key}' prepared successfully. "
                 f"Actual memory: {actual_memory_mb}MB, "
                 f"GPU: {memory_after.get('gpu_used_mb', 'N/A')}MB, "
-                f"Models in memory: {len(self._models)}"
+                f"Models in memory: {len(self._models)}, "
+                f"active_refs=1"
             )
 
             return model
+
 
     async def unload_model(
         self,
@@ -228,37 +239,30 @@ class ModelCoordinator:
             logger.info(f"All {count} models unloaded")
             return count
 
-    async def get_model(self, key: str) -> Optional[Any]:
+
+    async def release_model(self, key: str) -> bool:
         """
-        Get a loaded model without loading it.
+        Release a model reference after use.
+
+        Decrements active_refs by 1. When active_refs reaches 0, the model
+        becomes eligible for idle cleanup after the timeout period.
+
+        Must be called after every prepare_model() call, preferably in a finally block.
 
         Args:
             key: Unique identifier for the model
 
         Returns:
-            The model object if loaded, None otherwise
+            True if model exists and ref was released, False otherwise
         """
         async with self._lock:
             if key in self._models:
+                self._models[key].active_refs = max(0, self._models[key].active_refs - 1)
                 self._models[key].last_used = time.time()
-                return self._models[key].model
-            return None
-
-    async def touch_model(self, key: str) -> bool:
-        """
-        Update the last used timestamp for a model.
-
-        Args:
-            key: Unique identifier for the model
-
-        Returns:
-            True if model exists, False otherwise
-        """
-        async with self._lock:
-            if key in self._models:
-                self._models[key].last_used = time.time()
+                logger.debug(f"Released '{key}', active_refs={self._models[key].active_refs}")
                 return True
             return False
+
 
     async def cleanup_idle_models(
         self,
@@ -277,9 +281,10 @@ class ModelCoordinator:
         """
         async with self._lock:
             now = time.time()
+            # Only cleanup models with no active references
             idle_models = [
                 key for key, info in self._models.items()
-                if now - info.last_used > timeout_seconds
+                if now - info.last_used > timeout_seconds and info.active_refs == 0
             ]
 
             if not idle_models:
@@ -320,6 +325,7 @@ class ModelCoordinator:
                 "idle_seconds": time.time() - info.last_used,
                 "estimated_memory_mb": info.estimated_memory_mb,
                 "actual_memory_mb": info.actual_memory_mb,
+                "active_refs": info.active_refs,
             }
             for info in self._models.values()
         ]
@@ -348,34 +354,74 @@ class ModelCoordinator:
         1. If max_models would be exceeded, unload oldest models
         2. If max_memory would be exceeded, unload models until space available
         3. Preemptive unload: unload ALL other models (aggressive mode for OOM prevention)
+
+        IMPORTANT: Never unload models with active_refs > 0 (active inference in progress)
+        If models are blocked by active refs, this method will WAIT for them to be released.
         """
         if not self._models:
             return
 
         # Aggressive mode: unload all other models (prevents OOM)
-        # This is the key behavior for your use case
         if self._max_models == 1:
-            logger.info(
-                f"Preemptive unload: removing {len(self._models)} models to load '{new_model_key}'"
-            )
-            keys_to_unload = list(self._models.keys())
-            for key in keys_to_unload:
-                del self._models[key]
-            await self._cleanup_gpu_memory()
+            max_wait_time = 300  # 5 minutes max wait
+            poll_interval = 2.0  # Check every 2 seconds
+            waited_time = 0.0
+
+            while self._models and waited_time < max_wait_time:
+                # Filter models that can be unloaded (no active references)
+                unloadable = {k: v for k, v in self._models.items() if v.active_refs == 0}
+                active_models = {k: v for k, v in self._models.items() if v.active_refs > 0}
+
+                if active_models:
+                    logger.info(
+                        f"Waiting for {len(active_models)} models with active inference to complete: "
+                        f"{list(active_models.keys())} (waited {waited_time:.1f}s)"
+                    )
+                    # Release lock temporarily to allow other operations
+                    # (like release_model_ref) to proceed
+                    self._lock.release()
+                    try:
+                        await asyncio.sleep(poll_interval)
+                    finally:
+                        await self._lock.acquire()
+                    waited_time += poll_interval
+                    continue
+
+                # All models are now unloadable
+                if unloadable:
+                    logger.info(
+                        f"Preemptive unload: removing {len(unloadable)} idle models to load '{new_model_key}'"
+                    )
+                    keys_to_unload = list(unloadable.keys())
+                    for key in keys_to_unload:
+                        del self._models[key]
+                    await self._cleanup_gpu_memory()
+                break
+
+            if waited_time >= max_wait_time and self._models:
+                active_models = {k: v for k, v in self._models.items() if v.active_refs > 0}
+                logger.warning(
+                    f"Timeout waiting for models to release after {max_wait_time}s. "
+                    f"Active models: {list(active_models.keys())}. "
+                    f"Proceeding with load anyway (may cause OOM)."
+                )
             return
 
         # Multi-model mode: enforce max_models limit
         models_to_unload = len(self._models) + 1 - self._max_models
         if models_to_unload > 0:
-            # Sort by last_used, unload oldest
-            sorted_models = sorted(
-                self._models.items(),
-                key=lambda x: x[1].last_used,
-            )
-            for key, _ in sorted_models[:models_to_unload]:
-                logger.info(f"Unloading '{key}' to enforce max_models={self._max_models}")
-                del self._models[key]
-            await self._cleanup_gpu_memory()
+            unloadable = {k: v for k, v in self._models.items() if v.active_refs == 0}
+            if unloadable:
+                # Sort by last_used, unload oldest (but only unloadable ones)
+                sorted_models = sorted(
+                    unloadable.items(),
+                    key=lambda x: x[1].last_used,
+                )
+                unload_count = min(models_to_unload, len(sorted_models))
+                for key, _ in sorted_models[:unload_count]:
+                    logger.info(f"Unloading '{key}' to enforce max_models={self._max_models}")
+                    del self._models[key]
+                await self._cleanup_gpu_memory()
 
     async def _get_memory_stats(self) -> Dict[str, Any]:
         """Get current memory statistics (GPU + CPU)"""
@@ -451,3 +497,54 @@ async def init_coordinator(
         enable_preemptive_unload=enable_preemptive_unload,
     )
     return _coordinator
+
+
+@asynccontextmanager
+async def use_model(
+    key: str,
+    loader_fn: Callable,
+    model_type: str,
+    estimated_memory_mb: Optional[float] = None,
+    unloader_fn: Optional[Callable] = None,
+) -> AsyncIterator[Any]:
+    """
+    Context manager for safe model usage with automatic cleanup.
+
+    This is the recommended way to use models. It guarantees that release_model()
+    will be called even if an exception occurs during model usage.
+
+    Example:
+        ```python
+        async with use_model(
+            key="whisperx:large-v3",
+            loader_fn=lambda: _load_asr_model_impl(...),
+            model_type="whisperx",
+        ) as model:
+            result = model.transcribe(audio)
+            aligned = whisperx.align(result, ...)
+            # Model is automatically released when block exits
+        ```
+
+    Args:
+        key: Unique identifier for the model
+        loader_fn: Async function that loads and returns the model
+        model_type: Type of model (e.g., "embedding", "asr", "ocr")
+        estimated_memory_mb: Estimated memory usage (for planning)
+        unloader_fn: Optional async function to unload this specific model
+
+    Yields:
+        The loaded model object (protected by active_refs)
+    """
+    coordinator = get_coordinator()
+    model = await coordinator.prepare_model(
+        key=key,
+        loader_fn=loader_fn,
+        unloader_fn=unloader_fn,
+        estimated_memory_mb=estimated_memory_mb,
+        model_type=model_type,
+    )
+
+    try:
+        yield model
+    finally:
+        await coordinator.release_model(key)

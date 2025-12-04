@@ -15,14 +15,11 @@ from ..models.text_generation import TextGenerationRequest, TextGenerationRespon
 from ...storage.history import history_storage
 from ...config import get_hf_endpoint, get_hf_model_cache_path
 from ...db.catalog import get_model_dict, list_models
-from ...services.model_coordinator import get_coordinator
+from ...services.model_coordinator import use_model
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["text-generation"])
-
-# Track current model name (coordinator manages the actual model cache)
-_current_model_name: str = ""
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -80,19 +77,9 @@ def check_and_cleanup_idle_model():
     Check if model has been idle too long and cleanup if needed.
 
     This function is called by periodic cleanup in main.py.
-    Delegates to the global model coordinator for memory management.
+    Cleanup now handled entirely by the global model coordinator.
     """
-    from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 60)
-
-    coordinator = get_coordinator()
-    # Use asyncio.create_task to run cleanup asynchronously
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
-    except RuntimeError:
-        # No event loop, skip cleanup
-        pass
+    pass
 
 
 async def _load_model_impl(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
@@ -180,59 +167,14 @@ async def _unload_model(model_tuple: tuple[Any, Any, Dict[str, Any]]) -> None:
     del config
 
 
-async def get_model(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
-    """
-    Get or load the text generation model via the global coordinator.
-
-    Models are managed by the coordinator to prevent OOM errors.
-    The coordinator will preemptively unload other models if needed.
-
-    Args:
-        model_name: Model identifier to load
-
-    Returns:
-        Tuple of (tokenizer, model, model_config)
-
-    Raises:
-        ValueError: If model is not supported
-    """
-    global _current_model_name
-
-    _current_model_name = model_name
-
-    # Get model info for memory estimation
-    model_info = get_model_dict(model_name)
-    estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
-
-    # Load through coordinator (handles preemptive unload)
-    coordinator = get_coordinator()
-    model_tuple = await coordinator.load_model(
-        key=f"text-gen:{model_name}",
-        loader_fn=lambda: _load_model_impl(model_name),
-        unloader_fn=_unload_model,
-        estimated_memory_mb=estimated_memory_mb,
-        model_type="text-generation",
-    )
-
-    return model_tuple
-
-
 def cleanup():
     """
     Release model resources immediately.
 
     This function is called during app shutdown.
-    Delegates to the global model coordinator.
+    Cleanup now handled entirely by the global model coordinator.
     """
-    coordinator = get_coordinator()
-    # Use asyncio to run cleanup synchronously
-    try:
-        loop = asyncio.get_running_loop()
-        # Create task to unload all text generation models
-        loop.create_task(coordinator.unload_model(f"text-gen:{_current_model_name}", _unload_model))
-    except RuntimeError:
-        # No event loop, can't cleanup
-        pass
+    pass
 
 
 @router.post("/text-generation", response_model=TextGenerationResponse)
@@ -255,37 +197,50 @@ async def generate_text(request: TextGenerationRequest) -> TextGenerationRespons
     start_time = time.time()
 
     try:
-        # Load model via coordinator (handles preemptive unload)
-        tokenizer, model, model_config = await get_model(request.model)
+        # Get model info for memory estimation
+        model_info = get_model_dict(request.model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-        # Run the full tokenization + generation pipeline in a worker thread
-        def _run_inference():
-            # Tokenize input
-            inputs = tokenizer(request.prompt, return_tensors="pt")
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"text-gen:{request.model}",
+            loader_fn=lambda: _load_model_impl(request.model),
+            model_type="text-generation",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=_unload_model,
+        ) as model_tuple:
+            tokenizer, model, model_config = model_tuple
 
-            # Move inputs to same device as model
-            device = next(model.parameters()).device
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+            # Run the full tokenization + generation pipeline in a worker thread
+            def _run_inference():
+                # Tokenize input
+                inputs = tokenizer(request.prompt, return_tensors="pt")
 
-            # Generate text
-            with torch.no_grad():
-                output_ids = model.generate(
-                    **inputs,
-                    max_new_tokens=request.max_new_tokens,
-                    temperature=request.temperature,
-                    top_p=request.top_p,
-                    do_sample=request.do_sample,
-                    pad_token_id=tokenizer.eos_token_id,  # Avoid warnings
-                )
+                # Move inputs to same device as model
+                device = next(model.parameters()).device
+                inputs = {k: v.to(device) for k, v in inputs.items()}
 
-            # Decode output (skip the input tokens)
-            input_length = inputs["input_ids"].shape[1]
-            generated_tokens = output_ids[0][input_length:]
-            generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+                # Generate text
+                with torch.no_grad():
+                    output_ids = model.generate(
+                        **inputs,
+                        max_new_tokens=request.max_new_tokens,
+                        temperature=request.temperature,
+                        top_p=request.top_p,
+                        do_sample=request.do_sample,
+                        pad_token_id=tokenizer.eos_token_id,  # Avoid warnings
+                    )
 
-            return generated_text, len(generated_tokens)
+                # Decode output (skip the input tokens)
+                input_length = inputs["input_ids"].shape[1]
+                generated_tokens = output_ids[0][input_length:]
+                generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
 
-        generated_text, tokens_generated = await asyncio.to_thread(_run_inference)
+                return generated_text, len(generated_tokens)
+
+            generated_text, tokens_generated = await asyncio.to_thread(_run_inference)
+
+            # Model automatically released when context exits
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 

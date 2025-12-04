@@ -21,15 +21,11 @@ import torch
 from ..models.automatic_speech_recognition import TranscriptionRequest, TranscriptionResponse
 from ...storage.history import history_storage
 from ...db.catalog import get_model_dict, list_models
-from ...services.model_coordinator import get_coordinator
+from ...services.model_coordinator import use_model
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["automatic-speech-recognition"])
-
-# Track current model name (coordinator manages the actual model cache)
-_current_model_name: str = ""
-_current_model_config: Optional[Dict[str, Any]] = None
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -89,17 +85,8 @@ def check_and_cleanup_idle_model():
     This function is called by periodic cleanup in main.py.
     Delegates to the global model coordinator for memory management.
     """
-    from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-
-    coordinator = get_coordinator()
-    # Use asyncio.create_task to run cleanup asynchronously
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
-    except RuntimeError:
-        # No event loop, skip cleanup
-        pass
+    # Cleanup now handled entirely by the global model coordinator
+    pass
 
 
 async def _load_model_impl(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
@@ -176,64 +163,14 @@ async def _unload_model(model_tuple: tuple[Any, Any, Dict[str, Any]]) -> None:
     del config
 
 
-async def get_model(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
-    """
-    Get or load the ASR model via the global coordinator.
-
-    Models are managed by the coordinator to prevent OOM errors.
-    The coordinator will preemptively unload other models if needed.
-
-    Args:
-        model_name: Model identifier to load
-
-    Returns:
-        Tuple of (processor, model, model_config)
-
-    Raises:
-        ValueError: If model is not supported
-        RuntimeError: If model loading fails
-    """
-    global _current_model_name, _current_model_config
-
-    _current_model_name = model_name
-
-    # Get model info for memory estimation
-    model_info = get_model_dict(model_name)
-    estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
-
-    # Load through coordinator (handles preemptive unload)
-    coordinator = get_coordinator()
-    model_tuple = await coordinator.load_model(
-        key=f"asr:{model_name}",
-        loader_fn=lambda: _load_model_impl(model_name),
-        unloader_fn=_unload_model,
-        estimated_memory_mb=estimated_memory_mb,
-        model_type="asr",
-    )
-
-    # Update current config from the tuple
-    _current_model_config = model_tuple[2]
-
-    return model_tuple
-
-
 def cleanup():
     """
     Release model resources immediately.
 
     This function is called during app shutdown.
-    Delegates to the global model coordinator.
+    Cleanup now handled entirely by the global model coordinator.
     """
-    coordinator = get_coordinator()
-    # Use asyncio to run cleanup synchronously
-    try:
-        loop = asyncio.get_running_loop()
-        # Create task to unload all ASR models
-        if _current_model_name:
-            loop.create_task(coordinator.unload_model(f"asr:{_current_model_name}", _unload_model))
-    except RuntimeError:
-        # No event loop, can't cleanup
-        pass
+    pass
 
 
 def decode_audio(audio_data: str) -> Path:
@@ -316,78 +253,91 @@ async def _process_transcription(request: TranscriptionRequest, request_id: str,
         # Decode audio off the event loop
         audio_path = await asyncio.to_thread(decode_audio, request.audio)
 
-        # Load model and get config via coordinator (handles preemptive unload)
-        processor, model, model_config = await get_model(request.model)
+        # Get model info for memory estimation
+        model_info = get_model_dict(request.model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-        # Run the full preprocessing + generation pipeline in a worker thread
-        def _run_inference():
-            # Determine device and dtype from model
-            device = next(model.parameters()).device
-            torch_dtype = next(model.parameters()).dtype
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"asr:{request.model}",
+            loader_fn=lambda: _load_model_impl(request.model),
+            model_type="asr",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=_unload_model,
+        ) as model_tuple:
+            processor, model, model_config = model_tuple
 
-            # Load audio with processor
-            import librosa
-            audio_array, sampling_rate = librosa.load(str(audio_path), sr=16000)
+            # Run the full preprocessing + generation pipeline in a worker thread
+            def _run_inference():
+                # Determine device and dtype from model
+                device = next(model.parameters()).device
+                torch_dtype = next(model.parameters()).dtype
 
-            # Process audio
-            inputs = processor(
-                audio_array,
-                sampling_rate=sampling_rate,
-                return_tensors="pt"
-            )
+                # Load audio with processor
+                import librosa
+                audio_array, sampling_rate = librosa.load(str(audio_path), sr=16000)
 
-            # Move inputs to device and convert to model dtype
-            inputs = inputs.to(device)
-            # Convert input_features to match model dtype
-            if hasattr(inputs, 'input_features'):
-                inputs.input_features = inputs.input_features.to(torch_dtype)
+                # Process audio
+                inputs = processor(
+                    audio_array,
+                    sampling_rate=sampling_rate,
+                    return_tensors="pt"
+                )
 
-            # Prepare generation kwargs
-            generate_kwargs = {
-                "input_features": inputs.input_features,
-            }
+                # Move inputs to device and convert to model dtype
+                inputs = inputs.to(device)
+                # Convert input_features to match model dtype
+                if hasattr(inputs, 'input_features'):
+                    inputs.input_features = inputs.input_features.to(torch_dtype)
 
-            # Add language if specified
-            if request.language:
-                generate_kwargs["language"] = request.language
+                # Prepare generation kwargs
+                generate_kwargs = {
+                    "input_features": inputs.input_features,
+                }
 
-            # Add timestamp return option
-            if request.return_timestamps:
-                generate_kwargs["return_timestamps"] = True
+                # Add language if specified
+                if request.language:
+                    generate_kwargs["language"] = request.language
 
-            # Generate transcription
-            with torch.no_grad():
-                predicted_ids = model.generate(**generate_kwargs)
+                # Add timestamp return option
+                if request.return_timestamps:
+                    generate_kwargs["return_timestamps"] = True
 
-            # Decode transcription
-            transcription = processor.batch_decode(
-                predicted_ids,
-                skip_special_tokens=True
-            )[0]
+                # Generate transcription
+                with torch.no_grad():
+                    predicted_ids = model.generate(**generate_kwargs)
 
-            # Extract language if it was auto-detected
-            detected_language = None
-            if hasattr(predicted_ids, 'sequences'):
-                # For models that return language information
-                try:
-                    # This is model-specific and may need adjustment
-                    detected_language = request.language
-                except:
-                    pass
+                # Decode transcription
+                transcription = processor.batch_decode(
+                    predicted_ids,
+                    skip_special_tokens=True
+                )[0]
 
-            result = {
-                "text": transcription,
-                "language": detected_language or request.language,
-                "chunks": None
-            }
+                # Extract language if it was auto-detected
+                detected_language = None
+                if hasattr(predicted_ids, 'sequences'):
+                    # For models that return language information
+                    try:
+                        # This is model-specific and may need adjustment
+                        detected_language = request.language
+                    except:
+                        pass
 
-            # Handle timestamps if requested
-            if request.return_timestamps and hasattr(predicted_ids, 'timestamps'):
-                result["chunks"] = predicted_ids.timestamps
+                result = {
+                    "text": transcription,
+                    "language": detected_language or request.language,
+                    "chunks": None
+                }
 
-            return result
+                # Handle timestamps if requested
+                if request.return_timestamps and hasattr(predicted_ids, 'timestamps'):
+                    result["chunks"] = predicted_ids.timestamps
 
-        result = await asyncio.to_thread(_run_inference)
+                return result
+
+            result = await asyncio.to_thread(_run_inference)
+
+            # Model automatically released when context exits
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 

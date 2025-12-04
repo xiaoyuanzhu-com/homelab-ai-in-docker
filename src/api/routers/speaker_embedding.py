@@ -25,13 +25,10 @@ from ..models.speaker_embedding import (
     MatchResult,
     MatchCandidate,
 )
-from ...services.model_coordinator import get_coordinator
+from ...services.model_coordinator import use_model
 
 router = APIRouter(prefix="/api/speaker-embedding", tags=["speaker-embedding"])
 logger = logging.getLogger(__name__)
-
-# Track current model name (coordinator manages the actual model cache)
-_current_model_name: str = ""
 
 
 async def _load_model_impl(model_name: str) -> tuple:
@@ -113,42 +110,6 @@ async def _unload_model(model_tuple: tuple) -> None:
     del inference
 
 
-async def get_model(model_name: str) -> tuple:
-    """
-    Get or load the speaker embedding model via the global coordinator.
-
-    Models are managed by the coordinator to prevent OOM errors.
-    The coordinator will preemptively unload other models if needed.
-
-    Args:
-        model_name: Model identifier to load
-
-    Returns:
-        Tuple of (model, inference)
-
-    Raises:
-        HTTPException: If model loading fails
-    """
-    global _current_model_name
-
-    _current_model_name = model_name
-
-    # Get model info for memory estimation
-    from ...db.catalog import get_model_dict
-    model_info = get_model_dict(model_name)
-    estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
-
-    # Load through coordinator (handles preemptive unload)
-    coordinator = get_coordinator()
-    model_tuple = await coordinator.load_model(
-        key=f"speaker:{model_name}",
-        loader_fn=lambda: _load_model_impl(model_name),
-        unloader_fn=_unload_model,
-        estimated_memory_mb=estimated_memory_mb,
-        model_type="speaker-embedding",
-    )
-
-    return model_tuple
 
 
 async def decode_audio(base64_audio: str) -> Path:
@@ -185,38 +146,52 @@ async def extract_embedding(request: EmbeddingRequest) -> EmbeddingResponse:
         # Decode audio
         audio_path = await decode_audio(request.audio)
 
-        # Load model via coordinator (handles preemptive unload)
-        model, inference = await get_model(request.model)
+        # Get model info for memory estimation
+        from ...db.catalog import get_model_dict
+        model_info = get_model_dict(request.model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-        # Extract embedding based on mode
-        def _extract():
-            if request.mode == "segment":
-                if request.start_time is None or request.end_time is None:
-                    raise ValueError("start_time and end_time are required for 'segment' mode")
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"speaker:{request.model}",
+            loader_fn=lambda: _load_model_impl(request.model),
+            model_type="speaker-embedding",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=_unload_model,
+        ) as model_tuple:
+            model, inference = model_tuple
 
-                from pyannote.core import Segment
-                segment = Segment(request.start_time, request.end_time)
-                embedding = inference.crop(str(audio_path), segment)
-                duration = request.end_time - request.start_time
-            else:
-                # Whole file mode
-                embedding = inference(str(audio_path))
-                duration = None
+            # Extract embedding based on mode
+            def _extract():
+                if request.mode == "segment":
+                    if request.start_time is None or request.end_time is None:
+                        raise ValueError("start_time and end_time are required for 'segment' mode")
 
-            # Convert to list - embedding is a (1, D) numpy array
-            import numpy as np
-            if isinstance(embedding, np.ndarray):
-                # If it's already a numpy array, get the first row
-                embedding_vector = embedding[0] if embedding.ndim > 1 else embedding
-                embedding_list = embedding_vector.tolist()
-            else:
-                # If it's a different type, try to convert
-                embedding_list = np.array(embedding).flatten().tolist()
+                    from pyannote.core import Segment
+                    segment = Segment(request.start_time, request.end_time)
+                    embedding = inference.crop(str(audio_path), segment)
+                    duration = request.end_time - request.start_time
+                else:
+                    # Whole file mode
+                    embedding = inference(str(audio_path))
+                    duration = None
 
-            return embedding_list, len(embedding_list), duration
+                # Convert to list - embedding is a (1, D) numpy array
+                import numpy as np
+                if isinstance(embedding, np.ndarray):
+                    # If it's already a numpy array, get the first row
+                    embedding_vector = embedding[0] if embedding.ndim > 1 else embedding
+                    embedding_list = embedding_vector.tolist()
+                else:
+                    # If it's a different type, try to convert
+                    embedding_list = np.array(embedding).flatten().tolist()
 
-        # Run in thread pool to avoid blocking
-        embedding_list, dimension, duration = await asyncio.to_thread(_extract)
+                return embedding_list, len(embedding_list), duration
+
+            # Run in thread pool to avoid blocking
+            embedding_list, dimension, duration = await asyncio.to_thread(_extract)
+
+            # Model automatically released when context exits
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
@@ -269,28 +244,42 @@ async def compare_embeddings(request: CompareEmbeddingsRequest) -> CompareEmbedd
         audio_path1 = await decode_audio(request.audio1)
         audio_path2 = await decode_audio(request.audio2)
 
-        # Load model via coordinator (handles preemptive unload)
-        model, inference = await get_model(request.model)
+        # Get model info for memory estimation
+        from ...db.catalog import get_model_dict
+        model_info = get_model_dict(request.model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-        # Extract embeddings
-        def _compare():
-            embedding1 = inference(str(audio_path1))
-            embedding2 = inference(str(audio_path2))
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"speaker:{request.model}",
+            loader_fn=lambda: _load_model_impl(request.model),
+            model_type="speaker-embedding",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=_unload_model,
+        ) as model_tuple:
+            model, inference = model_tuple
 
-            # Calculate distance
-            distance = cdist(embedding1, embedding2, metric=request.metric)[0, 0]
+            # Extract embeddings
+            def _compare():
+                embedding1 = inference(str(audio_path1))
+                embedding2 = inference(str(audio_path2))
 
-            # Calculate similarity (inverse of distance for cosine)
-            if request.metric == "cosine":
-                similarity = 1.0 - distance
-            else:
-                # For other metrics, normalize to 0-1 range (approximate)
-                similarity = 1.0 / (1.0 + distance)
+                # Calculate distance
+                distance = cdist(embedding1, embedding2, metric=request.metric)[0, 0]
 
-            return float(distance), float(similarity)
+                # Calculate similarity (inverse of distance for cosine)
+                if request.metric == "cosine":
+                    similarity = 1.0 - distance
+                else:
+                    # For other metrics, normalize to 0-1 range (approximate)
+                    similarity = 1.0 / (1.0 + distance)
 
-        # Run in thread pool
-        distance, similarity = await asyncio.to_thread(_compare)
+                return float(distance), float(similarity)
+
+            # Run in thread pool
+            distance, similarity = await asyncio.to_thread(_compare)
+
+            # Model automatically released when context exits
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
@@ -328,24 +317,41 @@ async def batch_extract_embeddings(request: BatchEmbeddingRequest) -> BatchEmbed
 
     try:
         audio_path = await decode_audio(request.audio)
-        model, inference = await get_model(request.model)
 
-        def _batch():
-            from pyannote.core import Segment
-            embs: list[list[float]] = []
-            dim = None
-            for seg in request.segments:
-                s = Segment(seg.start, seg.end)
-                emb = inference.crop(str(audio_path), s)
-                # emb is (1, D)
-                arr = emb[0] if hasattr(emb, "ndim") and getattr(emb, "ndim", 1) > 1 else emb
-                vec = arr.tolist()
-                if dim is None:
-                    dim = len(vec)
-                embs.append(vec)
-            return embs, dim or 0
+        # Get model info for memory estimation
+        from ...db.catalog import get_model_dict
+        model_info = get_model_dict(request.model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-        embeddings, dimension = await asyncio.to_thread(_batch)
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"speaker:{request.model}",
+            loader_fn=lambda: _load_model_impl(request.model),
+            model_type="speaker-embedding",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=_unload_model,
+        ) as model_tuple:
+            model, inference = model_tuple
+
+            def _batch():
+                from pyannote.core import Segment
+                embs: list[list[float]] = []
+                dim = None
+                for seg in request.segments:
+                    s = Segment(seg.start, seg.end)
+                    emb = inference.crop(str(audio_path), s)
+                    # emb is (1, D)
+                    arr = emb[0] if hasattr(emb, "ndim") and getattr(emb, "ndim", 1) > 1 else emb
+                    vec = arr.tolist()
+                    if dim is None:
+                        dim = len(vec)
+                    embs.append(vec)
+                return embs, dim or 0
+
+            embeddings, dimension = await asyncio.to_thread(_batch)
+
+            # Model automatically released when context exits
+
         processing_time_ms = int((time.time() - start_time) * 1000)
 
         return BatchEmbeddingResponse(
@@ -451,17 +457,9 @@ def cleanup():
     Release model resources immediately.
 
     This function is called during app shutdown.
-    Delegates to the global model coordinator.
+    Cleanup now handled entirely by the global model coordinator.
     """
-    coordinator = get_coordinator()
-    # Use asyncio to run cleanup synchronously
-    try:
-        loop = asyncio.get_running_loop()
-        # Create task to unload all speaker embedding models
-        loop.create_task(coordinator.unload_model(f"speaker:{_current_model_name}", _unload_model))
-    except RuntimeError:
-        # No event loop, can't cleanup
-        pass
+    pass
 
 
 def check_and_cleanup_idle_model():
@@ -469,16 +467,6 @@ def check_and_cleanup_idle_model():
     Check if model has been idle too long and cleanup if needed.
 
     This function is called by periodic cleanup in main.py.
-    Delegates to the global model coordinator for memory management.
+    Cleanup now handled entirely by the global model coordinator.
     """
-    from ...db.settings import get_setting_int
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 300)
-
-    coordinator = get_coordinator()
-    # Use asyncio.create_task to run cleanup asynchronously
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(coordinator.cleanup_idle_models(idle_timeout, unloader_fn=_unload_model))
-    except RuntimeError:
-        # No event loop, skip cleanup
-        pass
+    pass

@@ -15,14 +15,11 @@ from ..models.text_to_embedding import EmbeddingRequest, EmbeddingResponse
 from ...storage.history import history_storage
 from ...config import get_data_dir, get_hf_endpoint, get_hf_model_cache_path
 from ...db.catalog import get_model_dict
-from ...services.model_coordinator import get_coordinator
+from ...services.model_coordinator import use_model
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["text-to-embedding"])
-
-# Track current model name (coordinator manages the actual model cache)
-_current_model_name: str = "all-MiniLM-L6-v2"
 
 
 def get_total_gpu_memory_mb() -> float:
@@ -167,60 +164,11 @@ async def _unload_model(model: SentenceTransformer) -> None:
     del model
 
 
-async def get_model(model_name: Optional[str] = None) -> SentenceTransformer:
-    """
-    Get or load the embedding model via the global coordinator.
-
-    Models are managed by the coordinator to prevent OOM errors.
-    The coordinator will preemptively unload other models if needed.
-
-    Args:
-        model_name: Skill ID of the model to load (optional)
-
-    Returns:
-        Loaded SentenceTransformer model
-
-    Raises:
-        HTTPException: If skill not found or not downloaded
-    """
-    global _current_model_name
-
-    target_model = model_name or _current_model_name
-    _current_model_name = target_model
-
-    # Get model info for memory estimation
-    model_info = get_model_dict(target_model)
-    estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
-
-    # Load through coordinator (handles preemptive unload)
-    coordinator = get_coordinator()
-    model = await coordinator.load_model(
-        key=f"embedding:{target_model}",
-        loader_fn=lambda: _load_model_impl(target_model),
-        unloader_fn=_unload_model,
-        estimated_memory_mb=estimated_memory_mb,
-        model_type="embedding",
-    )
-
-    return model
-
+# Removed get_model() - now use use_model() context manager directly in endpoints
 
 def cleanup():
-    """
-    Release model resources immediately.
-
-    This function is called during app shutdown.
-    Delegates to the global model coordinator.
-    """
-    coordinator = get_coordinator()
-    # Use asyncio to run cleanup synchronously
-    try:
-        loop = asyncio.get_running_loop()
-        # Create task to unload all embedding models
-        loop.create_task(coordinator.unload_model(f"embedding:{_current_model_name}", _unload_model))
-    except RuntimeError:
-        # No event loop, can't cleanup
-        pass
+    """Model cleanup is handled automatically by coordinator idle timeout."""
+    pass
 
 
 @router.post("/text-to-embedding", response_model=EmbeddingResponse)
@@ -244,52 +192,61 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
     start_time = time.time()
 
     try:
-        # Load model via coordinator (handles preemptive unload)
-        model = await get_model(request.model)
+        # Get model info for memory estimation
+        model_info = get_model_dict(request.model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-        # Generate embeddings off the event loop with pre-calculated batch size
-        embeddings = await asyncio.to_thread(
-            model.encode,
-            request.texts,
-            batch_size=_default_batch_size,
-            convert_to_numpy=True
-        )
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"embedding:{request.model}",
+            loader_fn=lambda: _load_model_impl(request.model),
+            model_type="embedding",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=_unload_model,
+        ) as model:
+            # Generate embeddings off the event loop with pre-calculated batch size
+            embeddings = await asyncio.to_thread(
+                model.encode,
+                request.texts,
+                batch_size=_default_batch_size,
+                convert_to_numpy=True
+            )
 
-        # Convert to list of lists
-        embeddings_list = embeddings.tolist()
+            # Convert to list of lists
+            embeddings_list = embeddings.tolist()
 
-        # Clean up GPU memory immediately after conversion
-        # This prevents OOM during continuous requests by releasing intermediate tensors
-        del embeddings
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            # Clean up GPU memory immediately after conversion
+            # This prevents OOM during continuous requests by releasing intermediate tensors
+            del embeddings
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-        processing_time_ms = int((time.time() - start_time) * 1000)
+            processing_time_ms = int((time.time() - start_time) * 1000)
 
-        response = EmbeddingResponse(
-            request_id=request_id,
-            embeddings=embeddings_list,
-            dimensions=len(embeddings_list[0]) if embeddings_list else 0,
-            model=_current_model_name,
-            processing_time_ms=processing_time_ms,
-        )
+            response = EmbeddingResponse(
+                request_id=request_id,
+                embeddings=embeddings_list,
+                dimensions=len(embeddings_list[0]) if embeddings_list else 0,
+                model=request.model,
+                processing_time_ms=processing_time_ms,
+            )
 
-        # Save to history (exclude embeddings from storage to save space)
-        history_storage.add_request(
-            service="text-to-embedding",
-            request_id=request_id,
-            request_data=request.model_dump(),
-            response_data={
-                "request_id": response.request_id,
-                "dimensions": response.dimensions,
-                "model": response.model,
-                "processing_time_ms": response.processing_time_ms,
-                "num_embeddings": len(response.embeddings),
-            },
-            status="success",
-        )
+            # Save to history (exclude embeddings from storage to save space)
+            history_storage.add_request(
+                service="text-to-embedding",
+                request_id=request_id,
+                request_data=request.model_dump(),
+                response_data={
+                    "request_id": response.request_id,
+                    "dimensions": response.dimensions,
+                    "model": response.model,
+                    "processing_time_ms": response.processing_time_ms,
+                    "num_embeddings": len(response.embeddings),
+                },
+                status="success",
+            )
 
-        return response
+            return response
 
     except Exception as e:
         # Clean up GPU memory on error as well

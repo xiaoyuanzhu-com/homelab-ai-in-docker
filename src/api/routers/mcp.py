@@ -96,22 +96,36 @@ async def embed_text(
         - dimensions: Embedding dimensionality
     """
     from . import text_to_embedding
+    from ...services.model_coordinator import use_model
+    from ...db.catalog import get_model_dict
+    import asyncio
 
     try:
         # Ensure text is a list
         texts = [text] if isinstance(text, str) else text
 
-        # Get the model
-        embedding_model = text_to_embedding.get_model(model)
+        # Get model info for memory estimation
+        model_info = get_model_dict(model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-        # Generate embeddings
-        embeddings = embedding_model.encode(texts, convert_to_numpy=True)
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"embedding:{model}",
+            loader_fn=lambda: text_to_embedding._load_model_impl(model),
+            model_type="embedding",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=text_to_embedding._unload_model,
+        ) as embedding_model:
+            # Generate embeddings in thread pool
+            embeddings = await asyncio.to_thread(
+                embedding_model.encode, texts, convert_to_numpy=True
+            )
 
-        return {
-            "embeddings": embeddings.tolist(),
-            "model": model,
-            "dimensions": len(embeddings[0]) if len(embeddings) > 0 else 0,
-        }
+            return {
+                "embeddings": embeddings.tolist(),
+                "model": model,
+                "dimensions": len(embeddings[0]) if len(embeddings) > 0 else 0,
+            }
     except Exception as e:
         logger.error(f"MCP embed_text error: {e}", exc_info=True)
         return {
@@ -145,43 +159,63 @@ async def generate_text(
         - completion_tokens: Number of generated tokens
     """
     from . import text_generation
+    from ...services.model_coordinator import use_model
+    from ...db.catalog import get_model_dict
+    import asyncio
+    import torch
 
     try:
         # Validate model
         text_generation.validate_model(model)
 
-        # Get model
-        model_obj, tokenizer = text_generation.get_model(model)
+        # Get model info for memory estimation
+        model_info = get_model_dict(model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-        # Tokenize input
-        inputs = tokenizer(prompt, return_tensors="pt")
-        input_length = inputs.input_ids.shape[1]
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"text-gen:{model}",
+            loader_fn=lambda: text_generation._load_model_impl(model),
+            model_type="text-generation",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=text_generation._unload_model,
+        ) as model_tuple:
+            tokenizer, model_obj, model_config = model_tuple
 
-        # Move to same device as model
-        import torch
-        device = next(model_obj.parameters()).device
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+            # Run in thread pool
+            def _generate():
+                # Tokenize input
+                inputs = tokenizer(prompt, return_tensors="pt")
+                input_length = inputs.input_ids.shape[1]
 
-        # Generate
-        with torch.no_grad():
-            outputs = model_obj.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                do_sample=True,
-            )
+                # Move to same device as model
+                device = next(model_obj.parameters()).device
+                inputs = {k: v.to(device) for k, v in inputs.items()}
 
-        # Decode
-        generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        completion_length = outputs.shape[1] - input_length
+                # Generate
+                with torch.no_grad():
+                    outputs = model_obj.generate(
+                        **inputs,
+                        max_new_tokens=max_new_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        do_sample=True,
+                    )
 
-        return {
-            "generated_text": generated_text,
-            "model": model,
-            "prompt_tokens": input_length,
-            "completion_tokens": completion_length,
-        }
+                # Decode
+                generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                completion_length = outputs.shape[1] - input_length
+
+                return generated_text, input_length, completion_length
+
+            generated_text, prompt_tokens, completion_tokens = await asyncio.to_thread(_generate)
+
+            return {
+                "generated_text": generated_text,
+                "model": model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+            }
     except Exception as e:
         logger.error(f"MCP generate_text error: {e}", exc_info=True)
         return {
@@ -209,41 +243,60 @@ async def caption_image(
         - model: Model used
     """
     from . import image_captioning
+    from ...services.model_coordinator import use_model
+    from ...db.catalog import get_model_dict
     from io import BytesIO
     from PIL import Image
+    import asyncio
+    import torch
 
     try:
         # Decode base64 image
         image_data = base64.b64decode(image_base64)
         image = Image.open(BytesIO(image_data))
 
-        # Get model
-        processor, model_obj = image_captioning.get_model(model)
+        # Get model info for memory estimation
+        model_config = image_captioning.get_model_config(model)
+        estimated_memory_mb = model_config.get("gpu_memory_mb") if model_config else None
 
-        # Generate caption
-        if prompt:
-            # Conditional generation
-            inputs = processor(image, prompt, return_tensors="pt")
-        else:
-            # Unconditional generation
-            inputs = processor(image, return_tensors="pt")
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"image-caption:{model}",
+            loader_fn=lambda: image_captioning._load_model_impl(model),
+            model_type="image-captioning",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=image_captioning._unload_model,
+        ) as model_tuple:
+            processor, model_obj, model_config = model_tuple
 
-        # Move to same device as model
-        import torch
-        device = next(model_obj.parameters()).device
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+            # Run in thread pool
+            def _caption():
+                # Generate caption
+                if prompt:
+                    # Conditional generation
+                    inputs = processor(image, prompt, return_tensors="pt")
+                else:
+                    # Unconditional generation
+                    inputs = processor(image, return_tensors="pt")
 
-        # Generate
-        with torch.no_grad():
-            outputs = model_obj.generate(**inputs, max_new_tokens=50)
+                # Move to same device as model
+                device = next(model_obj.parameters()).device
+                inputs = {k: v.to(device) for k, v in inputs.items()}
 
-        # Decode
-        caption = processor.decode(outputs[0], skip_special_tokens=True)
+                # Generate
+                with torch.no_grad():
+                    outputs = model_obj.generate(**inputs, max_new_tokens=50)
 
-        return {
-            "caption": caption,
-            "model": model,
-        }
+                # Decode
+                caption = processor.decode(outputs[0], skip_special_tokens=True)
+                return caption
+
+            caption = await asyncio.to_thread(_caption)
+
+            return {
+                "caption": caption,
+                "model": model,
+            }
     except Exception as e:
         logger.error(f"MCP caption_image error: {e}", exc_info=True)
         return {
@@ -259,58 +312,19 @@ async def ocr_image(
     """
     Extract text from an image using OCR (Optical Character Recognition).
 
+    Note: OCR uses worker manager isolation. Direct model access via MCP is not supported.
+    Use the /api/image-ocr endpoint instead.
+
     Args:
         image_base64: Base64-encoded image data
         model: Model ID to use (default: "paddleocr")
 
     Returns:
-        Dictionary with:
-        - text: Extracted text
-        - boxes: List of bounding boxes with text and coordinates
-        - model: Model used
+        Dictionary with error message (OCR requires worker manager)
     """
-    from . import image_ocr
-    from io import BytesIO
-    from PIL import Image
-    import numpy as np
-
-    try:
-        # Decode base64 image
-        image_data = base64.b64decode(image_base64)
-        image = Image.open(BytesIO(image_data))
-
-        # Convert to numpy array
-        image_array = np.array(image)
-
-        # Get model
-        ocr_model = image_ocr.get_model(model)
-
-        # Run OCR
-        result = ocr_model.ocr(image_array, cls=True)
-
-        # Extract text and boxes
-        boxes = []
-        all_text = []
-        if result and result[0]:
-            for line in result[0]:
-                box_coords, (text, confidence) = line
-                boxes.append({
-                    "text": text,
-                    "confidence": float(confidence),
-                    "box": box_coords,
-                })
-                all_text.append(text)
-
-        return {
-            "text": "\n".join(all_text),
-            "boxes": boxes,
-            "model": model,
-        }
-    except Exception as e:
-        logger.error(f"MCP ocr_image error: {e}", exc_info=True)
-        return {
-            "error": str(e),
-        }
+    return {
+        "error": "OCR via MCP is not supported. OCR uses worker manager for isolation. Please use the /api/image-ocr endpoint instead."
+    }
 
 
 @mcp_server.tool()
@@ -334,9 +348,13 @@ async def transcribe_audio(
         - model: Model used
     """
     from . import automatic_speech_recognition
+    from ...services.model_coordinator import use_model
+    from ...db.catalog import get_model_dict
     import tempfile
     import os
+    import asyncio
 
+    audio_path = None
     try:
         # Decode base64 audio
         audio_data = base64.b64decode(audio_base64)
@@ -346,30 +364,81 @@ async def transcribe_audio(
             f.write(audio_data)
             audio_path = f.name
 
-        try:
-            # Get model
-            asr_model = automatic_speech_recognition.get_model(model)
+        # Get model info for memory estimation
+        model_info = get_model_dict(model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
-            # Transcribe
-            if language:
-                result = asr_model(audio_path, language=language)
-            else:
-                result = asr_model(audio_path)
+        # Use context manager for automatic cleanup
+        async with use_model(
+            key=f"asr:{model}",
+            loader_fn=lambda: automatic_speech_recognition._load_model_impl(model),
+            model_type="asr",
+            estimated_memory_mb=estimated_memory_mb,
+            unloader_fn=automatic_speech_recognition._unload_model,
+        ) as model_tuple:
+            processor, asr_model, model_config = model_tuple
+
+            # Run in thread pool
+            def _transcribe():
+                import librosa
+                import torch
+
+                # Load audio
+                audio_array, sampling_rate = librosa.load(audio_path, sr=16000)
+
+                # Process audio
+                inputs = processor(
+                    audio_array,
+                    sampling_rate=sampling_rate,
+                    return_tensors="pt"
+                )
+
+                # Determine device and dtype from model
+                device = next(asr_model.parameters()).device
+                torch_dtype = next(asr_model.parameters()).dtype
+
+                # Move inputs to device
+                inputs = inputs.to(device)
+                if hasattr(inputs, 'input_features'):
+                    inputs.input_features = inputs.input_features.to(torch_dtype)
+
+                # Prepare generation kwargs
+                generate_kwargs = {"input_features": inputs.input_features}
+                if language:
+                    generate_kwargs["language"] = language
+
+                # Generate transcription
+                with torch.no_grad():
+                    predicted_ids = asr_model.generate(**generate_kwargs)
+
+                # Decode transcription
+                transcription = processor.batch_decode(
+                    predicted_ids,
+                    skip_special_tokens=True
+                )[0]
+
+                return transcription
+
+            text = await asyncio.to_thread(_transcribe)
 
             return {
-                "text": result["text"],
+                "text": text,
                 "language": language or "auto",
                 "model": model,
             }
-        finally:
-            # Clean up temporary file
-            os.unlink(audio_path)
 
     except Exception as e:
         logger.error(f"MCP transcribe_audio error: {e}", exc_info=True)
         return {
             "error": str(e),
         }
+    finally:
+        # Clean up temporary file
+        if audio_path and os.path.exists(audio_path):
+            try:
+                os.unlink(audio_path)
+            except Exception:
+                pass
 
 
 @mcp_server.tool()

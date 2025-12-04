@@ -181,11 +181,58 @@ All available models are defined in `src/api/models/models_manifest.json`, group
 - `POST /api/models/download` - Download any model via HuggingFace CLI
 - `DELETE /api/models/{model_id}` - Remove model by deleting HF cache directory
 
-### Lazy Loading Strategy
-- Models NOT loaded at startup (saves memory)
-- Load on first request to specific endpoint
-- Configurable keep-alive timeout (default: 30 minutes)
-- LRU eviction when memory threshold reached
+### Model Coordinator Architecture
+
+The Model Coordinator (`src/services/model_coordinator.py`) is a centralized memory management system that prevents GPU OOM errors by controlling model lifecycles across all AI services.
+
+#### Core Workflow
+
+**API Design:**
+```python
+from ...services.model_coordinator import use_model
+
+# Use context manager for automatic cleanup
+async with use_model(
+    key="whisperx:large-v3",
+    loader_fn=lambda: _load_model_impl(...),
+    model_type="whisperx",
+    estimated_memory_mb=3072,
+) as model:
+    # Model is protected during use (active_refs=1)
+    result = await asyncio.to_thread(model.transcribe, audio)
+    aligned = await asyncio.to_thread(whisperx.align, result, ...)
+    # Automatic release on exit (active_refs=0)
+```
+
+**Key Features:**
+1. **Prepare & Wait**: `prepare_model()` loads the model with `active_refs=1`. If another model is active, waits transparently (up to 5 minutes) for it to release.
+2. **Reference Counting**: Models with `active_refs > 0` are protected from unloading. No manual `touch_model()` calls needed.
+3. **Idle Timeout**: After `release_model()` sets `active_refs=0`, model becomes eligible for cleanup after 60s idle timeout.
+4. **Preemptive Unload**: In single-GPU mode (`max_models=1`), coordinator waits for active models to release before loading the next one, preventing OOM.
+
+**Timeline Example (Concurrent Requests):**
+```
+t=0s    WhisperX: prepare_model()     → active_refs=1 (protected)
+t=1s    WhisperX transcribing...
+t=300s  Embedding: prepare_model()    → Sees active_refs=1
+        → WAITS (logs "Waiting for 1 models...")
+t=600s  WhisperX: release_model()     → active_refs=0
+        → Embedding proceeds
+        → Unloads WhisperX, loads embedding model
+t=660s  Idle cleanup runs
+        → 60s elapsed since embedding release
+        → Embedding model unloaded
+```
+
+**Components:**
+- `prepare_model(key, loader_fn, ...)` - Load with active_refs=1 (waits if needed)
+- `release_model(key)` - Decrement refs, start idle timer
+- `use_model()` - Context manager (recommended, guarantees cleanup)
+- `cleanup_idle_models(timeout)` - Periodic cleanup (only active_refs=0)
+
+**Settings:**
+- `model_idle_timeout_seconds` - Time before idle model cleanup (default: 60s for most services, 300s for WhisperX)
+- `max_models_in_memory` - Max concurrent models (default: 1, aggressive OOM prevention)
 
 ### Model Configuration
 ```yaml

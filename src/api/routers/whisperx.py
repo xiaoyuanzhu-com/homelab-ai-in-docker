@@ -23,7 +23,7 @@ from ..models.whisperx import (
 from ...db.settings import get_setting, get_setting_int
 from ...config import get_hf_endpoint, get_hf_model_cache_path
 from ...storage.history import history_storage
-from ...services.model_coordinator import get_coordinator
+from ...services.model_coordinator import use_model, get_coordinator
 
 
 logger = logging.getLogger(__name__)
@@ -210,96 +210,9 @@ async def _unload_asr_model(model: Any) -> None:
         logger.warning(f"Error clearing GPU cache during WhisperX cleanup: {e}")
 
 
-async def _run_with_periodic_touch(
-    model_key: str,
-    func: Callable,
-    *args,
-    touch_interval: float = 10.0,
-    **kwargs
-) -> Any:
-    """
-    Run a blocking function in a thread while periodically touching the model.
-
-    This prevents the model from being cleaned up during long-running operations.
-
-    Args:
-        model_key: Model key to touch
-        func: Function to run
-        touch_interval: How often to touch the model (seconds)
-        *args, **kwargs: Arguments to pass to func
-
-    Returns:
-        Result of func
-    """
-    coordinator = get_coordinator()
-    result_holder = {"result": None, "exception": None, "done": False}
-
-    def _run_func():
-        try:
-            result_holder["result"] = func(*args, **kwargs)
-        except Exception as e:
-            result_holder["exception"] = e
-        finally:
-            result_holder["done"] = True
-
-    # Start the function in a thread
-    thread = asyncio.to_thread(_run_func)
-    task = asyncio.create_task(thread)
-
-    # Touch model periodically while it runs
-    try:
-        while not result_holder["done"]:
-            await coordinator.touch_model(model_key)
-            await asyncio.sleep(touch_interval)
-
-        # Wait for final result
-        await task
-
-        if result_holder["exception"]:
-            raise result_holder["exception"]
-
-        return result_holder["result"]
-    except asyncio.CancelledError:
-        # If we're cancelled, wait for the function to complete before re-raising
-        await task
-        raise
-
-
-async def get_asr_model(model_id: str, device: str, compute_type: Optional[str]) -> Any:
-    """
-    Get or load the WhisperX ASR model via the global coordinator.
-
-    Models are managed by the coordinator to prevent OOM errors.
-    The coordinator will preemptively unload other models if needed.
-
-    Args:
-        model_id: Model ID to load
-        device: Device to load model on (cuda/cpu)
-        compute_type: Compute type for inference (float16/float32)
-
-    Returns:
-        Loaded WhisperX ASR model
-    """
-    global _asr_model_name
-
-    _asr_model_name = model_id
-
-    # Get model info for memory estimation
-    from ...db.catalog import get_model_dict
-    model_info = get_model_dict(model_id)
-    estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
-
-    # Load through coordinator (handles preemptive unload)
-    coordinator = get_coordinator()
-    model = await coordinator.load_model(
-        key=f"whisperx:{model_id}",
-        loader_fn=lambda: _load_asr_model_impl(model_id, device, compute_type),
-        unloader_fn=_unload_asr_model,
-        estimated_memory_mb=estimated_memory_mb,
-        model_type="whisperx",
-    )
-
-    return model
+# Helper functions removed - now using use_model() context manager
+# - _run_with_periodic_touch: No longer needed, active_refs protects the model
+# - get_asr_model: Replaced with inline use_model() call
 
 
 def _load_align_model(language_code: str, device: str):
@@ -396,89 +309,81 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
         # Decode audio off the event loop
         audio_path = await asyncio.to_thread(_decode_audio_to_file, request.audio)
 
-        # Load WhisperX ASR model via coordinator (handles preemptive unload)
-        asr_model = await get_asr_model(request.asr_model, device, compute_type)
-
-        # Import whisperx in the worker thread to avoid blocking
+        # Import whisperx
         import whisperx  # type: ignore
 
         # Load audio
         audio = whisperx.load_audio(str(audio_path))
 
-        async def _run_pipeline_async():
-            # Transcribe with periodic touching
-            transcribe_kwargs = {"batch_size": request.batch_size}
-            if request.language:
-                transcribe_kwargs["language"] = request.language
-
-            result = await _run_with_periodic_touch(
-                f"whisperx:{request.asr_model}",
-                asr_model.transcribe,
-                audio,
-                **transcribe_kwargs
-            )
-
-            language = result.get("language") or request.language
-            if not language:
-                language = "unknown"
-
-            # Align words (use the device the align model was created on)
-            align_model, metadata, align_device = await asyncio.to_thread(_load_align_model, language, device)
-
-            # Run alignment with periodic touching (alignment can take a long time)
-            aligned = await _run_with_periodic_touch(
-                f"whisperx:{request.asr_model}",
-                whisperx.align,
-                result["segments"], align_model, metadata, audio, align_device
-            )
-
-            # Diarization (if enabled)
-            if request.diarize:
-                coordinator = get_coordinator()
-                diar = await asyncio.to_thread(_load_diar_pipeline, device)
-
-                # Build diarization kwargs with optional speaker constraints
-                diar_kwargs = {}
-                if request.min_speakers is not None:
-                    diar_kwargs["min_speakers"] = request.min_speakers
-                if request.max_speakers is not None:
-                    diar_kwargs["max_speakers"] = request.max_speakers
-
-                logger.info(
-                    f"WhisperX: starting diarization with kwargs={diar_kwargs}, "
-                    f"audio duration={len(audio)/16000:.1f}s"
-                )
-
-                # Run diarization with periodic touching
-                diar_segments = await _run_with_periodic_touch(
-                    f"whisperx:{request.asr_model}",
-                    diar,
-                    audio,
-                    **diar_kwargs
-                )
-
-                # Log diarization results
-                if diar_segments is not None:
-                    # Try to extract speaker count from diarization result
-                    try:
-                        speakers = set()
-                        for turn, _, speaker in diar_segments.itertracks(yield_label=True):
-                            speakers.add(speaker)
-                        logger.info(
-                            f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
-                        )
-                    except Exception as e:
-                        logger.warning(f"WhisperX: could not extract speaker info from diarization result: {e}")
-                else:
-                    logger.warning("WhisperX: diarization returned None")
-
-                aligned = await asyncio.to_thread(whisperx.assign_word_speakers, diar_segments, aligned)
-
-            return language, aligned
+        # Get model info for memory estimation
+        from ...db.catalog import get_model_dict
+        model_info = get_model_dict(request.asr_model)
+        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
 
         # Serialize WhisperX runs to avoid concurrent GPU spikes / OOM
         async with _infer_lock:
-            language, aligned = await _run_pipeline_async()
+            # Use context manager for automatic cleanup
+            async with use_model(
+                key=f"whisperx:{request.asr_model}",
+                loader_fn=lambda: _load_asr_model_impl(request.asr_model, device, compute_type),
+                model_type="whisperx",
+                estimated_memory_mb=estimated_memory_mb,
+                unloader_fn=_unload_asr_model,
+            ) as asr_model:
+                # Transcribe (no touch_model needed - protected by active_refs)
+                transcribe_kwargs = {"batch_size": request.batch_size}
+                if request.language:
+                    transcribe_kwargs["language"] = request.language
+
+                result = await asyncio.to_thread(asr_model.transcribe, audio, **transcribe_kwargs)
+
+                language = result.get("language") or request.language
+                if not language:
+                    language = "unknown"
+
+                # Align words
+                align_model, metadata, align_device = await asyncio.to_thread(_load_align_model, language, device)
+                aligned = await asyncio.to_thread(
+                    whisperx.align,
+                    result["segments"], align_model, metadata, audio, align_device
+                )
+
+                # Diarization (if enabled)
+                if request.diarize:
+                    diar = await asyncio.to_thread(_load_diar_pipeline, device)
+
+                    # Build diarization kwargs with optional speaker constraints
+                    diar_kwargs = {}
+                    if request.min_speakers is not None:
+                        diar_kwargs["min_speakers"] = request.min_speakers
+                    if request.max_speakers is not None:
+                        diar_kwargs["max_speakers"] = request.max_speakers
+
+                    logger.info(
+                        f"WhisperX: starting diarization with kwargs={diar_kwargs}, "
+                        f"audio duration={len(audio)/16000:.1f}s"
+                    )
+
+                    diar_segments = await asyncio.to_thread(diar, audio, **diar_kwargs)
+
+                    # Log diarization results
+                    if diar_segments is not None:
+                        try:
+                            speakers = set()
+                            for turn, _, speaker in diar_segments.itertracks(yield_label=True):
+                                speakers.add(speaker)
+                            logger.info(
+                                f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
+                            )
+                        except Exception as e:
+                            logger.warning(f"WhisperX: could not extract speaker info from diarization result: {e}")
+                    else:
+                        logger.warning("WhisperX: diarization returned None")
+
+                    aligned = await asyncio.to_thread(whisperx.assign_word_speakers, diar_segments, aligned)
+
+                # Model automatically released when context exits
+                language, aligned = language, aligned
 
         # Build response segments
         segments_out: list[WhisperXSegment] = []
