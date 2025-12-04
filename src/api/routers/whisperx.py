@@ -520,6 +520,51 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                 else:
                     diar_turns_data = diar_turns  # Already extracted earlier
 
+                # Fix speaker labels using diarization ground truth
+                # WhisperX's assign_word_speakers sometimes creates bad assignments
+                # especially when word timestamps have unrealistic durations
+                corrections_made = 0
+                for seg in aligned.get("segments", []):
+                    words_raw = seg.get("words", [])
+                    for i, w in enumerate(words_raw):
+                        w_start = w.get("start")
+                        w_end = w.get("end")
+                        w_speaker = w.get("speaker")
+
+                        if w_start is None:
+                            continue
+
+                        # Use word start time to find the correct speaker from diarization
+                        # This is more reliable than WhisperX's assignment which can be wrong
+                        best_speaker = None
+                        for turn in diar_turns_data:
+                            turn_start = turn["start"]
+                            turn_end = turn["end"]
+                            # Check if word start falls within this diarization turn
+                            if turn_start <= w_start < turn_end:
+                                best_speaker = turn["speaker"]
+                                break
+
+                        # Correct the speaker if diarization says different
+                        if best_speaker and best_speaker != w_speaker:
+                            words_raw[i]["speaker"] = best_speaker
+                            corrections_made += 1
+
+                if corrections_made > 0:
+                    logger.info(f"WhisperX: corrected {corrections_made} word speaker assignments using diarization ground truth")
+
+                # Re-log corrected word assignments for debugging
+                if corrections_made > 0:
+                    word_assignments_corrected = []
+                    for seg_idx, seg in enumerate(aligned.get("segments", [])):
+                        for word in seg.get("words", []):
+                            word_assignments_corrected.append({
+                                "word": word.get("word"),
+                                "start": round(word.get("start", 0), 3),
+                                "speaker": word.get("speaker"),
+                            })
+                    logger.info(f"WhisperX: corrected word assignments: {word_assignments_corrected}")
+
                 # Extract speaker labels before cleanup (needed for embedding mapping)
                 speaker_labels_for_embeddings = None
                 if speaker_embeddings_raw is not None:
