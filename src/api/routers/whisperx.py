@@ -198,25 +198,37 @@ async def _unload_asr_model(model: Any) -> None:
     Args:
         model: WhisperX model to unload
     """
-    # Delete ASR model reference first
+    global _align_cache, _diar_cache
+
+    # CRITICAL: Call CTranslate2's unload_model() FIRST to release GPU memory
+    # WhisperX wraps CTranslate2's WhisperModel which has an explicit unload method
+    # Access path: pipeline.model.model.unload_model()
+    try:
+        if hasattr(model, 'model') and hasattr(model.model, 'model'):
+            ctranslate2_model = model.model.model
+            if hasattr(ctranslate2_model, 'unload_model'):
+                ctranslate2_model.unload_model()
+    except Exception as e:
+        logger.warning(f"Error calling CTranslate2 unload_model(): {e}")
+
+    # Delete ASR model reference
     del model
 
-    # Clear GPU cache and force defragmentation
+    # Clear auxiliary model caches
+    _align_cache = None
+    _diar_cache = None
+
+    # GPU cleanup
     try:
-        import torch  # type: ignore
+        import torch
         import gc
 
-        # Force garbage collection to release references
         gc.collect()
-
-        # Clear GPU cache to defragment memory
         if torch.cuda.is_available():
             await asyncio.to_thread(torch.cuda.empty_cache)
-            await asyncio.to_thread(torch.cuda.synchronize)
-            logger.debug("GPU cache cleared for WhisperX ASR model")
-
-    except Exception as e:
-        logger.warning(f"Error clearing GPU cache during WhisperX cleanup: {e}")
+            await asyncio.to_thread(torch.cuda.ipc_collect)
+    except Exception:
+        pass
 
 
 # Helper functions removed - now using use_model() context manager
@@ -298,6 +310,8 @@ def _load_diar_pipeline(device: str):
 
 @router.post("/transcribe", response_model=WhisperXTranscriptionResponse)
 async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscriptionResponse:
+    global _align_cache, _diar_cache  # Declare at function start
+
     request_id = str(uuid.uuid4())
     start_time = time.time()
     audio_path: Optional[Path] = None
@@ -335,7 +349,8 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
 
         # Serialize WhisperX runs to avoid concurrent GPU spikes / OOM
         async with _infer_lock:
-            # Use context manager for automatic cleanup
+            # Phase 1: ASR transcription and alignment
+            # CRITICAL: Keep this scope minimal to free GPU memory before diarization
             async with use_model(
                 key=f"whisperx:{request.asr_model}",
                 loader_fn=lambda: _load_asr_model_impl(request.asr_model, device, compute_type),
@@ -377,119 +392,122 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                     torch.cuda.empty_cache()
                 logger.debug("Cleaned up transcription intermediate tensors")
 
-                # Initialize diarization data (will be populated if diarization is enabled)
-                diar_turns_data = None
+                # Store results for diarization (which happens after ASR unload)
+                language, aligned = language, aligned
 
-                # Diarization (if enabled)
-                if request.diarize:
-                    t0 = time.time()
-                    diar = await asyncio.to_thread(_load_diar_pipeline, device)
-                    logger.info(f"⏱️  Load diarization pipeline: {(time.time() - t0)*1000:.0f}ms")
+            # ASR model is now unloaded - GPU memory freed for diarization
+            logger.debug("ASR model released, GPU memory available for diarization")
 
-                    # Build diarization kwargs with optional speaker constraints
-                    diar_kwargs = {}
-                    if request.min_speakers is not None:
-                        diar_kwargs["min_speakers"] = request.min_speakers
-                    if request.max_speakers is not None:
-                        diar_kwargs["max_speakers"] = request.max_speakers
+            # Initialize diarization data (will be populated if diarization is enabled)
+            diar_turns_data = None
 
-                    logger.info(
-                        f"WhisperX: starting diarization with kwargs={diar_kwargs}, "
-                        f"audio duration={len(audio)/16000:.1f}s"
-                    )
+            # Phase 2: Diarization (after ASR unload to prevent OOM)
+            if request.diarize:
+                t0 = time.time()
+                diar = await asyncio.to_thread(_load_diar_pipeline, device)
+                logger.info(f"⏱️  Load diarization pipeline: {(time.time() - t0)*1000:.0f}ms")
 
-                    t0 = time.time()
-                    diar_segments = await asyncio.to_thread(diar, audio, **diar_kwargs)
-                    logger.info(f"⏱️  Diarization: {(time.time() - t0)*1000:.0f}ms")
+                # Build diarization kwargs with optional speaker constraints
+                diar_kwargs = {}
+                if request.min_speakers is not None:
+                    diar_kwargs["min_speakers"] = request.min_speakers
+                if request.max_speakers is not None:
+                    diar_kwargs["max_speakers"] = request.max_speakers
 
-                    # Log diarization results
-                    if diar_segments is not None:
-                        try:
-                            import pandas as pd
+                logger.info(
+                    f"WhisperX: starting diarization with kwargs={diar_kwargs}, "
+                    f"audio duration={len(audio)/16000:.1f}s"
+                )
 
-                            # Check if it's a DataFrame or Annotation object
-                            if isinstance(diar_segments, pd.DataFrame):
-                                # It's a DataFrame - iterate over rows
-                                speakers = set()
-                                diar_turns = []
-                                for _, row in diar_segments.iterrows():
-                                    speaker = row.get('speaker', 'unknown')
-                                    speakers.add(speaker)
-                                    diar_turns.append({
-                                        "start": round(row.get('start', 0), 3),
-                                        "end": round(row.get('end', 0), 3),
-                                        "speaker": speaker,
-                                        "duration": round(row.get('end', 0) - row.get('start', 0), 3)
-                                    })
-                                logger.info(
-                                    f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
-                                )
-                                logger.info(f"WhisperX: diarization turns (all {len(diar_turns)} turns): {diar_turns}")
-                            else:
-                                # It's an Annotation object - use itertracks
-                                speakers = set()
-                                diar_turns = []
-                                for turn, _, speaker in diar_segments.itertracks(yield_label=True):
-                                    speakers.add(speaker)
-                                    diar_turns.append({
-                                        "start": round(turn.start, 3),
-                                        "end": round(turn.end, 3),
-                                        "speaker": speaker,
-                                        "duration": round(turn.end - turn.start, 3)
-                                    })
-                                logger.info(
-                                    f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
-                                )
-                                logger.info(f"WhisperX: diarization turns (all {len(diar_turns)} turns): {diar_turns}")
-                        except Exception as e:
-                            logger.warning(f"WhisperX: could not extract speaker info from diarization result: {e}")
-                    else:
-                        logger.warning("WhisperX: diarization returned None")
+                t0 = time.time()
+                diar_segments = await asyncio.to_thread(diar, audio, **diar_kwargs)
+                logger.info(f"⏱️  Diarization: {(time.time() - t0)*1000:.0f}ms")
 
-                    t0 = time.time()
-                    aligned = await asyncio.to_thread(
-                        whisperx.assign_word_speakers,
-                        diar_segments,
-                        aligned,
-                        fill_nearest=True
-                    )
-                    logger.info(f"⏱️  Assign speakers: {(time.time() - t0)*1000:.0f}ms")
+                # Log diarization results
+                if diar_segments is not None:
+                    try:
+                        import pandas as pd
 
-                    # Log word-level speaker assignments (all words for debugging)
-                    word_assignments = []
-                    for seg_idx, seg in enumerate(aligned.get("segments", [])):
-                        for word in seg.get("words", []):
-                            word_assignments.append({
-                                "seg": seg_idx,
-                                "word": word.get("word"),
-                                "start": round(word.get("start", 0), 3),
-                                "end": round(word.get("end", 0), 3),
-                                "speaker": word.get("speaker"),
-                                "duration": round(word.get("end", 0) - word.get("start", 0), 3) if word.get("end") and word.get("start") else None
-                            })
-                    logger.info(f"WhisperX: word assignments (all {len(word_assignments)} words): {word_assignments}")
+                        # Check if it's a DataFrame or Annotation object
+                        if isinstance(diar_segments, pd.DataFrame):
+                            # It's a DataFrame - iterate over rows
+                            speakers = set()
+                            diar_turns = []
+                            for _, row in diar_segments.iterrows():
+                                speaker = row.get('speaker', 'unknown')
+                                speakers.add(speaker)
+                                diar_turns.append({
+                                    "start": round(row.get('start', 0), 3),
+                                    "end": round(row.get('end', 0), 3),
+                                    "speaker": speaker,
+                                    "duration": round(row.get('end', 0) - row.get('start', 0), 3)
+                                })
+                            logger.info(
+                                f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
+                            )
+                            logger.info(f"WhisperX: diarization turns (all {len(diar_turns)} turns): {diar_turns}")
+                        else:
+                            # It's an Annotation object - use itertracks
+                            speakers = set()
+                            diar_turns = []
+                            for turn, _, speaker in diar_segments.itertracks(yield_label=True):
+                                speakers.add(speaker)
+                                diar_turns.append({
+                                    "start": round(turn.start, 3),
+                                    "end": round(turn.end, 3),
+                                    "speaker": speaker,
+                                    "duration": round(turn.end - turn.start, 3)
+                                })
+                            logger.info(
+                                f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
+                            )
+                            logger.info(f"WhisperX: diarization turns (all {len(diar_turns)} turns): {diar_turns}")
+                    except Exception as e:
+                        logger.warning(f"WhisperX: could not extract speaker info from diarization result: {e}")
+                else:
+                    logger.warning("WhisperX: diarization returned None")
 
-                    # Keep diarization data for correction (convert to list for reuse)
-                    import pandas as pd
-                    if isinstance(diar_segments, pd.DataFrame):
-                        diar_turns_data = [
-                            {"start": row.get("start"), "end": row.get("end"), "speaker": row.get("speaker")}
-                            for _, row in diar_segments.iterrows()
-                        ]
-                    else:
-                        diar_turns_data = diar_turns  # Already extracted earlier
+                t0 = time.time()
+                aligned = await asyncio.to_thread(
+                    whisperx.assign_word_speakers,
+                    diar_segments,
+                    aligned,
+                    fill_nearest=True
+                )
+                logger.info(f"⏱️  Assign speakers: {(time.time() - t0)*1000:.0f}ms")
 
-                    # Clean up diarization intermediate tensors
-                    del diar_segments
-                    import torch
-                    import gc
-                    gc.collect()
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    logger.debug("Cleaned up diarization intermediate tensors")
+                # Log word-level speaker assignments (all words for debugging)
+                word_assignments = []
+                for seg_idx, seg in enumerate(aligned.get("segments", [])):
+                    for word in seg.get("words", []):
+                        word_assignments.append({
+                            "seg": seg_idx,
+                            "word": word.get("word"),
+                            "start": round(word.get("start", 0), 3),
+                            "end": round(word.get("end", 0), 3),
+                            "speaker": word.get("speaker"),
+                            "duration": round(word.get("end", 0) - word.get("start", 0), 3) if word.get("end") and word.get("start") else None
+                        })
+                logger.info(f"WhisperX: word assignments (all {len(word_assignments)} words): {word_assignments}")
 
-                # Model automatically released when context exits
-                language, aligned, diar_turns_data = language, aligned, diar_turns_data
+                # Keep diarization data for correction (convert to list for reuse)
+                import pandas as pd
+                if isinstance(diar_segments, pd.DataFrame):
+                    diar_turns_data = [
+                        {"start": row.get("start"), "end": row.get("end"), "speaker": row.get("speaker")}
+                        for _, row in diar_segments.iterrows()
+                    ]
+                else:
+                    diar_turns_data = diar_turns  # Already extracted earlier
+
+                # Clean up diarization intermediate tensors
+                del diar_segments
+                import torch
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                logger.debug("Cleaned up diarization intermediate tensors")
 
         # Build response segments with speaker-based splitting
         segments_out: list[WhisperXSegment] = []
@@ -644,6 +662,20 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
         logger.error(f"WhisperX processing failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to transcribe: {e}")
     finally:
+        # CRITICAL: ALWAYS clean up auxiliary caches after request (success or error)
+        # These models stay loaded after ASR is released, causing OOM on next request
+        _align_cache = None
+        _diar_cache = None
+
+        # Force cleanup to actually free GPU memory
+        import torch
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        logger.debug("Cleared auxiliary model caches in finally block")
+
         if audio_path and audio_path.exists():
             try:
                 audio_path.unlink()

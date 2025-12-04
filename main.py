@@ -1,5 +1,10 @@
 """Main FastAPI application for Homelab AI Services."""
 
+# Configure PyTorch CUDA allocator BEFORE any imports
+# This reduces memory fragmentation and improves OOM handling
+import os
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 # Initialize CUDA/NVIDIA library paths before any torch/whisperx imports
 try:
     from src.runtime.cuda_paths import setup_cuda_libraries  # type: ignore

@@ -34,6 +34,7 @@ class ModelInfo:
     actual_memory_mb: Optional[float] = None
     model_type: Optional[str] = None  # e.g., "embedding", "asr", "ocr"
     active_refs: int = 0  # Number of active inference operations using this model
+    unloader_fn: Optional[Callable] = None  # Custom cleanup function for this model
 
 
 class ModelCoordinator:
@@ -60,6 +61,7 @@ class ModelCoordinator:
         """
         self._models: Dict[str, ModelInfo] = {}
         self._lock = asyncio.Lock()
+        self._condition = asyncio.Condition(self._lock)  # For waiting on model releases
         self._max_models = max_models_in_memory
         self._max_memory_mb = max_memory_mb
         self._enable_preemptive_unload = enable_preemptive_unload
@@ -100,22 +102,17 @@ class ModelCoordinator:
 
         IMPORTANT: Must be paired with release_model() call, preferably in a try/finally block
         """
-        async with self._lock:
+        async with self._condition:
             # Check if model is already loaded
             if key in self._models:
-                logger.info(f"Model '{key}' already loaded, reusing cached instance")
+                logger.debug(f"Reusing model '{key}' (active_refs: {self._models[key].active_refs} → {self._models[key].active_refs + 1})")
                 self._models[key].active_refs += 1
                 self._models[key].last_used = time.time()
-                logger.debug(f"Acquired ref for '{key}', active_refs={self._models[key].active_refs}")
                 return self._models[key].model
 
             # Get current memory stats before loading
             memory_before = await self._get_memory_stats()
-            logger.info(
-                f"Preparing model '{key}' (type: {model_type}, estimated: {estimated_memory_mb}MB). "
-                f"Current memory: GPU={memory_before.get('gpu_used_mb', 'N/A')}MB, "
-                f"Models loaded: {len(self._models)}"
-            )
+            logger.debug(f"Loading model '{key}' (type: {model_type}, est: {estimated_memory_mb}MB)")
 
             # Wait for other models and unload them
             if self._enable_preemptive_unload:
@@ -145,16 +142,11 @@ class ModelCoordinator:
                 actual_memory_mb=actual_memory_mb,
                 model_type=model_type,
                 active_refs=1,  # ← Starts with 1 ref!
+                unloader_fn=unloader_fn,  # Store for later cleanup
             )
             self._models[key] = model_info
 
-            logger.info(
-                f"Model '{key}' prepared successfully. "
-                f"Actual memory: {actual_memory_mb}MB, "
-                f"GPU: {memory_after.get('gpu_used_mb', 'N/A')}MB, "
-                f"Models in memory: {len(self._models)}, "
-                f"active_refs=1"
-            )
+            logger.debug(f"Model '{key}' loaded successfully (models in memory: {len(self._models)})")
 
             return model
 
@@ -255,11 +247,19 @@ class ModelCoordinator:
         Returns:
             True if model exists and ref was released, False otherwise
         """
-        async with self._lock:
+        async with self._condition:
             if key in self._models:
+                old_refs = self._models[key].active_refs
                 self._models[key].active_refs = max(0, self._models[key].active_refs - 1)
                 self._models[key].last_used = time.time()
-                logger.debug(f"Released '{key}', active_refs={self._models[key].active_refs}")
+
+                logger.debug(f"Released '{key}' (active_refs: {old_refs} → {self._models[key].active_refs})")
+
+                # Notify waiting requests that a model has been released
+                if self._models[key].active_refs == 0:
+                    logger.debug(f"Model '{key}' now idle, notifying waiting requests")
+                    self._condition.notify_all()
+
                 return True
             return False
 
@@ -364,47 +364,66 @@ class ModelCoordinator:
         # Aggressive mode: unload all other models (prevents OOM)
         if self._max_models == 1:
             max_wait_time = 300  # 5 minutes max wait
-            poll_interval = 2.0  # Check every 2 seconds
-            waited_time = 0.0
+            start_wait = time.time()
 
-            while self._models and waited_time < max_wait_time:
-                # Filter models that can be unloaded (no active references)
-                unloadable = {k: v for k, v in self._models.items() if v.active_refs == 0}
+            # Wait for active models to be released using condition variable
+            while self._models:
                 active_models = {k: v for k, v in self._models.items() if v.active_refs > 0}
+                unloadable = {k: v for k, v in self._models.items() if v.active_refs == 0}
 
+                # If there are active models, wait for them to be released
                 if active_models:
+                    waited = time.time() - start_wait
+                    if waited >= max_wait_time:
+                        logger.error(
+                            f"Timeout waiting for models to release after {max_wait_time}s. "
+                            f"Active models: {list(active_models.keys())}."
+                        )
+                        raise RuntimeError(
+                            f"Cannot load model '{new_model_key}': Timeout waiting for active models to release. "
+                            f"Models still in use: {list(active_models.keys())}"
+                        )
+
                     logger.info(
                         f"Waiting for {len(active_models)} models with active inference to complete: "
-                        f"{list(active_models.keys())} (waited {waited_time:.1f}s)"
+                        f"{list(active_models.keys())} (waited {waited:.1f}s)"
                     )
-                    # Release lock temporarily to allow other operations
-                    # (like release_model_ref) to proceed
-                    self._lock.release()
-                    try:
-                        await asyncio.sleep(poll_interval)
-                    finally:
-                        await self._lock.acquire()
-                    waited_time += poll_interval
+                    # Wait for notification from release_model()
+                    # This properly releases the lock while waiting, but re-acquires atomically
+                    await self._condition.wait()
                     continue
 
-                # All models are now unloadable
+                # All models are idle - safe to unload
                 if unloadable:
-                    logger.info(
-                        f"Preemptive unload: removing {len(unloadable)} idle models to load '{new_model_key}'"
-                    )
+                    logger.debug(f"Unloading {len(unloadable)} idle models to load '{new_model_key}'")
+
                     keys_to_unload = list(unloadable.keys())
                     for key in keys_to_unload:
+                        model_info = self._models[key]
+
+                        # Extract references before deleting
+                        model = model_info.model
+                        unloader_fn = model_info.unloader_fn
+
+                        # CRITICAL: Delete from coordinator dict AND model_info to release references
+                        # Must happen BEFORE calling the unloader
                         del self._models[key]
+                        del model_info
+
+                        # Then call custom unloader if provided
+                        # At this point, 'model' variable should be the only reference
+                        if unloader_fn:
+                            try:
+                                await unloader_fn(model)
+                            except Exception as e:
+                                logger.error(f"Custom unloader failed for '{key}': {e}")
+                        else:
+                            # No custom unloader, just delete the model reference
+                            del model
+
                     await self._cleanup_gpu_memory()
                 break
 
-            if waited_time >= max_wait_time and self._models:
-                active_models = {k: v for k, v in self._models.items() if v.active_refs > 0}
-                logger.warning(
-                    f"Timeout waiting for models to release after {max_wait_time}s. "
-                    f"Active models: {list(active_models.keys())}. "
-                    f"Proceeding with load anyway (may cause OOM)."
-                )
             return
 
         # Multi-model mode: enforce max_models limit
@@ -424,18 +443,40 @@ class ModelCoordinator:
                 await self._cleanup_gpu_memory()
 
     async def _get_memory_stats(self) -> Dict[str, Any]:
-        """Get current memory statistics (GPU + CPU)"""
+        """Get current memory statistics (GPU + CPU)
+
+        Uses NVML (nvidia-smi equivalent) for accurate GPU memory reporting
+        that matches what the user sees in nvidia-smi and the hardware API.
+        """
         stats = {}
 
-        # Try to get GPU memory stats
+        # Try to get GPU memory stats using NVML (matches nvidia-smi)
         try:
             import torch
             if torch.cuda.is_available():
                 stats["gpu_available"] = True
-                stats["gpu_total_mb"] = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
-                stats["gpu_used_mb"] = torch.cuda.memory_allocated(0) / 1024 / 1024
-                stats["gpu_cached_mb"] = torch.cuda.memory_reserved(0) / 1024 / 1024
-                stats["gpu_free_mb"] = stats["gpu_total_mb"] - stats["gpu_cached_mb"]
+
+                # Try NVML first for most accurate stats (matches nvidia-smi)
+                try:
+                    import pynvml
+                    pynvml.nvmlInit()
+                    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                    mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+
+                    # NVML provides the actual GPU memory usage (matches nvidia-smi)
+                    stats["gpu_total_mb"] = mem_info.total / 1024 / 1024
+                    stats["gpu_used_mb"] = mem_info.used / 1024 / 1024
+                    stats["gpu_free_mb"] = mem_info.free / 1024 / 1024
+                    stats["gpu_cached_mb"] = stats["gpu_used_mb"]  # NVML reports actual usage
+
+                    pynvml.nvmlShutdown()
+                except Exception as e:
+                    # Fallback to PyTorch memory APIs if NVML fails
+                    logger.debug(f"NVML failed, using PyTorch memory APIs: {e}")
+                    stats["gpu_total_mb"] = torch.cuda.get_device_properties(0).total_memory / 1024 / 1024
+                    stats["gpu_used_mb"] = torch.cuda.memory_reserved(0) / 1024 / 1024
+                    stats["gpu_cached_mb"] = torch.cuda.memory_reserved(0) / 1024 / 1024
+                    stats["gpu_free_mb"] = stats["gpu_total_mb"] - stats["gpu_cached_mb"]
             else:
                 stats["gpu_available"] = False
         except ImportError:
@@ -452,7 +493,7 @@ class ModelCoordinator:
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                torch.cuda.synchronize()
+                torch.cuda.ipc_collect()
         except ImportError:
             pass
 
