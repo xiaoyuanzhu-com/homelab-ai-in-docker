@@ -422,40 +422,123 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                 # Model automatically released when context exits
                 language, aligned = language, aligned
 
-        # Build response segments
+        # Build response segments with speaker-based splitting
         segments_out: list[WhisperXSegment] = []
         full_text_parts: list[str] = []
-        for seg in aligned.get("segments", []):
-            words = []
-            seg_speaker = None
-            if seg.get("words"):
-                # Determine majority speaker if present at word-level
-                speaker_counts: dict[str, int] = {}
-                for w in seg["words"]:
-                    w_speaker = w.get("speaker")
-                    w_obj = WhisperXWord(
-                        word=w.get("word", ""),
-                        start=float(w.get("start")) if w.get("start") is not None else None,
-                        end=float(w.get("end")) if w.get("end") is not None else None,
-                        speaker=w_speaker,
-                    )
-                    words.append(w_obj)
-                    if w_speaker:
-                        speaker_counts[w_speaker] = speaker_counts.get(w_speaker, 0) + 1
-                if speaker_counts:
-                    seg_speaker = max(speaker_counts.items(), key=lambda x: x[1])[0]
 
-            text = seg.get("text", "").strip()
-            full_text_parts.append(text)
-            segments_out.append(
-                WhisperXSegment(
-                    start=float(seg.get("start", 0.0)),
-                    end=float(seg.get("end", 0.0)),
-                    text=text,
-                    speaker=seg.get("speaker") or seg_speaker,
-                    words=words or None,
+        # Configurable thresholds for interruption tolerance
+        MAX_INTERRUPTION_WORDS = 2  # Allow up to 2 words from another speaker
+        MAX_INTERRUPTION_DURATION = 1.0  # Allow up to 1 second from another speaker
+
+        # Determine if language needs spaces between words
+        # Languages without spaces: Chinese, Japanese, Thai, Lao, Khmer, Burmese
+        no_space_languages = {"zh", "ja", "th", "lo", "km", "my"}
+        needs_spaces = language not in no_space_languages
+
+        for seg in aligned.get("segments", []):
+            if not seg.get("words"):
+                # No word-level data, keep original segment
+                text = seg.get("text", "").strip()
+                full_text_parts.append(text)
+                segments_out.append(
+                    WhisperXSegment(
+                        start=float(seg.get("start", 0.0)),
+                        end=float(seg.get("end", 0.0)),
+                        text=text,
+                        speaker=seg.get("speaker"),
+                        words=None,
+                    )
                 )
-            )
+                continue
+
+            # Split segments based on speaker changes
+            words_raw = seg["words"]
+            current_speaker = None
+            current_words: list[WhisperXWord] = []
+            current_text_parts: list[str] = []
+            current_start: Optional[float] = None
+
+            for i, w in enumerate(words_raw):
+                w_speaker = w.get("speaker")
+                w_word = w.get("word", "")
+                w_start = float(w.get("start")) if w.get("start") is not None else None
+                w_end = float(w.get("end")) if w.get("end") is not None else None
+
+                w_obj = WhisperXWord(
+                    word=w_word,
+                    start=w_start,
+                    end=w_end,
+                    speaker=w_speaker,
+                )
+
+                # Initialize first speaker
+                if current_speaker is None:
+                    current_speaker = w_speaker
+                    current_start = w_start
+
+                # Check if speaker changed
+                if w_speaker and w_speaker != current_speaker:
+                    # Look ahead to see if this is a brief interruption
+                    interruption_words = 1
+                    interruption_duration = (w_end - w_start) if (w_end and w_start) else 0.0
+
+                    # Count consecutive words from the new speaker
+                    for j in range(i + 1, len(words_raw)):
+                        next_w = words_raw[j]
+                        next_speaker = next_w.get("speaker")
+                        if next_speaker == w_speaker:
+                            interruption_words += 1
+                            next_end = next_w.get("end")
+                            if next_end:
+                                interruption_duration = float(next_end) - w_start
+                        else:
+                            break
+
+                    # Decide: is this a brief interruption or a real speaker change?
+                    is_brief_interruption = (
+                        interruption_words <= MAX_INTERRUPTION_WORDS and
+                        interruption_duration <= MAX_INTERRUPTION_DURATION
+                    )
+
+                    if not is_brief_interruption:
+                        # Real speaker change - emit current segment
+                        if current_words:
+                            seg_text = (" " if needs_spaces else "").join(current_text_parts).strip()
+                            full_text_parts.append(seg_text)
+                            segments_out.append(
+                                WhisperXSegment(
+                                    start=current_start,
+                                    end=current_words[-1].end,
+                                    text=seg_text,
+                                    speaker=current_speaker,
+                                    words=current_words,
+                                )
+                            )
+
+                        # Start new segment with new speaker
+                        current_speaker = w_speaker
+                        current_words = [w_obj]
+                        current_text_parts = [w_word]
+                        current_start = w_start
+                        continue
+
+                # Add word to current segment (either same speaker or brief interruption)
+                current_words.append(w_obj)
+                current_text_parts.append(w_word)
+
+            # Emit final segment for this original segment
+            if current_words:
+                seg_text = (" " if needs_spaces else "").join(current_text_parts).strip()
+                full_text_parts.append(seg_text)
+                segments_out.append(
+                    WhisperXSegment(
+                        start=current_start,
+                        end=current_words[-1].end,
+                        text=seg_text,
+                        speaker=current_speaker,
+                        words=current_words,
+                    )
+                )
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
