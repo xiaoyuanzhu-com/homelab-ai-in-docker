@@ -10,7 +10,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Callable
 
 from fastapi import APIRouter, HTTPException
 
@@ -85,7 +85,8 @@ def check_and_cleanup_idle_model():
     This function is called by periodic cleanup in main.py.
     Delegates to the global model coordinator for memory management.
     """
-    idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
+    # WhisperX processing (transcribe + align + diarize) can take several minutes for long audio
+    idle_timeout = get_setting_int("model_idle_timeout_seconds", 300)
 
     coordinator = get_coordinator()
     # Use asyncio.create_task to run cleanup asynchronously
@@ -198,6 +199,61 @@ async def _unload_asr_model(model: Any) -> None:
             logger.debug("GPU cache cleared for WhisperX model")
     except Exception as e:
         logger.warning(f"Error clearing GPU cache during WhisperX cleanup: {e}")
+
+
+async def _run_with_periodic_touch(
+    model_key: str,
+    func: Callable,
+    *args,
+    touch_interval: float = 10.0,
+    **kwargs
+) -> Any:
+    """
+    Run a blocking function in a thread while periodically touching the model.
+
+    This prevents the model from being cleaned up during long-running operations.
+
+    Args:
+        model_key: Model key to touch
+        func: Function to run
+        touch_interval: How often to touch the model (seconds)
+        *args, **kwargs: Arguments to pass to func
+
+    Returns:
+        Result of func
+    """
+    coordinator = get_coordinator()
+    result_holder = {"result": None, "exception": None, "done": False}
+
+    def _run_func():
+        try:
+            result_holder["result"] = func(*args, **kwargs)
+        except Exception as e:
+            result_holder["exception"] = e
+        finally:
+            result_holder["done"] = True
+
+    # Start the function in a thread
+    thread = asyncio.to_thread(_run_func)
+    task = asyncio.create_task(thread)
+
+    # Touch model periodically while it runs
+    try:
+        while not result_holder["done"]:
+            await coordinator.touch_model(model_key)
+            await asyncio.sleep(touch_interval)
+
+        # Wait for final result
+        await task
+
+        if result_holder["exception"]:
+            raise result_holder["exception"]
+
+        return result_holder["result"]
+    except asyncio.CancelledError:
+        # If we're cancelled, wait for the function to complete before re-raising
+        await task
+        raise
 
 
 async def get_asr_model(model_id: str, device: str, compute_type: Optional[str]) -> Any:
@@ -341,15 +397,17 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
         audio = whisperx.load_audio(str(audio_path))
 
         async def _run_pipeline_async():
-            # Transcribe
+            # Transcribe with periodic touching
             transcribe_kwargs = {"batch_size": request.batch_size}
             if request.language:
                 transcribe_kwargs["language"] = request.language
-            result = await asyncio.to_thread(asr_model.transcribe, audio, **transcribe_kwargs)
 
-            # Touch model to prevent idle cleanup during alignment
-            coordinator = get_coordinator()
-            await coordinator.touch_model(f"whisperx:{request.asr_model}")
+            result = await _run_with_periodic_touch(
+                f"whisperx:{request.asr_model}",
+                asr_model.transcribe,
+                audio,
+                **transcribe_kwargs
+            )
 
             language = result.get("language") or request.language
             if not language:
@@ -357,14 +415,17 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
 
             # Align words (use the device the align model was created on)
             align_model, metadata, align_device = await asyncio.to_thread(_load_align_model, language, device)
-            aligned = await asyncio.to_thread(
+
+            # Run alignment with periodic touching (alignment can take a long time)
+            aligned = await _run_with_periodic_touch(
+                f"whisperx:{request.asr_model}",
                 whisperx.align,
                 result["segments"], align_model, metadata, audio, align_device
             )
 
-            # Touch model again before diarization (if enabled)
+            # Diarization (if enabled)
             if request.diarize:
-                await coordinator.touch_model(f"whisperx:{request.asr_model}")
+                coordinator = get_coordinator()
                 diar = await asyncio.to_thread(_load_diar_pipeline, device)
 
                 # Build diarization kwargs with optional speaker constraints
@@ -378,7 +439,14 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                     f"WhisperX: starting diarization with kwargs={diar_kwargs}, "
                     f"audio duration={len(audio)/16000:.1f}s"
                 )
-                diar_segments = await asyncio.to_thread(diar, audio, **diar_kwargs)
+
+                # Run diarization with periodic touching
+                diar_segments = await _run_with_periodic_touch(
+                    f"whisperx:{request.asr_model}",
+                    diar,
+                    audio,
+                    **diar_kwargs
+                )
 
                 # Log diarization results
                 if diar_segments is not None:
