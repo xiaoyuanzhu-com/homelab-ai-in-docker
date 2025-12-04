@@ -19,6 +19,7 @@ from ..models.whisperx import (
     WhisperXTranscriptionResponse,
     WhisperXSegment,
     WhisperXWord,
+    WhisperXSpeaker,
 )
 from ...db.settings import get_setting, get_setting_int
 from ...config import get_hf_endpoint, get_hf_model_cache_path
@@ -400,6 +401,9 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
 
             # Initialize diarization data (will be populated if diarization is enabled)
             diar_turns_data = None
+            speaker_embeddings_raw = None
+            diar_segments = None
+            speaker_labels_for_embeddings = None
 
             # Phase 2: Diarization (after ASR unload to prevent OOM)
             if request.diarize:
@@ -408,7 +412,8 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                 logger.info(f"⏱️  Load diarization pipeline: {(time.time() - t0)*1000:.0f}ms")
 
                 # Build diarization kwargs with optional speaker constraints
-                diar_kwargs = {}
+                # ALWAYS request embeddings for speaker identification
+                diar_kwargs = {"return_embeddings": True}
                 if request.min_speakers is not None:
                     diar_kwargs["min_speakers"] = request.min_speakers
                 if request.max_speakers is not None:
@@ -420,8 +425,23 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                 )
 
                 t0 = time.time()
-                diar_segments = await asyncio.to_thread(diar, audio, **diar_kwargs)
+                # Call diarization with return_embeddings=True to get speaker fingerprints
+                diar_result = await asyncio.to_thread(diar, audio, **diar_kwargs)
                 logger.info(f"⏱️  Diarization: {(time.time() - t0)*1000:.0f}ms")
+
+                # Extract diarization segments and embeddings
+                if isinstance(diar_result, tuple) and len(diar_result) == 2:
+                    diar_segments, speaker_embeddings_raw = diar_result
+                    # speaker_embeddings_raw is a dict: {speaker_label: embedding_tensor}
+                    logger.info(
+                        f"WhisperX: extracted embeddings for {len(speaker_embeddings_raw)} speakers: "
+                        f"{list(speaker_embeddings_raw.keys())}"
+                    )
+                else:
+                    # Fallback: old pipeline version without embeddings
+                    diar_segments = diar_result
+                    speaker_embeddings_raw = None
+                    logger.warning("WhisperX: diarization pipeline did not return embeddings (old version?)")
 
                 # Log diarization results
                 if diar_segments is not None:
@@ -500,7 +520,12 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                 else:
                     diar_turns_data = diar_turns  # Already extracted earlier
 
-                # Clean up diarization intermediate tensors
+                # Extract speaker labels before cleanup (needed for embedding mapping)
+                speaker_labels_for_embeddings = None
+                if speaker_embeddings_raw is not None:
+                    speaker_labels_for_embeddings = sorted(diar_segments.labels()) if hasattr(diar_segments, 'labels') else None
+
+                # Clean up diarization intermediate tensors (but keep labels for embedding mapping)
                 del diar_segments
                 import torch
                 import gc
@@ -630,6 +655,50 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
+        # Build speaker embeddings response (if diarization was enabled)
+        speakers_out = None
+        if speaker_embeddings_raw is not None:
+            # Calculate speaker statistics from segments
+            speaker_stats = {}
+            for seg in segments_out:
+                if seg.speaker:
+                    if seg.speaker not in speaker_stats:
+                        speaker_stats[seg.speaker] = {"duration": 0.0, "count": 0}
+                    speaker_stats[seg.speaker]["duration"] += (seg.end - seg.start)
+                    speaker_stats[seg.speaker]["count"] += 1
+
+            # Build speaker list with embeddings
+            speakers_out = []
+            # Use saved labels if available, otherwise fall back to speaker_stats
+            speaker_labels = speaker_labels_for_embeddings if speaker_labels_for_embeddings is not None else sorted(speaker_stats.keys())
+
+            # speaker_embeddings_raw is a dict: {speaker_label: embedding_tensor}
+            # Iterate through speakers and get their embeddings
+            for speaker_id in speaker_labels:
+                if speaker_id in speaker_embeddings_raw:
+                    embedding_tensor = speaker_embeddings_raw[speaker_id]
+                    # Convert numpy/torch tensor to list
+                    if hasattr(embedding_tensor, 'cpu'):
+                        embedding_list = embedding_tensor.cpu().numpy().tolist()
+                    elif hasattr(embedding_tensor, 'tolist'):
+                        embedding_list = embedding_tensor.tolist()
+                    else:
+                        embedding_list = list(embedding_tensor)
+
+                    stats = speaker_stats.get(speaker_id, {"duration": 0.0, "count": 0})
+                    speakers_out.append(
+                        WhisperXSpeaker(
+                            speaker_id=speaker_id,
+                            embedding=embedding_list,
+                            total_duration=round(stats["duration"], 3),
+                            segment_count=stats["count"],
+                        )
+                    )
+                else:
+                    logger.warning(f"No embedding found for speaker {speaker_id}")
+
+            logger.info(f"WhisperX: built {len(speakers_out)} speaker profiles with embeddings")
+
         response = WhisperXTranscriptionResponse(
             request_id=request_id,
             processing_time_ms=processing_time_ms,
@@ -637,6 +706,7 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
             language=language,
             model=request.asr_model,
             segments=segments_out,
+            speakers=speakers_out,
         )
 
         # Save to history (exclude audio)

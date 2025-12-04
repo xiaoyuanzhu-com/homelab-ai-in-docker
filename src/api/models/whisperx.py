@@ -21,6 +21,15 @@ class WhisperXSegment(BaseModel):
     words: Optional[List[WhisperXWord]] = Field(None, description="Aligned words for the segment")
 
 
+class WhisperXSpeaker(BaseModel):
+    """Speaker metadata including voice embedding for cross-session recognition."""
+
+    speaker_id: str = Field(..., description="Speaker label (e.g., 'SPEAKER_00')")
+    embedding: List[float] = Field(..., description="512-dimensional speaker embedding vector for voice fingerprinting")
+    total_duration: float = Field(..., description="Total speaking duration in seconds")
+    segment_count: int = Field(..., description="Number of segments/turns by this speaker")
+
+
 class WhisperXTranscriptionRequest(BaseModel):
     """Request for WhisperX transcription & optional diarization."""
 
@@ -68,4 +77,8 @@ class WhisperXTranscriptionResponse(BaseResponse):
     segments: list[WhisperXSegment] = Field(
         default_factory=list,
         description="Aligned segments with optional speaker and word info",
+    )
+    speakers: Optional[List[WhisperXSpeaker]] = Field(
+        None,
+        description="Speaker embeddings and metadata (only when diarization is enabled)",
     )
