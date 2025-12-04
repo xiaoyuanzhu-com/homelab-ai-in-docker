@@ -395,12 +395,42 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                     # Log diarization results
                     if diar_segments is not None:
                         try:
-                            speakers = set()
-                            for turn, _, speaker in diar_segments.itertracks(yield_label=True):
-                                speakers.add(speaker)
-                            logger.info(
-                                f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
-                            )
+                            import pandas as pd
+
+                            # Check if it's a DataFrame or Annotation object
+                            if isinstance(diar_segments, pd.DataFrame):
+                                # It's a DataFrame - iterate over rows
+                                speakers = set()
+                                diar_turns = []
+                                for _, row in diar_segments.iterrows():
+                                    speaker = row.get('speaker', 'unknown')
+                                    speakers.add(speaker)
+                                    diar_turns.append({
+                                        "start": round(row.get('start', 0), 3),
+                                        "end": round(row.get('end', 0), 3),
+                                        "speaker": speaker,
+                                        "duration": round(row.get('end', 0) - row.get('start', 0), 3)
+                                    })
+                                logger.info(
+                                    f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
+                                )
+                                logger.info(f"WhisperX: diarization turns (all {len(diar_turns)} turns): {diar_turns}")
+                            else:
+                                # It's an Annotation object - use itertracks
+                                speakers = set()
+                                diar_turns = []
+                                for turn, _, speaker in diar_segments.itertracks(yield_label=True):
+                                    speakers.add(speaker)
+                                    diar_turns.append({
+                                        "start": round(turn.start, 3),
+                                        "end": round(turn.end, 3),
+                                        "speaker": speaker,
+                                        "duration": round(turn.end - turn.start, 3)
+                                    })
+                                logger.info(
+                                    f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
+                                )
+                                logger.info(f"WhisperX: diarization turns (all {len(diar_turns)} turns): {diar_turns}")
                         except Exception as e:
                             logger.warning(f"WhisperX: could not extract speaker info from diarization result: {e}")
                     else:
@@ -409,6 +439,30 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                     t0 = time.time()
                     aligned = await asyncio.to_thread(whisperx.assign_word_speakers, diar_segments, aligned)
                     logger.info(f"⏱️  Assign speakers: {(time.time() - t0)*1000:.0f}ms")
+
+                    # Log word-level speaker assignments (all words for debugging)
+                    word_assignments = []
+                    for seg_idx, seg in enumerate(aligned.get("segments", [])):
+                        for word in seg.get("words", []):
+                            word_assignments.append({
+                                "seg": seg_idx,
+                                "word": word.get("word"),
+                                "start": round(word.get("start", 0), 3),
+                                "end": round(word.get("end", 0), 3),
+                                "speaker": word.get("speaker"),
+                                "duration": round(word.get("end", 0) - word.get("start", 0), 3) if word.get("end") and word.get("start") else None
+                            })
+                    logger.info(f"WhisperX: word assignments (all {len(word_assignments)} words): {word_assignments}")
+
+                    # Keep diarization data for correction (convert to list for reuse)
+                    import pandas as pd
+                    if isinstance(diar_segments, pd.DataFrame):
+                        diar_turns_data = [
+                            {"start": row.get("start"), "end": row.get("end"), "speaker": row.get("speaker")}
+                            for _, row in diar_segments.iterrows()
+                        ]
+                    else:
+                        diar_turns_data = diar_turns  # Already extracted earlier
 
                     # Clean up diarization intermediate tensors
                     del diar_segments
@@ -420,7 +474,7 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                     logger.debug("Cleaned up diarization intermediate tensors")
 
                 # Model automatically released when context exits
-                language, aligned = language, aligned
+                language, aligned, diar_turns_data = language, aligned, diar_turns_data
 
         # Build response segments with speaker-based splitting
         segments_out: list[WhisperXSegment] = []
@@ -453,6 +507,53 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
 
             # Split segments based on speaker changes
             words_raw = seg["words"]
+
+            # First pass: Fix speaker labels using diarization ground truth
+            # WhisperX's assign_word_speakers sometimes creates bad assignments with inflated end times
+            if request.diarize and 'diar_turns_data' in locals():
+                for i in range(len(words_raw)):
+                    w = words_raw[i]
+                    w_start = w.get("start")
+                    w_end = w.get("end")
+                    w_speaker = w.get("speaker")
+
+                    if w_start is not None and w_end is not None:
+                        word_duration = w_end - w_start
+
+                        # Check for unrealistically long word duration (>2 seconds) or suspicious gaps
+                        if word_duration > 2.0:
+                            # Use diarization ground truth to find correct speaker
+                            # Calculate overlap with each diarization segment
+                            best_speaker = None
+                            max_overlap = 0.0
+
+                            for turn in diar_turns_data:
+                                turn_start = turn["start"]
+                                turn_end = turn["end"]
+                                turn_speaker = turn["speaker"]
+
+                                # Calculate overlap between word and diarization segment
+                                overlap_start = max(w_start, turn_start)
+                                overlap_end = min(w_start + 0.5, turn_end)  # Use word start + 0.5s for realistic duration
+                                overlap_duration = max(0, overlap_end - overlap_start)
+
+                                if overlap_duration > max_overlap:
+                                    max_overlap = overlap_duration
+                                    best_speaker = turn_speaker
+
+                            # If we found a better speaker assignment based on diarization
+                            if best_speaker and best_speaker != w_speaker and max_overlap > 0.1:
+                                # Fix the end time to be realistic
+                                if i + 1 < len(words_raw):
+                                    next_start = words_raw[i + 1].get("start")
+                                    if next_start:
+                                        words_raw[i]["end"] = min(w_start + 0.5, next_start - 0.05)
+                                else:
+                                    words_raw[i]["end"] = w_start + 0.3  # Assume 300ms word duration
+
+                                words_raw[i]["speaker"] = best_speaker
+                                logger.info(f"Fixed word '{w.get('word')}' speaker from {w_speaker} to {best_speaker} using diarization (bad timestamp {word_duration:.1f}s)")
+
             current_speaker = None
             current_words: list[WhisperXWord] = []
             current_text_parts: list[str] = []
