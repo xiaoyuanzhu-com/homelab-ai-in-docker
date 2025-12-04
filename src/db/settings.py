@@ -30,6 +30,8 @@ def init_settings_table():
             ("hf_token", "", "HuggingFace API token for accessing private models (optional)"),
             ("embedding_memory_per_batch_mb", "2048", "GPU memory used per embedding batch in MB (2048 = 2GB per batch)"),
             ("embedding_max_batch_size", "32", "Maximum batch size for embedding generation (prevents excessive batching)"),
+            ("whisperx_align_device", "cpu", "Device for WhisperX alignment model (cpu/cuda). CPU reduces GPU memory pressure."),
+            ("whisperx_diar_device", "cuda", "Device for WhisperX diarization pipeline (cpu/cuda). GPU is 3-5x faster."),
         ]
         
         for key, value, description in defaults:

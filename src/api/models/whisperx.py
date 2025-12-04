@@ -51,7 +51,7 @@ class WhisperXTranscriptionRequest(BaseModel):
         description="Maximum number of speakers for diarization (default: 5)",
     )
     batch_size: int = Field(
-        default=4, description="Batch size for ASR model inference"
+        default=16, description="Batch size for ASR model inference"
     )
     compute_type: Optional[str] = Field(
         default=None,

@@ -307,13 +307,17 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
         )
 
         # Decode audio off the event loop
+        t0 = time.time()
         audio_path = await asyncio.to_thread(_decode_audio_to_file, request.audio)
+        logger.info(f"⏱️  Audio decode: {(time.time() - t0)*1000:.0f}ms")
 
         # Import whisperx
         import whisperx  # type: ignore
 
         # Load audio
+        t0 = time.time()
         audio = whisperx.load_audio(str(audio_path))
+        logger.info(f"⏱️  Audio load: {(time.time() - t0)*1000:.0f}ms")
 
         # Get model info for memory estimation
         from ...db.catalog import get_model_dict
@@ -335,22 +339,31 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                 if request.language:
                     transcribe_kwargs["language"] = request.language
 
+                t0 = time.time()
                 result = await asyncio.to_thread(asr_model.transcribe, audio, **transcribe_kwargs)
+                logger.info(f"⏱️  Transcribe: {(time.time() - t0)*1000:.0f}ms")
 
                 language = result.get("language") or request.language
                 if not language:
                     language = "unknown"
 
                 # Align words
+                t0 = time.time()
                 align_model, metadata, align_device = await asyncio.to_thread(_load_align_model, language, device)
+                logger.info(f"⏱️  Load align model: {(time.time() - t0)*1000:.0f}ms")
+
+                t0 = time.time()
                 aligned = await asyncio.to_thread(
                     whisperx.align,
                     result["segments"], align_model, metadata, audio, align_device
                 )
+                logger.info(f"⏱️  Align: {(time.time() - t0)*1000:.0f}ms")
 
                 # Diarization (if enabled)
                 if request.diarize:
+                    t0 = time.time()
                     diar = await asyncio.to_thread(_load_diar_pipeline, device)
+                    logger.info(f"⏱️  Load diarization pipeline: {(time.time() - t0)*1000:.0f}ms")
 
                     # Build diarization kwargs with optional speaker constraints
                     diar_kwargs = {}
@@ -364,7 +377,9 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                         f"audio duration={len(audio)/16000:.1f}s"
                     )
 
+                    t0 = time.time()
                     diar_segments = await asyncio.to_thread(diar, audio, **diar_kwargs)
+                    logger.info(f"⏱️  Diarization: {(time.time() - t0)*1000:.0f}ms")
 
                     # Log diarization results
                     if diar_segments is not None:
@@ -380,7 +395,9 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                     else:
                         logger.warning("WhisperX: diarization returned None")
 
+                    t0 = time.time()
                     aligned = await asyncio.to_thread(whisperx.assign_word_speakers, diar_segments, aligned)
+                    logger.info(f"⏱️  Assign speakers: {(time.time() - t0)*1000:.0f}ms")
 
                 # Model automatically released when context exits
                 language, aligned = language, aligned
