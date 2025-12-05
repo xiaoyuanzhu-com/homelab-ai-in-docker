@@ -248,25 +248,21 @@ def _load_align_model(language_code: str, device: str):
         )
         return _align_cache[0], _align_cache[1], _align_cache[3]
 
-    try:
-        # Prefer running alignment on CPU to avoid GPU OOM with large ASR
-        try:
-            from ...db.settings import get_setting  # lazy import
+    from ...db.settings import get_setting
 
-            align_dev_pref = (get_setting("whisperx_align_device") or "cpu").lower()
-        except Exception:
-            align_dev_pref = "cpu"
-
-        align_device = align_dev_pref if align_dev_pref in {"cpu", "cuda"} else "cpu"
-        if align_device != device:
-            logger.info(
-                f"WhisperX: loading align model on {align_device} (ASR on {device})"
-            )
-        align_model, metadata = whisperx.load_align_model(
-            language_code=language_code, device=align_device
+    raw_setting = get_setting("whisperx_align_device")
+    logger.info(f"WhisperX: whisperx_align_device raw setting = {repr(raw_setting)}")
+    align_dev_pref = (raw_setting or "cuda").lower()
+    logger.info(f"WhisperX: align_dev_pref after or = {repr(align_dev_pref)}")
+    align_device = align_dev_pref if align_dev_pref in {"cpu", "cuda"} else "cuda"
+    logger.info(f"WhisperX: final align_device = {repr(align_device)}")
+    if align_device != device:
+        logger.info(
+            f"WhisperX: loading align model on {align_device} (ASR on {device})"
         )
-    except Exception as e:
-        raise RuntimeError(f"Failed to load alignment model for '{language_code}': {e}")
+    align_model, metadata = whisperx.load_align_model(
+        language_code=language_code, device=align_device
+    )
 
     _align_cache = (align_model, metadata, language_code, align_device)
     return align_model, metadata, align_device
@@ -286,24 +282,17 @@ def _load_diar_pipeline(device: str):
         raise RuntimeError(
             "HuggingFace token is required for diarization. Set 'hf_token' in settings."
         )
-    try:
-        # Prefer diarization on CUDA by default for better performance; configurable via settings
-        try:
-            from ...db.settings import get_setting  # lazy import
 
-            diar_dev_pref = (get_setting("whisperx_diar_device") or "cuda").lower()
-        except Exception:
-            diar_dev_pref = "cuda"
+    from ...db.settings import get_setting
 
-        diar_device = diar_dev_pref if diar_dev_pref in {"cpu", "cuda"} else "cuda"
-        if diar_device != device:
-            logger.info(
-                f"WhisperX: loading diarization on {diar_device} (ASR on {device})"
-            )
-        # WhisperX 3.3.4+ moved DiarizationPipeline to whisperx.diarize submodule
-        diar = whisperx.diarize.DiarizationPipeline(use_auth_token=token, device=diar_device)
-    except Exception as e:
-        raise RuntimeError(f"Failed to load diarization pipeline: {e}")
+    diar_dev_pref = (get_setting("whisperx_diar_device") or "cuda").lower()
+    diar_device = diar_dev_pref if diar_dev_pref in {"cpu", "cuda"} else "cuda"
+    if diar_device != device:
+        logger.info(
+            f"WhisperX: loading diarization on {diar_device} (ASR on {device})"
+        )
+    # WhisperX 3.3.4+ moved DiarizationPipeline to whisperx.diarize submodule
+    diar = whisperx.diarize.DiarizationPipeline(use_auth_token=token, device=diar_device)
 
     _diar_cache = diar
     return diar
@@ -465,7 +454,6 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                             logger.info(
                                 f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
                             )
-                            logger.info(f"WhisperX: diarization turns (all {len(diar_turns)} turns): {diar_turns}")
                         else:
                             # It's an Annotation object - use itertracks
                             speakers = set()
@@ -481,7 +469,6 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                             logger.info(
                                 f"WhisperX: diarization detected {len(speakers)} speakers: {sorted(speakers)}"
                             )
-                            logger.info(f"WhisperX: diarization turns (all {len(diar_turns)} turns): {diar_turns}")
                     except Exception as e:
                         logger.warning(f"WhisperX: could not extract speaker info from diarization result: {e}")
                 else:
@@ -495,20 +482,6 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                     fill_nearest=True
                 )
                 logger.info(f"⏱️  Assign speakers: {(time.time() - t0)*1000:.0f}ms")
-
-                # Log word-level speaker assignments (all words for debugging)
-                word_assignments = []
-                for seg_idx, seg in enumerate(aligned.get("segments", [])):
-                    for word in seg.get("words", []):
-                        word_assignments.append({
-                            "seg": seg_idx,
-                            "word": word.get("word"),
-                            "start": round(word.get("start", 0), 3),
-                            "end": round(word.get("end", 0), 3),
-                            "speaker": word.get("speaker"),
-                            "duration": round(word.get("end", 0) - word.get("start", 0), 3) if word.get("end") and word.get("start") else None
-                        })
-                logger.info(f"WhisperX: word assignments (all {len(word_assignments)} words): {word_assignments}")
 
                 # Keep diarization data for correction (convert to list for reuse)
                 import pandas as pd
@@ -552,18 +525,6 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
 
                 if corrections_made > 0:
                     logger.info(f"WhisperX: corrected {corrections_made} word speaker assignments using diarization ground truth")
-
-                # Re-log corrected word assignments for debugging
-                if corrections_made > 0:
-                    word_assignments_corrected = []
-                    for seg_idx, seg in enumerate(aligned.get("segments", [])):
-                        for word in seg.get("words", []):
-                            word_assignments_corrected.append({
-                                "word": word.get("word"),
-                                "start": round(word.get("start", 0), 3),
-                                "speaker": word.get("speaker"),
-                            })
-                    logger.info(f"WhisperX: corrected word assignments: {word_assignments_corrected}")
 
                 # Extract speaker labels before cleanup (needed for embedding mapping)
                 speaker_labels_for_embeddings = None
