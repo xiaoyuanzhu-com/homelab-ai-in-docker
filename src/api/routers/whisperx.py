@@ -294,6 +294,12 @@ def _load_diar_pipeline(device: str):
     # WhisperX 3.3.4+ moved DiarizationPipeline to whisperx.diarize submodule
     diar = whisperx.diarize.DiarizationPipeline(use_auth_token=token, device=diar_device)
 
+    # Reduce embedding batch size to save GPU memory for long audio
+    # Default is 32, reducing to 8 saves ~1-2GB per GitHub issue #1580
+    if hasattr(diar, 'embedding_batch_size'):
+        diar.embedding_batch_size = 8
+        logger.info("WhisperX: set diarization embedding_batch_size=8 for memory optimization")
+
     _diar_cache = diar
     return diar
 
@@ -381,6 +387,14 @@ async def transcribe(request: WhisperXTranscriptionRequest) -> WhisperXTranscrip
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 logger.debug("Cleaned up transcription intermediate tensors")
+
+                # Clear alignment model before diarization to free ~500MB GPU memory
+                # We only need the 'aligned' output dict, not the model itself
+                _align_cache = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                logger.debug("Cleared alignment model cache before diarization")
 
                 # Store results for diarization (which happens after ASR unload)
                 language, aligned = language, aligned
