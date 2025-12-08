@@ -182,6 +182,7 @@ async def lifespan(app: FastAPI):
                             parameters_m=item.get("parameters_m"),
                             gpu_memory_mb=item.get("gpu_memory_mb"),
                             dimensions=item.get("dimensions"),
+                            python_env=item.get("python_env"),
                             initial_status=DownloadStatus.INIT if item.get("requires_download", True) else DownloadStatus.READY,
                         )
                         m_count += 1

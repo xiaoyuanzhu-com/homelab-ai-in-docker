@@ -30,6 +30,7 @@ def _create_models_schema(conn: sqlite3.Connection) -> None:
             parameters_m INTEGER,
             gpu_memory_mb INTEGER,
             dimensions INTEGER,
+            python_env TEXT,
             status TEXT NOT NULL DEFAULT 'init',
             downloaded_size_mb INTEGER,
             error_message TEXT,
@@ -50,7 +51,7 @@ def init_models_table() -> None:
     with get_db() as conn:
         # Create if not exists
         _create_models_schema(conn)
-        # Verify schema; if mismatched (e.g., missing 'label'), drop and recreate (fresh impl)
+        # Verify schema; if mismatched (e.g., missing 'label' or 'python_env'), drop and recreate
         try:
             cur = conn.execute("PRAGMA table_info(models)")
             cols = {row[1] for row in cur.fetchall()}
@@ -62,6 +63,7 @@ def init_models_table() -> None:
             "provider",
             "tasks",
             "status",
+            "python_env",
         }
         if not required.issubset(cols):
             conn.execute("DROP TABLE IF EXISTS models")
@@ -102,6 +104,7 @@ def upsert_model(
     parameters_m: Optional[int] = None,
     gpu_memory_mb: Optional[int] = None,
     dimensions: Optional[int] = None,
+    python_env: Optional[str] = None,
     initial_status: Optional[DownloadStatus] = None,
 ) -> None:
     with get_db() as conn:
@@ -111,8 +114,8 @@ def upsert_model(
                 id, label, provider, tasks, architecture, default_prompt,
                 platform_requirements, supports_markdown, requires_quantization,
                 requires_download, hf_model, reference_url, size_mb, parameters_m,
-                gpu_memory_mb, dimensions, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gpu_memory_mb, dimensions, python_env, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 label = excluded.label,
                 provider = excluded.provider,
@@ -129,6 +132,7 @@ def upsert_model(
                 parameters_m = excluded.parameters_m,
                 gpu_memory_mb = excluded.gpu_memory_mb,
                 dimensions = excluded.dimensions,
+                python_env = excluded.python_env,
                 status = CASE
                     WHEN models.status IN ('downloading', 'ready') THEN models.status
                     ELSE excluded.status
@@ -152,6 +156,7 @@ def upsert_model(
                 parameters_m,
                 gpu_memory_mb,
                 dimensions,
+                python_env,
                 (initial_status or (DownloadStatus.INIT if requires_download else DownloadStatus.READY)).value,
             ),
         )
@@ -212,6 +217,7 @@ def _row_to_model(row: sqlite3.Row) -> Dict[str, Any]:
         "parameters_m": row["parameters_m"],
         "gpu_memory_mb": row["gpu_memory_mb"],
         "dimensions": row["dimensions"],
+        "python_env": row["python_env"],
         "status": row["status"],
         "downloaded_size_mb": row["downloaded_size_mb"],
         "error_message": row["error_message"],

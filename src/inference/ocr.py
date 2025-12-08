@@ -410,33 +410,16 @@ class OCRInferenceEngine:
             except ImportError:
                 logger.info("flash-attn not installed, using eager attention for DeepSeek-OCR")
 
-            # Always use 4-bit NF4 quantization for DeepSeek-OCR to fit in 8GB VRAM
-            quantization_config = None
-            try:
-                from transformers import BitsAndBytesConfig
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_use_double_quant=True,
-                    bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-                )
-                logger.info("Using 4-bit NF4 quantization for DeepSeek-OCR")
-            except ImportError:
-                logger.warning("bitsandbytes not available, falling back to full precision (requires 12GB+ VRAM)")
-
-            # Load model
+            # Load model in bfloat16 (fits in 8GB VRAM with high utilization)
+            # Note: 4-bit quantization has dtype mismatch issues with DeepSeek-OCR
             load_kwargs = {
                 "device_map": "auto",
                 "_attn_implementation": attn_implementation,
                 "use_safetensors": True,
                 "trust_remote_code": True,
+                "torch_dtype": torch.bfloat16 if torch.cuda.is_available() else torch.float32,
                 **extra_kwargs,
             }
-
-            if quantization_config is not None:
-                load_kwargs["quantization_config"] = quantization_config
-            else:
-                load_kwargs["torch_dtype"] = torch.bfloat16 if torch.cuda.is_available() else torch.float32
 
             self.model = AutoModel.from_pretrained(
                 model_path,
@@ -832,12 +815,13 @@ class OCRInferenceEngine:
                     if isinstance(res, str) and res.strip():
                         return res.strip()
 
-                    # If not a usable string, look for a saved .md/.txt in the temp dir
+                    # If not a usable string, look for a saved .md/.txt/.mmd in the temp dir
+                    # Note: DeepSeek-OCR saves to result.mmd
                     latest_path = None
                     latest_mtime = -1.0
                     for root, _dirs, files in os.walk(td):
                         for f in files:
-                            if f.lower().endswith((".md", ".txt")):
+                            if f.lower().endswith((".md", ".txt", ".mmd")):
                                 p = os.path.join(root, f)
                                 try:
                                     mtime = os.path.getmtime(p)
@@ -860,6 +844,9 @@ class OCRInferenceEngine:
                         s = str(res).strip()
                         if s:
                             return s
+
+                    # If we got here, model.infer() ran but produced no usable output
+                    raise RuntimeError("DeepSeek-OCR model.infer() returned no usable text output")
 
             # Preferred path: multimodal processor handles both text + images
             inputs = self.processor(text=prompt, images=[image], return_tensors="pt")
