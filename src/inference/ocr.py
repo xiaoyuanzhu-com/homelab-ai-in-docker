@@ -223,6 +223,7 @@ class OCRInferenceEngine:
     - MinerU2.5 (mineru)
     - DeepSeek-OCR (deepseek)
     - IBM Granite Docling (granite-docling)
+    - HunyuanOCR (hunyuan-ocr)
     """
 
     def __init__(
@@ -261,6 +262,8 @@ class OCRInferenceEngine:
             self._load_deepseek()
         elif self.architecture == "granite-docling":
             self._load_granite_docling()
+        elif self.architecture == "hunyuan-ocr":
+            self._load_hunyuan_ocr()
         else:
             raise ValueError(f"Unsupported OCR architecture: {self.architecture}")
 
@@ -377,18 +380,20 @@ class OCRInferenceEngine:
             import torch
             from pathlib import Path
 
-            logger.info(f"Loading DeepSeek-OCR model '{self.model_id}'...")
+            # Use hf_model from config if available (for aliased models like DeepSeek-OCR-4bit)
+            hf_model_id = self.model_config.get("hf_model") or self.model_id
+            logger.info(f"Loading DeepSeek-OCR model '{self.model_id}' (hf_model: {hf_model_id})...")
 
             # Check for local download at HF standard cache path
             from src.config import get_hf_model_cache_path
-            local_model_dir = get_hf_model_cache_path(self.model_id)
+            local_model_dir = get_hf_model_cache_path(hf_model_id)
 
             if local_model_dir.exists() and (local_model_dir / "config.json").exists():
                 model_path = str(local_model_dir)
                 logger.info(f"Using locally downloaded model from {model_path}")
                 extra_kwargs = {"local_files_only": True}
             else:
-                model_path = self.model_id
+                model_path = hf_model_id
                 logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
                 extra_kwargs = {}
 
@@ -405,15 +410,37 @@ class OCRInferenceEngine:
             except ImportError:
                 logger.info("flash-attn not installed, using eager attention for DeepSeek-OCR")
 
-            # Load model with best available attention implementation
+            # Always use 4-bit NF4 quantization for DeepSeek-OCR to fit in 8GB VRAM
+            quantization_config = None
+            try:
+                from transformers import BitsAndBytesConfig
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+                )
+                logger.info("Using 4-bit NF4 quantization for DeepSeek-OCR")
+            except ImportError:
+                logger.warning("bitsandbytes not available, falling back to full precision (requires 12GB+ VRAM)")
+
+            # Load model
+            load_kwargs = {
+                "device_map": "auto",
+                "_attn_implementation": attn_implementation,
+                "use_safetensors": True,
+                "trust_remote_code": True,
+                **extra_kwargs,
+            }
+
+            if quantization_config is not None:
+                load_kwargs["quantization_config"] = quantization_config
+            else:
+                load_kwargs["torch_dtype"] = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+
             self.model = AutoModel.from_pretrained(
                 model_path,
-                torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-                device_map="auto",
-                _attn_implementation=attn_implementation,
-                use_safetensors=True,
-                trust_remote_code=True,
-                **extra_kwargs,
+                **load_kwargs,
             )
 
             self.processor = AutoProcessor.from_pretrained(
@@ -534,6 +561,66 @@ class OCRInferenceEngine:
                 "Please install: pip install transformers>=4.45.0 docling_core torch"
             )
 
+    def _load_hunyuan_ocr(self) -> None:
+        """Load Tencent HunyuanOCR model."""
+        try:
+            from transformers import AutoProcessor, HunYuanVLForConditionalGeneration
+            import torch
+
+            logger.info(f"Loading HunyuanOCR model '{self.model_id}'...")
+
+            # Check for local download at HF standard cache path
+            from src.config import get_hf_model_cache_path
+            local_model_dir = get_hf_model_cache_path(self.model_id)
+
+            if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+                model_path = str(local_model_dir)
+                logger.info(f"Using locally downloaded model from {model_path}")
+                extra_kwargs = {"local_files_only": True}
+            else:
+                model_path = self.model_id
+                logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
+                extra_kwargs = {}
+
+            # Determine device and dtype
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            dtype = torch.bfloat16 if device == "cuda" else torch.float32
+
+            # Load processor (use_fast=False as per official docs)
+            self.processor = AutoProcessor.from_pretrained(
+                model_path,
+                use_fast=False,
+                **extra_kwargs,
+            )
+
+            # Load model with eager attention (HunyuanOCR uses eager by default)
+            self.model = HunYuanVLForConditionalGeneration.from_pretrained(
+                model_path,
+                attn_implementation="eager",
+                dtype=dtype,
+                device_map="auto" if device == "cuda" else None,
+                **extra_kwargs,
+            )
+
+            # Move to device if CPU (device_map handles GPU)
+            if device == "cpu":
+                self.model = self.model.to(device)
+
+            logger.info(f"HunyuanOCR model loaded successfully on {device} with dtype {dtype}")
+
+        except ImportError as e:
+            error_msg = str(e)
+            if "HunYuanVLForConditionalGeneration" in error_msg:
+                raise RuntimeError(
+                    "HunyuanOCR requires transformers with HunYuanVL support (not yet in stable release). "
+                    "Please install from commit: pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4"
+                )
+            missing_pkg = error_msg.split("'")[1] if "'" in error_msg else "unknown"
+            raise RuntimeError(
+                f"HunyuanOCR dependencies not installed. Missing: {missing_pkg}. "
+                "Please install: pip install transformers torch"
+            )
+
     def predict(self, image: Image.Image) -> str:
         """
         Run OCR prediction on image.
@@ -555,6 +642,8 @@ class OCRInferenceEngine:
             return self._predict_deepseek(image)
         elif self.architecture == "granite-docling":
             return self._predict_granite_docling(image)
+        elif self.architecture == "hunyuan-ocr":
+            return self._predict_hunyuan_ocr(image)
         else:
             raise ValueError(f"Unsupported architecture: {self.architecture}")
 
@@ -873,6 +962,77 @@ class OCRInferenceEngine:
             generated_text = generated_text.split("Assistant:")[-1].strip()
         elif "ASSISTANT:" in generated_text:
             generated_text = generated_text.split("ASSISTANT:")[-1].strip()
+
+        return generated_text
+
+    def _predict_hunyuan_ocr(self, image: Image.Image) -> str:
+        """Run Tencent HunyuanOCR prediction."""
+        import torch
+
+        # Choose prompt based on output format
+        # HunyuanOCR supports multiple output formats including markdown
+        if self.output_format == "markdown":
+            # Document parsing with markdown output
+            prompt_text = "Parse and convert this document to markdown format, preserving structure, tables, and formulas."
+            logger.info("Using markdown prompt for HunyuanOCR")
+        else:
+            # Basic text extraction with coordinate output
+            prompt_text = "Detect and recognize all text in the image."
+            logger.info("Using text extraction prompt for HunyuanOCR")
+
+        # Create input messages in HunyuanOCR chat format
+        # HunyuanOCR expects system message (can be empty) + user message with image and text
+        messages = [
+            {"role": "system", "content": ""},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": prompt_text},
+                ],
+            },
+        ]
+
+        # Apply chat template
+        texts = [
+            self.processor.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        ]
+
+        # Process inputs
+        inputs = self.processor(
+            text=texts, images=[image], padding=True, return_tensors="pt"
+        )
+
+        # Move inputs to model device
+        device = next(self.model.parameters()).device
+        inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+
+        # Generate output
+        # HunyuanOCR supports up to 16384 tokens for complex documents
+        with torch.no_grad():
+            generated_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=8192,
+                do_sample=False,
+            )
+
+        # Decode output
+        output_texts = self.processor.batch_decode(
+            generated_ids, skip_special_tokens=True
+        )
+
+        generated_text = output_texts[0] if output_texts else ""
+
+        # Clean up repeated substrings (HunyuanOCR has built-in support for this)
+        # The model sometimes produces the conversation including the prompt,
+        # so extract just the assistant's response
+        if prompt_text in generated_text:
+            # Find the response after the prompt
+            parts = generated_text.split(prompt_text)
+            if len(parts) > 1:
+                generated_text = parts[-1].strip()
 
         return generated_text
 
