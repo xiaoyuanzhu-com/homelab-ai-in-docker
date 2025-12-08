@@ -542,19 +542,21 @@ async def _get_live_engine(model: str = "large-v3", language: str = "en", diariz
             try:
                 from whisperlivekit import TranscriptionEngine
 
-                # Handle "auto" language - WhisperLiveKit expects None or empty string for auto-detection
-                effective_language = language if language and language != "auto" else None
+                # WhisperLiveKit expects "auto" string for auto-detection, not None
+                # Pass the language as-is, defaulting to "auto" if empty
+                effective_language = language if language else "auto"
 
                 logger.info(f"Initializing WhisperLiveKit TranscriptionEngine (model={model}, language={effective_language}, diarization={diarization})")
 
                 # Initialize engine in thread pool to avoid blocking
                 def _create_engine():
+                    # Don't pass target_language at all to ensure no translation
+                    # Setting it to "" or None might still trigger translation logic
                     return TranscriptionEngine(
                         model=model,
                         lan=effective_language,
-                        # Explicitly disable translation - we want transcription only
-                        target_language="",
-                        direct_english_translation=False,
+                        # Do NOT set target_language - leaving it unset disables translation
+                        # Do NOT set direct_english_translation - leaving it unset keeps default False
                         # Enable transcription and optional diarization
                         transcription=True,
                         diarization=diarization,
@@ -638,9 +640,12 @@ async def live_transcription_websocket(websocket: WebSocket):
     language = websocket.query_params.get("language", "en")
     diarization = websocket.query_params.get("diarization", "false").lower() == "true"
 
+    logger.info(f"WebSocket connection request: model={model}, language={language}, diarization={diarization}")
+
     # Get shared transcription engine
     try:
         transcription_engine = await _get_live_engine(model=model, language=language, diarization=diarization)
+        logger.info(f"Using engine with config: {_live_engine_config}")
     except Exception as e:
         logger.error(f"Failed to get transcription engine: {e}")
         await websocket.close(code=1011, reason=str(e))
