@@ -23,7 +23,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from .utils import cleanup_gpu_memory, get_gpu_memory_mb
+from .utils import cleanup_gpu_memory, get_gpu_memory_mb, GpuMemoryTracker
 
 logger = logging.getLogger("worker")
 
@@ -35,6 +35,15 @@ class WorkerInferRequest(BaseModel):
     request_id: str = Field(default="", description="Request tracking ID")
 
 
+class GpuMemoryStats(BaseModel):
+    """GPU memory statistics from inference."""
+
+    before_mb: Optional[float] = Field(None, description="GPU memory before inference")
+    peak_mb: Optional[float] = Field(None, description="Peak GPU memory during inference")
+    after_mb: Optional[float] = Field(None, description="GPU memory after inference")
+    sample_count: int = Field(0, description="Number of samples taken")
+
+
 class WorkerInferResponse(BaseModel):
     """Standard inference response."""
 
@@ -42,6 +51,7 @@ class WorkerInferResponse(BaseModel):
     request_id: str = Field(default="", description="Matches request ID")
     processing_time_ms: int = Field(..., description="Inference duration in ms")
     model: str = Field(..., description="Model that processed the request")
+    gpu_memory: Optional[GpuMemoryStats] = Field(None, description="GPU memory stats")
 
 
 class WorkerHealthResponse(BaseModel):
@@ -120,12 +130,22 @@ class BaseWorker(ABC):
         @self.app.post("/infer", response_model=WorkerInferResponse)
         async def infer_endpoint(req: WorkerInferRequest) -> WorkerInferResponse:
             start = time.time()
+
+            # Start GPU memory tracking (samples every 1s)
+            gpu_tracker = GpuMemoryTracker(interval=1.0)
+            gpu_tracker.start()
+
             try:
                 result = await self._run_inference(req.payload)
             except Exception as e:
+                gpu_tracker.stop()
                 logger.error(f"Inference failed: {e}", exc_info=True)
                 self._handle_error(e)
                 raise HTTPException(status_code=500, detail=f"Inference error: {e}")
+
+            # Stop tracking and get stats
+            gpu_tracker.stop()
+            gpu_stats = gpu_tracker.get_stats()
 
             proc_ms = int((time.time() - start) * 1000)
             self._last_active = time.time()
@@ -136,6 +156,7 @@ class BaseWorker(ABC):
                 request_id=req.request_id,
                 processing_time_ms=proc_ms,
                 model=self.model_id,
+                gpu_memory=GpuMemoryStats(**gpu_stats),
             )
 
         @self.app.post("/shutdown")

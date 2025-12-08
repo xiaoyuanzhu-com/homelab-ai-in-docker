@@ -23,6 +23,7 @@ from urllib.error import HTTPError, URLError
 
 from .protocol import WorkerHandle, WorkerState
 from .utils import find_free_port, get_python_for_env
+from ..db import worker_logs
 
 logger = logging.getLogger(__name__)
 
@@ -330,15 +331,73 @@ class WorkerCoordinator:
             extra_args=extra_args or {},
         )
 
-        async with self._gpu_lock:
-            # Get or spawn worker (may load model -> uses GPU)
-            worker = await self._ensure_worker(config)
+        # Calculate input size for logging
+        input_size = len(json.dumps(payload).encode()) if payload else 0
 
-            # Send inference request (uses GPU)
-            response = await self._send_request(worker, payload, request_id)
+        # Create log entry at start
+        log_id = None
+        try:
+            log_id = worker_logs.create_log(
+                task=task,
+                model_id=model_id,
+                request_id=request_id or None,
+                input_size_bytes=input_size,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create worker log: {e}")
 
-            # Extract result from response
-            return response.get("result", response)
+        start_time = time.time()
+        worker = None
+        response = None
+        error_msg = None
+
+        try:
+            async with self._gpu_lock:
+                # Get or spawn worker (may load model -> uses GPU)
+                worker = await self._ensure_worker(config)
+
+                # Update log with worker info
+                if log_id is not None:
+                    try:
+                        from ..db.db_config import get_db
+                        with get_db() as conn:
+                            conn.execute(
+                                "UPDATE worker_logs SET worker_port = ?, worker_pid = ? WHERE id = ?",
+                                (worker.port, worker.proc.pid, log_id)
+                            )
+                    except Exception:
+                        pass
+
+                # Send inference request (uses GPU)
+                response = await self._send_request(worker, payload, request_id)
+
+        except Exception as e:
+            error_msg = str(e)
+            raise
+        finally:
+            # Complete the log entry
+            duration_ms = int((time.time() - start_time) * 1000)
+            if log_id is not None:
+                try:
+                    # Extract GPU memory stats from response if available
+                    gpu_memory = response.get("gpu_memory", {}) if response else {}
+                    output_size = len(json.dumps(response).encode()) if response else 0
+
+                    worker_logs.complete_log(
+                        log_id=log_id,
+                        duration_ms=duration_ms,
+                        gpu_memory_before_mb=gpu_memory.get("before_mb"),
+                        gpu_memory_peak_mb=gpu_memory.get("peak_mb"),
+                        gpu_memory_after_mb=gpu_memory.get("after_mb"),
+                        output_size_bytes=output_size,
+                        status="completed" if error_msg is None else "failed",
+                        error_message=error_msg,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to complete worker log: {e}")
+
+        # Extract result from response
+        return response.get("result", response)
 
     async def get_worker_status(self) -> Dict[str, Dict[str, Any]]:
         """
