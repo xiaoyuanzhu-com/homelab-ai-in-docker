@@ -1,27 +1,23 @@
 """Automatic speech recognition API router for transcribing audio files."""
 
-import base64
-import io
+import asyncio
 import logging
 import os
-import tempfile
 import time
 import uuid
-from typing import Optional, Dict, Any
-from pathlib import Path
+from typing import Dict, Any
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-import asyncio
-from transformers import (
-    AutoProcessor,
-    AutoModelForSpeechSeq2Seq,
-)
 import torch
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from ..models.automatic_speech_recognition import TranscriptionRequest, TranscriptionResponse
+from ..models.automatic_speech_recognition import (
+    TranscriptionRequest,
+    TranscriptionResponse,
+    SpeakerSegment,
+)
 from ...storage.history import history_storage
 from ...db.catalog import get_model_dict, list_models
-from ...services.model_coordinator import use_model
+from ...worker import coordinator_infer
 
 logger = logging.getLogger(__name__)
 
@@ -87,122 +83,18 @@ def check_and_cleanup_idle_model():
     """
     Check if model has been idle too long and cleanup if needed.
 
-    This function is called by periodic cleanup in main.py.
-    Delegates to the global model coordinator for memory management.
+    Workers handle their own idle timeouts, so this is a no-op.
     """
-    # Cleanup now handled entirely by the global model coordinator
     pass
-
-
-async def _load_model_impl(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
-    """
-    Internal async function to load the ASR model and processor.
-
-    Args:
-        model_name: Model ID to load
-
-    Returns:
-        Tuple of (processor, model, model_config)
-    """
-    # Validate model is supported and get config
-    validate_model(model_name)
-    model_config = get_model_config(model_name)
-
-    # Check for local download at HF standard cache path
-    from ...config import get_hf_model_cache_path, get_hf_endpoint
-    local_model_dir = get_hf_model_cache_path(model_name)
-
-    if local_model_dir.exists() and (local_model_dir / "config.json").exists():
-        model_path = str(local_model_dir)
-        logger.info(f"Using locally downloaded model from {model_path}")
-        extra_kwargs = {"local_files_only": True}
-    else:
-        model_path = model_name
-        logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
-        extra_kwargs = {}
-
-    # Set HuggingFace endpoint for model loading
-    os.environ["HF_ENDPOINT"] = get_hf_endpoint()
-
-    # Determine device and dtype
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-
-    # Load processor and model in thread pool to avoid blocking
-    def _load():
-        processor = AutoProcessor.from_pretrained(model_path, **extra_kwargs)
-        model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            model_path,
-            attn_implementation="sdpa",  # Use scaled dot product attention for better performance
-            low_cpu_mem_usage=True,
-            use_safetensors=True,
-            **extra_kwargs
-        )
-        model.to(device, dtype=dtype)
-        return processor, model
-
-    processor, model = await asyncio.to_thread(_load)
-    return processor, model, model_config
-
-
-async def _unload_model(model_tuple: tuple[Any, Any, Dict[str, Any]]) -> None:
-    """
-    Internal async function to unload and cleanup model.
-
-    Args:
-        model_tuple: Tuple of (processor, model, config) to unload
-    """
-    processor, model, config = model_tuple
-
-    # Move model to CPU first (helps with cleanup)
-    try:
-        if hasattr(model, 'cpu'):
-            await asyncio.to_thread(model.cpu)
-            logger.debug("Moved ASR model to CPU")
-    except Exception as e:
-        logger.warning(f"Error moving ASR model to CPU during cleanup: {e}")
-
-    # Delete references
-    del processor
-    del model
-    del config
 
 
 def cleanup():
     """
     Release model resources immediately.
 
-    This function is called during app shutdown.
-    Cleanup now handled entirely by the global model coordinator.
+    Workers handle their own cleanup, so this is a no-op.
     """
     pass
-
-
-def decode_audio(audio_data: str) -> Path:
-    """
-    Decode base64 audio and save to temporary file.
-
-    Args:
-        audio_data: Base64-encoded audio string
-
-    Returns:
-        Path to temporary audio file
-    """
-    try:
-        # Remove data URL prefix if present
-        if audio_data.startswith('data:audio'):
-            audio_data = audio_data.split(',')[1]
-
-        audio_bytes = base64.b64decode(audio_data)
-
-        # Create temporary file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.audio')
-        temp_file.write(audio_bytes)
-        temp_file.close()
-
-        return Path(temp_file.name)
-    except Exception as e:
-        raise ValueError(f"Failed to decode audio: {str(e)}")
 
 
 @router.post("/automatic-speech-recognition", response_model=TranscriptionResponse)
@@ -223,15 +115,12 @@ async def transcribe_audio(request: TranscriptionRequest) -> TranscriptionRespon
     """
     request_id = str(uuid.uuid4())
     start_time = time.time()
-    audio_path = None
 
     try:
         # Route to appropriate processing based on output_format
         if request.output_format == "diarization":
-            # Speaker diarization processing
             return await _process_diarization(request, request_id, start_time)
         else:
-            # Whisper transcription processing
             return await _process_transcription(request, request_id, start_time)
 
     except ValueError as e:
@@ -251,262 +140,118 @@ async def transcribe_audio(request: TranscriptionRequest) -> TranscriptionRespon
         )
 
 
-async def _process_transcription(request: TranscriptionRequest, request_id: str, start_time: float) -> TranscriptionResponse:
-    """Process Whisper transcription."""
-    audio_path = None
-    try:
-        # Decode audio off the event loop
-        audio_path = await asyncio.to_thread(decode_audio, request.audio)
+async def _process_transcription(
+    request: TranscriptionRequest, request_id: str, start_time: float
+) -> TranscriptionResponse:
+    """Process Whisper transcription via worker."""
+    # Validate model
+    validate_model(request.model)
 
-        # Get model info for memory estimation
-        model_info = get_model_dict(request.model)
-        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
+    # Call worker via coordinator
+    result = await coordinator_infer(
+        task="asr",
+        model_id=request.model,
+        payload={
+            "audio": request.audio,
+            "language": request.language,
+            "return_timestamps": request.return_timestamps,
+        },
+        request_id=request_id,
+    )
 
-        # Use context manager for automatic cleanup
-        async with use_model(
-            key=f"asr:{request.model}",
-            loader_fn=lambda: _load_model_impl(request.model),
-            model_type="asr",
-            estimated_memory_mb=estimated_memory_mb,
-            unloader_fn=_unload_model,
-        ) as model_tuple:
-            processor, model, model_config = model_tuple
+    processing_time_ms = int((time.time() - start_time) * 1000)
 
-            # Run the full preprocessing + generation pipeline in a worker thread
-            def _run_inference():
-                # Determine device and dtype from model
-                device = next(model.parameters()).device
-                torch_dtype = next(model.parameters()).dtype
+    response = TranscriptionResponse(
+        request_id=request_id,
+        text=result.get("text", ""),
+        model=request.model,
+        language=result.get("language"),
+        chunks=result.get("chunks"),
+        processing_time_ms=processing_time_ms,
+    )
 
-                # Load audio with processor
-                import librosa
-                audio_array, sampling_rate = librosa.load(str(audio_path), sr=16000)
+    # Save to history
+    truncated_audio = request.audio[:100] + "..." if len(request.audio) > 100 else request.audio
+    history_storage.add_request(
+        service="automatic-speech-recognition",
+        request_id=request_id,
+        request_data={
+            "model": request.model,
+            "language": request.language,
+            "return_timestamps": request.return_timestamps,
+            "audio": truncated_audio,
+        },
+        response_data=response.model_dump(),
+        status="success",
+    )
 
-                # Process audio
-                inputs = processor(
-                    audio_array,
-                    sampling_rate=sampling_rate,
-                    return_tensors="pt"
-                )
+    return response
 
-                # Move inputs to device and convert to model dtype
-                inputs = inputs.to(device)
-                # Convert input_features to match model dtype
-                if hasattr(inputs, 'input_features'):
-                    inputs.input_features = inputs.input_features.to(torch_dtype)
 
-                # Prepare generation kwargs
-                generate_kwargs = {
-                    "input_features": inputs.input_features,
-                }
+async def _process_diarization(
+    request: TranscriptionRequest, request_id: str, start_time: float
+) -> TranscriptionResponse:
+    """Process pyannote speaker diarization via worker."""
+    # Validate model
+    validate_model(request.model)
 
-                # Add language if specified
-                if request.language:
-                    generate_kwargs["language"] = request.language
+    # Call worker via coordinator
+    result = await coordinator_infer(
+        task="speaker-diarization",
+        model_id=request.model,
+        payload={
+            "audio": request.audio,
+            "num_speakers": request.num_speakers,
+            "min_speakers": request.min_speakers,
+            "max_speakers": request.max_speakers,
+        },
+        request_id=request_id,
+    )
 
-                # Add timestamp return option
-                if request.return_timestamps:
-                    generate_kwargs["return_timestamps"] = True
+    processing_time_ms = int((time.time() - start_time) * 1000)
 
-                # Generate transcription
-                with torch.no_grad():
-                    predicted_ids = model.generate(**generate_kwargs)
-
-                # Decode transcription
-                transcription = processor.batch_decode(
-                    predicted_ids,
-                    skip_special_tokens=True
-                )[0]
-
-                # Extract language if it was auto-detected
-                detected_language = None
-                if hasattr(predicted_ids, 'sequences'):
-                    # For models that return language information
-                    try:
-                        # This is model-specific and may need adjustment
-                        detected_language = request.language
-                    except:
-                        pass
-
-                result = {
-                    "text": transcription,
-                    "language": detected_language or request.language,
-                    "chunks": None
-                }
-
-                # Handle timestamps if requested
-                if request.return_timestamps and hasattr(predicted_ids, 'timestamps'):
-                    result["chunks"] = predicted_ids.timestamps
-
-                return result
-
-            result = await asyncio.to_thread(_run_inference)
-
-            # Model automatically released when context exits
-
-        processing_time_ms = int((time.time() - start_time) * 1000)
-
-        response = TranscriptionResponse(
-            request_id=request_id,
-            text=result["text"],
-            model=request.model,
-            language=result["language"],
-            chunks=result["chunks"],
-            processing_time_ms=processing_time_ms,
+    # Convert segments to SpeakerSegment objects
+    segments = [
+        SpeakerSegment(
+            start=seg["start"],
+            end=seg["end"],
+            speaker=seg["speaker"],
         )
+        for seg in result.get("segments", [])
+    ]
 
-        # Save to history (truncate audio data to save space)
-        truncated_audio = request.audio[:100] + "..." if len(request.audio) > 100 else request.audio
-        history_storage.add_request(
-            service="automatic-speech-recognition",
-            request_id=request_id,
-            request_data={
-                "model": request.model,
-                "language": request.language,
-                "return_timestamps": request.return_timestamps,
-                "audio": truncated_audio,
-            },
-            response_data=response.model_dump(),
-            status="success",
-        )
+    response = TranscriptionResponse(
+        request_id=request_id,
+        model=request.model,
+        segments=segments,
+        num_speakers=result.get("num_speakers", 0),
+        processing_time_ms=processing_time_ms,
+    )
 
-        # Note: Idle cleanup is handled by the global model coordinator
-        return response
+    # Save to history
+    truncated_audio = request.audio[:100] + "..." if len(request.audio) > 100 else request.audio
+    history_storage.add_request(
+        service="automatic-speech-recognition",
+        request_id=request_id,
+        request_data={
+            "model": request.model,
+            "min_speakers": request.min_speakers,
+            "max_speakers": request.max_speakers,
+            "num_speakers": request.num_speakers,
+            "audio": truncated_audio,
+        },
+        response_data=response.model_dump(),
+        status="success",
+    )
 
-    finally:
-        # Clean up temporary audio file
-        if audio_path and audio_path.exists():
-            try:
-                audio_path.unlink()
-            except Exception as e:
-                logger.warning(f"Failed to delete temporary audio file: {e}")
-
-
-async def _process_diarization(request: TranscriptionRequest, request_id: str, start_time: float) -> TranscriptionResponse:
-    """Process pyannote speaker diarization."""
-    audio_path = None
-    try:
-        # Decode audio off the event loop
-        audio_path = await asyncio.to_thread(decode_audio, request.audio)
-
-        # Load pyannote pipeline
-        from ...compat import torchcodec_stub
-
-        torchcodec_stub.ensure_torchcodec()
-        from pyannote.audio import Pipeline
-        from ...db.settings import get_setting
-        from ...config import get_hf_endpoint, get_hf_model_cache_path
-
-        # Check for local download at HF standard cache path
-        local_model_dir = get_hf_model_cache_path(request.model)
-
-        if local_model_dir.exists() and (local_model_dir / "config.yaml").exists():
-            model_path = str(local_model_dir)
-            logger.info(f"Using locally downloaded model from {model_path}")
-            pipeline_kwargs = {"local_files_only": True}
-        else:
-            model_path = request.model
-            logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
-            pipeline_kwargs = {}
-
-        os.environ["HF_ENDPOINT"] = get_hf_endpoint()
-        hf_token = get_setting("hf_token") or os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
-        if model_path == request.model and not hf_token:
-            raise ValueError(
-                "HuggingFace access token is required. Please set 'hf_token' in settings and accept "
-                "conditions at https://huggingface.co/pyannote/speaker-diarization-3.1"
-            )
-        if hf_token:
-            pipeline_kwargs.setdefault("token", hf_token)
-            # Ensure downstream libraries see the token (pyannote uses huggingface_hub directly)
-            os.environ["HF_TOKEN"] = hf_token
-            os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
-
-        # Load and run pipeline
-        def _run_diarization():
-            pipeline = Pipeline.from_pretrained(model_path, **pipeline_kwargs)
-            if torch.cuda.is_available():
-                pipeline.to(torch.device("cuda"))
-
-            # Build kwargs
-            kwargs = {}
-            if request.num_speakers:
-                kwargs["num_speakers"] = request.num_speakers
-            if request.min_speakers:
-                kwargs["min_speakers"] = request.min_speakers
-            if request.max_speakers:
-                kwargs["max_speakers"] = request.max_speakers
-
-            # Run diarization
-            return pipeline(str(audio_path), **kwargs)
-
-        diarization_result = await asyncio.to_thread(_run_diarization)
-
-        processing_time_ms = int((time.time() - start_time) * 1000)
-
-        # pyannote>=4 returns DiarizeOutput with annotations attached to attributes.
-        # For older versions the pipeline itself is an Annotation.
-        diarization_annotation = None
-        if hasattr(diarization_result, "speaker_diarization"):
-            diarization_annotation = getattr(diarization_result, "exclusive_speaker_diarization", None) or diarization_result.speaker_diarization
-        elif hasattr(diarization_result, "annotations") and callable(getattr(diarization_result, "itertracks", None)):
-            diarization_annotation = diarization_result
-        elif callable(getattr(diarization_result, "itertracks", None)):
-            diarization_annotation = diarization_result
-
-        if diarization_annotation is None:
-            raise ValueError("Unexpected diarization output format returned by pyannote.")
-
-        from ..models.automatic_speech_recognition import SpeakerSegment
-        segments = []
-        speakers = set()
-        for turn, _, speaker in diarization_annotation.itertracks(yield_label=True):
-            segments.append(SpeakerSegment(
-                start=float(turn.start),
-                end=float(turn.end),
-                speaker=speaker
-            ))
-            speakers.add(speaker)
-
-        response = TranscriptionResponse(
-            request_id=request_id,
-            model=request.model,
-            segments=segments,
-            num_speakers=len(speakers),
-            processing_time_ms=processing_time_ms,
-        )
-
-        # Save to history (truncate audio data to save space)
-        truncated_audio = request.audio[:100] + "..." if len(request.audio) > 100 else request.audio
-        history_storage.add_request(
-            service="automatic-speech-recognition",
-            request_id=request_id,
-            request_data={
-                "model": request.model,
-                "min_speakers": request.min_speakers,
-                "max_speakers": request.max_speakers,
-                "num_speakers": request.num_speakers,
-                "audio": truncated_audio,
-            },
-            response_data=response.model_dump(),
-            status="success",
-        )
-
-        # Note: Idle cleanup is handled by the global model coordinator
-        return response
-
-    finally:
-        # Clean up temporary audio file
-        if audio_path and audio_path.exists():
-            try:
-                audio_path.unlink()
-            except Exception as e:
-                logger.warning(f"Failed to delete temporary audio file: {e}")
+    return response
 
 
 # =============================================================================
 # Live Transcription WebSocket Endpoint (WhisperLiveKit)
+# Note: This remains in-process as WebSocket requires persistent connection
 # =============================================================================
+
 
 async def _get_live_engine(model: str = "large-v3", language: str = "en", diarization: bool = False):
     """
@@ -522,10 +267,12 @@ async def _get_live_engine(model: str = "large-v3", language: str = "en", diariz
     async with _live_engine_lock:
         # Check if we need to recreate the engine due to config change
         if _live_transcription_engine is not None and _live_engine_config != requested_config:
-            logger.info(f"Engine config changed from {_live_engine_config} to {requested_config}, recreating engine...")
+            logger.info(
+                f"Engine config changed from {_live_engine_config} to {requested_config}, recreating engine..."
+            )
             # Clean up existing engine if possible
             try:
-                if hasattr(_live_transcription_engine, 'cleanup'):
+                if hasattr(_live_transcription_engine, "cleanup"):
                     await asyncio.to_thread(_live_transcription_engine.cleanup)
             except Exception as e:
                 logger.warning(f"Error cleaning up old engine: {e}")
@@ -534,6 +281,7 @@ async def _get_live_engine(model: str = "large-v3", language: str = "en", diariz
 
             # Force garbage collection to free GPU memory
             import gc
+
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -543,24 +291,20 @@ async def _get_live_engine(model: str = "large-v3", language: str = "en", diariz
                 from whisperlivekit import TranscriptionEngine
 
                 # WhisperLiveKit expects "auto" string for auto-detection, not None
-                # Pass the language as-is, defaulting to "auto" if empty
                 effective_language = language if language else "auto"
 
-                logger.info(f"Initializing WhisperLiveKit TranscriptionEngine (model={model}, language={effective_language}, diarization={diarization})")
+                logger.info(
+                    f"Initializing WhisperLiveKit TranscriptionEngine "
+                    f"(model={model}, language={effective_language}, diarization={diarization})"
+                )
 
                 # Initialize engine in thread pool to avoid blocking
                 def _create_engine():
-                    # Don't pass target_language at all to ensure no translation
-                    # Setting it to "" or None might still trigger translation logic
                     return TranscriptionEngine(
                         model=model,
                         lan=effective_language,
-                        # Do NOT set target_language - leaving it unset disables translation
-                        # Do NOT set direct_english_translation - leaving it unset keeps default False
-                        # Enable transcription and optional diarization
                         transcription=True,
                         diarization=diarization,
-                        # Use sentence-based buffer trimming for natural segmentation
                         buffer_trimming="sentence",
                     )
 
@@ -570,7 +314,9 @@ async def _get_live_engine(model: str = "large-v3", language: str = "en", diariz
 
             except ImportError as e:
                 logger.error(f"WhisperLiveKit not installed: {e}")
-                raise RuntimeError("WhisperLiveKit is not installed. Install with: pip install whisperlivekit")
+                raise RuntimeError(
+                    "WhisperLiveKit is not installed. Install with: pip install whisperlivekit"
+                )
             except Exception as e:
                 logger.error(f"Failed to initialize WhisperLiveKit engine: {e}", exc_info=True)
                 raise
@@ -586,15 +332,16 @@ async def _handle_websocket_results(websocket: WebSocket, results_generator):
         async for response in results_generator:
             try:
                 # FrontData from WhisperLiveKit has a to_dict() method
-                if hasattr(response, 'to_dict') and callable(response.to_dict):
+                if hasattr(response, "to_dict") and callable(response.to_dict):
                     data = response.to_dict()
-                elif hasattr(response, 'model_dump') and callable(response.model_dump):
+                elif hasattr(response, "model_dump") and callable(response.model_dump):
                     data = response.model_dump()
                 elif isinstance(response, dict):
                     data = response
                 else:
                     # Try to convert dataclass or similar to dict
                     import dataclasses
+
                     if dataclasses.is_dataclass(response):
                         data = dataclasses.asdict(response)
                     else:
@@ -604,7 +351,6 @@ async def _handle_websocket_results(websocket: WebSocket, results_generator):
                 await websocket.send_json(data)
             except Exception as e:
                 logger.warning(f"Failed to serialize response: {e}, type={type(response)}")
-                # Send error but continue
                 await websocket.send_json({"error": f"Serialization error: {str(e)}"})
 
         logger.info("Results generator finished. Sending 'ready_to_stop' to client.")
@@ -640,11 +386,15 @@ async def live_transcription_websocket(websocket: WebSocket):
     language = websocket.query_params.get("language", "en")
     diarization = websocket.query_params.get("diarization", "false").lower() == "true"
 
-    logger.info(f"WebSocket connection request: model={model}, language={language}, diarization={diarization}")
+    logger.info(
+        f"WebSocket connection request: model={model}, language={language}, diarization={diarization}"
+    )
 
     # Get shared transcription engine
     try:
-        transcription_engine = await _get_live_engine(model=model, language=language, diarization=diarization)
+        transcription_engine = await _get_live_engine(
+            model=model, language=language, diarization=diarization
+        )
         logger.info(f"Using engine with config: {_live_engine_config}")
     except Exception as e:
         logger.error(f"Failed to get transcription engine: {e}")
@@ -667,9 +417,7 @@ async def live_transcription_websocket(websocket: WebSocket):
     results_generator = await audio_processor.create_tasks()
 
     # Start task to handle results
-    websocket_task = asyncio.create_task(
-        _handle_websocket_results(websocket, results_generator)
-    )
+    websocket_task = asyncio.create_task(_handle_websocket_results(websocket, results_generator))
 
     try:
         while True:

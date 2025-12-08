@@ -81,45 +81,35 @@ logging.basicConfig(
 )
 
 
-async def periodic_model_cleanup():
+async def periodic_worker_status():
     """
-    Background task that periodically checks and cleans up idle models.
+    Background task that periodically logs worker status.
 
-    Runs every second to check if models have exceeded their idle timeout.
-    When a model is idle too long, it's automatically unloaded from GPU
-    to free memory for other services.
-
-    With ModelCoordinator, this now handles cleanup centrally for all models.
+    Workers manage their own idle timeouts and self-terminate.
+    This task just monitors and logs status for debugging.
     """
     logger = logging.getLogger(__name__)
-    logger.info("Periodic model cleanup task started (checks every 1 second)")
+    logger.info("Periodic worker status task started (checks every 30 seconds)")
 
-    from src.services.model_coordinator import get_coordinator
-    from src.db.settings import get_setting_int
+    from src.worker import get_coordinator
 
     while True:
         try:
-            # Check every second for idle models
-            await asyncio.sleep(1)
+            await asyncio.sleep(30)
 
-            # Get idle timeout from settings
-            idle_timeout = get_setting_int("model_idle_timeout_seconds", 5)
-
-            # Use the global coordinator to cleanup ALL idle models at once
-            # This is more efficient than calling each router separately
             try:
                 coordinator = get_coordinator()
-                unloaded_models = await coordinator.cleanup_idle_models(idle_timeout)
-                if unloaded_models:
-                    logger.info(f"Cleaned up {len(unloaded_models)} idle models: {unloaded_models}")
+                status = await coordinator.get_worker_status()
+                if status:
+                    logger.debug(f"Active workers: {list(status.keys())}")
             except Exception as e:
-                logger.debug(f"Error in coordinator idle cleanup: {e}")
+                logger.debug(f"Error checking worker status: {e}")
 
         except asyncio.CancelledError:
-            logger.info("Periodic model cleanup task cancelled")
+            logger.info("Periodic worker status task cancelled")
             break
         except Exception as e:
-            logger.error(f"Unexpected error in periodic model cleanup: {e}", exc_info=True)
+            logger.error(f"Unexpected error in periodic worker status: {e}", exc_info=True)
 
 
 @asynccontextmanager
@@ -145,23 +135,15 @@ async def lifespan(app: FastAPI):
         init_download_logs_table()
 
         # Initialize settings table
-        from src.db.settings import init_settings_table, get_setting_int, get_setting_bool, get_setting_float
+        from src.db.settings import init_settings_table, get_setting_int
         init_settings_table()
 
-        # Initialize global model coordinator with database settings
-        from src.services.model_coordinator import init_coordinator
-        max_models = get_setting_int("max_models_in_memory", default=1)
-        enable_preemptive = get_setting_bool("enable_preemptive_unload", default=True)
-        max_memory = get_setting_float("max_memory_mb", default=None)
-
-        coordinator = await init_coordinator(
-            max_models=max_models,
-            max_memory_mb=max_memory,
-            enable_preemptive_unload=enable_preemptive,
-        )
+        # Initialize global worker coordinator
+        from src.worker import get_coordinator
+        coordinator = get_coordinator()
+        idle_timeout = get_setting_int("worker_idle_timeout_seconds", 60)
         logger.info(
-            f"Model coordinator initialized: max_models={max_models}, "
-            f"max_memory_mb={max_memory}, preemptive_unload={enable_preemptive}"
+            f"Worker coordinator initialized: idle_timeout={idle_timeout}s"
         )
 
         # Initialize history storage (creates request_history table)
@@ -245,8 +227,8 @@ async def lifespan(app: FastAPI):
         else:
             logger.warning(f"Libs manifest not found at {libs_manifest_path}")
 
-        # Start background task for periodic model cleanup
-        cleanup_task = asyncio.create_task(periodic_model_cleanup())
+        # Start background task for periodic worker status monitoring
+        cleanup_task = asyncio.create_task(periodic_worker_status())
 
         # Ensure the MCP sub-application lifecycle is running so its session manager is ready
         mcp_app_instance = globals().get("mcp_app")
@@ -286,15 +268,15 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning(f"Error shutting down MCP server lifespan: {e}", exc_info=True)
 
-        # Clean up ML model resources via coordinator
+        # Shutdown all workers
         try:
-            from src.services.model_coordinator import get_coordinator
-            logger.info("Releasing all model resources via coordinator...")
+            from src.worker import get_coordinator
+            logger.info("Shutting down all workers...")
             coordinator = get_coordinator()
-            count = await coordinator.unload_all()
-            logger.info(f"Successfully unloaded {count} models")
+            await coordinator.shutdown_all()
+            logger.info("All workers shut down")
         except Exception as e:
-            logger.warning(f"Error cleaning up models via coordinator: {e}")
+            logger.warning(f"Error shutting down workers: {e}")
 
         # Best-effort shutdown of any joblib/loky process executors to avoid
         # leaked semaphore warnings from Python's resource_tracker on exit.
@@ -428,8 +410,22 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    """Health check endpoint."""
-    return {"status": "healthy"}
+    """Health check endpoint with worker status."""
+    from src.worker import get_coordinator
+
+    try:
+        coordinator = get_coordinator()
+        workers = await coordinator.get_worker_status()
+        gpu_lock_held = coordinator.is_gpu_locked()
+    except Exception:
+        workers = {}
+        gpu_lock_held = False
+
+    return {
+        "status": "healthy",
+        "workers": workers,
+        "gpu_lock_held": gpu_lock_held,
+    }
 
 
 @app.get("/api/ready")

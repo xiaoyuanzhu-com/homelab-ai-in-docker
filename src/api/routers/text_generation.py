@@ -1,21 +1,16 @@
 """Text generation API router for generating text from prompts."""
 
 import logging
-import os
 import time
 import uuid
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 from fastapi import APIRouter, HTTPException
-import asyncio
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
 
 from ..models.text_generation import TextGenerationRequest, TextGenerationResponse
 from ...storage.history import history_storage
-from ...config import get_hf_endpoint, get_hf_model_cache_path
 from ...db.catalog import get_model_dict, list_models
-from ...services.model_coordinator import use_model
+from ...worker import coordinator_infer
 
 logger = logging.getLogger(__name__)
 
@@ -76,103 +71,16 @@ def check_and_cleanup_idle_model():
     """
     Check if model has been idle too long and cleanup if needed.
 
-    This function is called by periodic cleanup in main.py.
-    Cleanup now handled entirely by the global model coordinator.
+    Workers handle their own idle timeouts, so this is a no-op.
     """
     pass
-
-
-async def _load_model_impl(model_name: str) -> tuple[Any, Any, Dict[str, Any]]:
-    """
-    Internal async function to load the text generation model.
-
-    Args:
-        model_name: Model ID to load
-
-    Returns:
-        Tuple of (tokenizer, model, model_config)
-
-    Raises:
-        ValueError: If model is not supported
-    """
-    # Validate model is supported and get config
-    validate_model(model_name)
-    model_config = get_model_config(model_name)
-
-    # Check for local download at HF standard cache path
-    local_model_dir = get_hf_model_cache_path(model_name)
-
-    if local_model_dir.exists() and (local_model_dir / "config.json").exists():
-        model_path = str(local_model_dir)
-        logger.info(f"Using locally downloaded model from {model_path}")
-        extra_kwargs = {"local_files_only": True}
-    else:
-        model_path = model_name
-        logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
-        extra_kwargs = {}
-
-    # Set HuggingFace endpoint for model loading
-    os.environ["HF_ENDPOINT"] = get_hf_endpoint()
-
-    try:
-        # Load tokenizer and model in thread pool to avoid blocking
-        def _load():
-            tokenizer = AutoTokenizer.from_pretrained(model_path, **extra_kwargs)
-
-            # Common loading kwargs
-            load_kwargs = {
-                "low_cpu_mem_usage": True,
-                "dtype": torch.float16,  # Use fp16 for efficiency
-                **extra_kwargs,
-            }
-
-            # Load model
-            model = AutoModelForCausalLM.from_pretrained(model_path, **load_kwargs)
-
-            # Move to GPU if available
-            if torch.cuda.is_available():
-                model = model.to("cuda")
-
-            return tokenizer, model
-
-        tokenizer, model = await asyncio.to_thread(_load)
-        return tokenizer, model, model_config
-
-    except Exception as e:
-        error_msg = f"Failed to load model '{model_name}': {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        raise RuntimeError(error_msg)
-
-
-async def _unload_model(model_tuple: tuple[Any, Any, Dict[str, Any]]) -> None:
-    """
-    Internal async function to unload and cleanup model.
-
-    Args:
-        model_tuple: Tuple of (tokenizer, model, config) to unload
-    """
-    tokenizer, model, config = model_tuple
-
-    # Move model to CPU first (helps with cleanup)
-    try:
-        if hasattr(model, 'cpu'):
-            await asyncio.to_thread(model.cpu)
-            logger.debug("Moved text generation model to CPU")
-    except Exception as e:
-        logger.warning(f"Error moving text generation model to CPU during cleanup: {e}")
-
-    # Delete references
-    del tokenizer
-    del model
-    del config
 
 
 def cleanup():
     """
     Release model resources immediately.
 
-    This function is called during app shutdown.
-    Cleanup now handled entirely by the global model coordinator.
+    Workers handle their own cleanup, so this is a no-op.
     """
     pass
 
@@ -197,52 +105,27 @@ async def generate_text(request: TextGenerationRequest) -> TextGenerationRespons
     start_time = time.time()
 
     try:
-        # Get model info for memory estimation
-        model_info = get_model_dict(request.model)
-        estimated_memory_mb = model_info.get("gpu_memory_mb") if model_info else None
+        # Validate model
+        validate_model(request.model)
 
-        # Use context manager for automatic cleanup
-        async with use_model(
-            key=f"text-gen:{request.model}",
-            loader_fn=lambda: _load_model_impl(request.model),
-            model_type="text-generation",
-            estimated_memory_mb=estimated_memory_mb,
-            unloader_fn=_unload_model,
-        ) as model_tuple:
-            tokenizer, model, model_config = model_tuple
-
-            # Run the full tokenization + generation pipeline in a worker thread
-            def _run_inference():
-                # Tokenize input
-                inputs = tokenizer(request.prompt, return_tensors="pt")
-
-                # Move inputs to same device as model
-                device = next(model.parameters()).device
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-
-                # Generate text
-                with torch.no_grad():
-                    output_ids = model.generate(
-                        **inputs,
-                        max_new_tokens=request.max_new_tokens,
-                        temperature=request.temperature,
-                        top_p=request.top_p,
-                        do_sample=request.do_sample,
-                        pad_token_id=tokenizer.eos_token_id,  # Avoid warnings
-                    )
-
-                # Decode output (skip the input tokens)
-                input_length = inputs["input_ids"].shape[1]
-                generated_tokens = output_ids[0][input_length:]
-                generated_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-
-                return generated_text, len(generated_tokens)
-
-            generated_text, tokens_generated = await asyncio.to_thread(_run_inference)
-
-            # Model automatically released when context exits
+        # Call worker via coordinator
+        result = await coordinator_infer(
+            task="text-generation",
+            model_id=request.model,
+            payload={
+                "prompt": request.prompt,
+                "max_new_tokens": request.max_new_tokens,
+                "temperature": request.temperature,
+                "top_p": request.top_p,
+                "do_sample": request.do_sample,
+            },
+            request_id=request_id,
+        )
 
         processing_time_ms = int((time.time() - start_time) * 1000)
+
+        generated_text = result.get("generated_text", "")
+        tokens_generated = result.get("tokens_generated", 0)
 
         response = TextGenerationResponse(
             request_id=request_id,
@@ -271,7 +154,6 @@ async def generate_text(request: TextGenerationRequest) -> TextGenerationRespons
             status="success",
         )
 
-        # Note: Idle cleanup is handled by the global model coordinator
         return response
 
     except ValueError as e:
