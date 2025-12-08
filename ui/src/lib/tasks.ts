@@ -30,7 +30,6 @@ export const TASK_DISPLAY_NAMES: Record<string, string> = {
   // Audio tasks
   "audio-classification": "Audio Classification",
   "automatic-speech-recognition": "Automatic Speech Recognition",
-  "live-transcription": "Live Transcription",
   "speaker-embedding": "Speaker Embedding",
   "text-to-speech": "Text to Speech",
   "audio-to-audio": "Audio to Audio",

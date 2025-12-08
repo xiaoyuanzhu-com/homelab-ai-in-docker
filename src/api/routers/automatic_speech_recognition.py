@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api", tags=["automatic-speech-recognition"])
 
 # Global WhisperLiveKit engine (shared across connections)
 _live_transcription_engine = None
+_live_engine_config = None  # Track current engine config (model, language, diarization)
 _live_engine_lock = asyncio.Lock()
 
 
@@ -507,37 +508,62 @@ async def _process_diarization(request: TranscriptionRequest, request_id: str, s
 # Live Transcription WebSocket Endpoint (WhisperLiveKit)
 # =============================================================================
 
-async def _get_live_engine(model: str = "large-v3", language: str = "en"):
+async def _get_live_engine(model: str = "large-v3", language: str = "en", diarization: bool = False):
     """
     Get or create the shared WhisperLiveKit transcription engine.
 
     The engine is shared across all WebSocket connections for efficiency.
+    If parameters change, the engine is recreated with the new configuration.
     """
-    global _live_transcription_engine
+    global _live_transcription_engine, _live_engine_config
+
+    requested_config = (model, language, diarization)
 
     async with _live_engine_lock:
+        # Check if we need to recreate the engine due to config change
+        if _live_transcription_engine is not None and _live_engine_config != requested_config:
+            logger.info(f"Engine config changed from {_live_engine_config} to {requested_config}, recreating engine...")
+            # Clean up existing engine if possible
+            try:
+                if hasattr(_live_transcription_engine, 'cleanup'):
+                    await asyncio.to_thread(_live_transcription_engine.cleanup)
+            except Exception as e:
+                logger.warning(f"Error cleaning up old engine: {e}")
+            _live_transcription_engine = None
+            _live_engine_config = None
+
+            # Force garbage collection to free GPU memory
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         if _live_transcription_engine is None:
             try:
                 from whisperlivekit import TranscriptionEngine
 
-                logger.info(f"Initializing WhisperLiveKit TranscriptionEngine (model={model}, language={language})")
+                # Handle "auto" language - WhisperLiveKit expects None or empty string for auto-detection
+                effective_language = language if language and language != "auto" else None
+
+                logger.info(f"Initializing WhisperLiveKit TranscriptionEngine (model={model}, language={effective_language}, diarization={diarization})")
 
                 # Initialize engine in thread pool to avoid blocking
                 def _create_engine():
                     return TranscriptionEngine(
                         model=model,
-                        lan=language,
+                        lan=effective_language,
                         # Explicitly disable translation - we want transcription only
                         target_language="",
                         direct_english_translation=False,
-                        # Enable transcription, disable diarization by default
+                        # Enable transcription and optional diarization
                         transcription=True,
-                        diarization=False,
+                        diarization=diarization,
                         # Use sentence-based buffer trimming for natural segmentation
                         buffer_trimming="sentence",
                     )
 
                 _live_transcription_engine = await asyncio.to_thread(_create_engine)
+                _live_engine_config = requested_config
                 logger.info("WhisperLiveKit TranscriptionEngine initialized successfully")
 
             except ImportError as e:
@@ -588,13 +614,13 @@ async def _handle_websocket_results(websocket: WebSocket, results_generator):
         logger.exception(f"Error in WebSocket results handler: {e}")
 
 
-@router.websocket("/live-transcription")
+@router.websocket("/automatic-speech-recognition/live")
 async def live_transcription_websocket(websocket: WebSocket):
     """
     WebSocket endpoint for real-time live transcription using WhisperLiveKit.
 
     Protocol:
-    1. Client connects to ws://host/api/live-transcription
+    1. Client connects to ws://host/api/automatic-speech-recognition/live
     2. Server sends config: {"type": "config", "useAudioWorklet": false}
     3. Client streams audio bytes (WebM from MediaRecorder or PCM from AudioWorklet)
     4. Server sends transcription results as JSON with "lines" and "buffer" fields
@@ -603,16 +629,18 @@ async def live_transcription_websocket(websocket: WebSocket):
     Query parameters:
     - model: Whisper model size (default: "large-v3")
     - language: Source language code (default: "en", use "auto" for detection)
+    - diarization: Enable speaker diarization (default: "false")
     """
     from whisperlivekit import AudioProcessor
 
     # Extract query parameters
     model = websocket.query_params.get("model", "large-v3")
     language = websocket.query_params.get("language", "en")
+    diarization = websocket.query_params.get("diarization", "false").lower() == "true"
 
     # Get shared transcription engine
     try:
-        transcription_engine = await _get_live_engine(model=model, language=language)
+        transcription_engine = await _get_live_engine(model=model, language=language, diarization=diarization)
     except Exception as e:
         logger.error(f"Failed to get transcription engine: {e}")
         await websocket.close(code=1011, reason=str(e))
