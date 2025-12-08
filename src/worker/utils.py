@@ -28,7 +28,7 @@ def get_python_for_env(env_name: Optional[str]) -> str:
     Get Python interpreter path for a virtual environment.
 
     Args:
-        env_name: Virtual environment name (e.g., "deepseek-ocr" for .venv-deepseek-ocr)
+        env_name: Virtual environment name (e.g., "deepseek-ocr" for envs/deepseek-ocr/.venv)
                   If None, returns the current interpreter.
 
     Returns:
@@ -37,12 +37,18 @@ def get_python_for_env(env_name: Optional[str]) -> str:
     if not env_name:
         return sys.executable
 
-    # Try .venv-{env_name}/bin/python
-    env_path = Path(f".venv-{env_name}/bin/python")
+    # Try envs/{env_name}/.venv/bin/python (new uv project-based structure)
+    env_path = Path(f"envs/{env_name}/.venv/bin/python")
     if env_path.exists():
         return str(env_path.resolve())
 
+    # Fall back to legacy .venv-{env_name}/bin/python
+    legacy_path = Path(f".venv-{env_name}/bin/python")
+    if legacy_path.exists():
+        return str(legacy_path.resolve())
+
     # Fall back to main env
+    logger.warning(f"Python env '{env_name}' not found, falling back to main env")
     return sys.executable
 
 

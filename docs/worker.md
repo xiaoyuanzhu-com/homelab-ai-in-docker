@@ -535,12 +535,49 @@ Some AI models have conflicting Python dependency requirements:
 
 Since workers are subprocesses communicating via HTTP, each can use a different Python interpreter.
 
+### Why Not uv Workspaces?
+
+We use **standalone projects** instead of uv workspaces because:
+
+- Workspaces share a single lockfile and require consistent dependencies across all members
+- We need **conflicting versions** of the same package (e.g., different `transformers` versions)
+- See [uv workspace docs](https://docs.astral.sh/uv/concepts/projects/workspaces/): "Workspaces are not suited for cases in which members have conflicting requirements"
+
 ### Environment Layout
 
+Each sub-environment is a standalone uv project with its own `pyproject.toml` and `.venv`:
+
 ```
-.venv/                  # Main env - used by most tasks
-.venv-deepseek-ocr/     # DeepSeek-OCR specific (transformers==4.47.1)
-.venv-hunyuan/          # HunyuanOCR specific (transformers@git)
+homelab-ai-in-docker/
+├── pyproject.toml          # Main project
+├── .venv/                  # Main env (Python 3.13)
+│
+└── envs/
+    └── deepseek-ocr/
+        ├── pyproject.toml  # Standalone project (NOT a workspace member)
+        ├── uv.lock         # Own lockfile
+        ├── .venv/          # Own venv (Python 3.12)
+        └── .python-version # Pin Python version
+```
+
+### How uv Finds the Right Environment
+
+`uv run` searches for `.venv` in the following order:
+1. `VIRTUAL_ENV` environment variable
+2. `CONDA_PREFIX` environment variable
+3. `.venv` in current directory or nearest parent
+
+This means:
+```bash
+# From project root - uses main .venv
+cd /path/to/homelab-ai-in-docker
+uv run python -c "import transformers; print(transformers.__version__)"
+# → 4.57.1
+
+# From sub-env directory - uses its own .venv
+cd envs/deepseek-ocr
+uv run python -c "import transformers; print(transformers.__version__)"
+# → 4.47.1
 ```
 
 ### Model Configuration
@@ -555,38 +592,62 @@ In the models database (via `src/db/catalog.py`), add `python_env` field:
 }
 ```
 
-### Interpreter Selection
+### Spawning Workers with Correct Environment
 
-The coordinator resolves the Python interpreter when spawning:
+The coordinator spawns workers using `uv run` with the correct working directory:
 
 ```python
-def _get_python_for_model(self, model_config: dict) -> str:
-    """Get Python interpreter path for model's environment."""
+def _spawn_worker(self, task: str, model_config: dict) -> subprocess.Popen:
+    """Spawn a worker subprocess with the correct Python environment."""
     env_name = model_config.get("python_env")
+
     if env_name:
-        env_path = Path(f".venv-{env_name}/bin/python")
-        if env_path.exists():
-            return str(env_path.resolve())
-    return sys.executable  # Default to main env
+        # Use sub-environment
+        cwd = Path(f"envs/{env_name}")
+    else:
+        # Use main environment
+        cwd = Path(".")
+
+    return subprocess.Popen(
+        ["uv", "run", "python", "-m", "src.worker.workers.ocr_worker", ...],
+        cwd=cwd,
+    )
 ```
 
 ### Creating Additional Environments
 
-> **Note:** Linux-only. The project runs in Docker or on Linux hosts.
+Each sub-environment is a standalone uv project. Create with:
 
 ```bash
-# PyTorch CUDA index (must match main env's CUDA 12.6)
-PYTORCH_INDEX="https://download.pytorch.org/whl/cu126"
+# 1. Create directory structure
+mkdir -p envs/deepseek-ocr
+cd envs/deepseek-ocr
 
-# DeepSeek-OCR environment
-uv venv .venv-deepseek-ocr --python 3.13
-source .venv-deepseek-ocr/bin/activate
-uv pip install --index-url $PYTORCH_INDEX \
-    torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0
-uv pip install transformers==4.47.1 flash-attn>=2.8.3 \
-    bitsandbytes accelerate einops addict easydict safetensors pillow
-deactivate
+# 2. Initialize as standalone project (NOT workspace member)
+uv init --name deepseek-ocr-worker --no-workspace
+
+# 3. Set Python version (must match available flash-attn wheels)
+echo "3.12" > .python-version
+
+# 4. Configure PyTorch CUDA index in pyproject.toml
+# Add [[tool.uv.index]] and [tool.uv.sources] sections
+
+# 5. Add dependencies
+uv add 'torch==2.8.0' 'torchvision==0.23.0' 'torchaudio==2.8.0'
+uv add 'transformers==4.47.1'
+uv add 'flash-attn>=2.8.3'  # Uses URL from [tool.uv.sources]
+uv add 'accelerate>=0.20.0' 'bitsandbytes>=0.41.0' ...
+
+# 6. Verify
+uv run python -c "import transformers; print(transformers.__version__)"
+# → 4.47.1
 ```
+
+**Key points:**
+- Use `--no-workspace` flag to prevent uv from adding to parent workspace
+- Pin Python version via `.python-version` file
+- Configure custom indexes in `pyproject.toml` before adding packages
+- All dependencies managed via `uv add` for proper lockfile generation
 
 ### Docker Strategy
 
@@ -597,12 +658,12 @@ Keep Docker simple (single env). Models requiring alternate envs marked as "host
 **Option B: Multi-venv in Docker**
 
 ```dockerfile
-# Additional environments (adds ~2-5GB per env)
-RUN uv venv /app/.venv-deepseek-ocr --python 3.13 && \
-    . /app/.venv-deepseek-ocr/bin/activate && \
-    uv pip install --index-url https://download.pytorch.org/whl/cu126 \
-        torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 && \
-    uv pip install transformers==4.47.1 flash-attn>=2.8.3 ...
+# Copy sub-environment project files
+COPY envs/deepseek-ocr/pyproject.toml envs/deepseek-ocr/uv.lock /app/envs/deepseek-ocr/
+COPY envs/deepseek-ocr/.python-version /app/envs/deepseek-ocr/
+
+# Sync sub-environment (creates .venv and installs deps)
+RUN cd /app/envs/deepseek-ocr && uv sync
 ```
 
 ### When to Add a New Environment

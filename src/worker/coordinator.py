@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 from urllib import request as urlrequest
 from urllib.error import HTTPError, URLError
@@ -90,6 +91,9 @@ class WorkerCoordinator:
         """
         Spawn a new worker subprocess.
 
+        For sub-environments (python_env is set), uses 'uv run' with the correct
+        working directory so uv finds the right .venv.
+
         Args:
             config: Worker configuration
 
@@ -101,19 +105,48 @@ class WorkerCoordinator:
             raise ValueError(f"Unknown task type: {config.task}")
 
         port = find_free_port()
-        python = get_python_for_env(config.python_env)
 
-        cmd = [
-            python,
-            "-m",
-            module,
-            "--model-id",
-            config.model_id,
-            "--port",
-            str(port),
-            "--idle-timeout",
-            str(self.worker_idle_timeout),
-        ]
+        # Determine how to spawn based on python_env
+        if config.python_env:
+            # Sub-environment: use 'uv run' from the env directory
+            # uv will find .venv in that directory
+            # Use __file__ to get project root (more reliable than cwd)
+            project_root = Path(__file__).resolve().parent.parent.parent
+            env_dir = project_root / "envs" / config.python_env
+            if not env_dir.exists():
+                raise ValueError(f"Python env '{config.python_env}' not found at {env_dir}")
+
+            cmd = [
+                "uv",
+                "run",
+                "--no-sync",  # Don't sync deps, just run
+                "python",
+                "-m",
+                module,
+                "--model-id",
+                config.model_id,
+                "--port",
+                str(port),
+                "--idle-timeout",
+                str(self.worker_idle_timeout),
+            ]
+            cwd = env_dir
+            logger.info(f"Using sub-environment: {env_dir} (project_root: {project_root})")
+        else:
+            # Main environment: use python directly
+            python = get_python_for_env(None)
+            cmd = [
+                python,
+                "-m",
+                module,
+                "--model-id",
+                config.model_id,
+                "--port",
+                str(port),
+                "--idle-timeout",
+                str(self.worker_idle_timeout),
+            ]
+            cwd = None  # Use current directory
 
         # Add extra args
         for key, value in config.extra_args.items():
@@ -123,8 +156,13 @@ class WorkerCoordinator:
         env.setdefault("PYTHONUNBUFFERED", "1")
         env.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
+        # For sub-environments, add PYTHONPATH so it can find src module
+        if config.python_env:
+            project_root = Path(__file__).resolve().parent.parent.parent
+            env["PYTHONPATH"] = str(project_root)
+
         logger.info(f"Spawning worker: {config.task}:{config.model_id} on port {port}")
-        proc = subprocess.Popen(cmd, env=env)
+        proc = subprocess.Popen(cmd, env=env, cwd=cwd)
 
         worker = WorkerHandle(
             task=config.task,

@@ -102,7 +102,8 @@
       "size_mb": 6000,
       "parameters_m": 3000,
       "gpu_memory_mb": 8192,
-      "platform_requirements": "Linux only (requires bitsandbytes). Uses 4-bit NF4 quantization by default. Optional: flash-attn for GPU acceleration"
+      "platform_requirements": "Linux only (requires bitsandbytes). Uses 4-bit NF4 quantization by default. Optional: flash-attn for GPU acceleration",
+      "python_env": "deepseek-ocr"
     },
     {
       "id": "intfloat/e5-large-v2",
