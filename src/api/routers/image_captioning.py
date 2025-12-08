@@ -108,6 +108,10 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
         # Validate model
         validate_model(request.model)
 
+        # Get model config for python_env
+        model_config = get_model_config(request.model)
+        python_env = model_config.get("python_env")
+
         # Call worker via coordinator
         result = await coordinator_infer(
             task="captioning",
@@ -117,6 +121,7 @@ async def caption_image(request: CaptionRequest) -> CaptionResponse:
                 "prompt": request.prompt,
             },
             request_id=request_id,
+            python_env=python_env,
         )
 
         processing_time_ms = int((time.time() - start_time) * 1000)

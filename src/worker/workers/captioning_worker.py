@@ -5,6 +5,7 @@ Supports multiple architectures:
 - BLIP-2 (blip2)
 - LLaVA (llava)
 - LLaVA-NeXT (llava_next)
+- DeepSeek VL (deepseek)
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from typing import Any, Dict, Tuple
 from PIL import Image
 
 from ..base import BaseWorker, create_worker_main
+from src.inference.deepseek_vl import DeepSeekVLEngine
 
 logger = logging.getLogger("captioning_worker")
 
@@ -54,9 +56,41 @@ class CaptioningWorker(BaseWorker):
         super().__init__(model_id, port, idle_timeout, model_config)
         self._processor = None
         self._model_cfg: Dict[str, Any] = {}
+        self._deepseek_engine: DeepSeekVLEngine | None = None
 
     def load_model(self) -> Any:
         """Load image captioning model."""
+        from src.db.catalog import get_model_dict
+
+        # Get model config
+        self._model_cfg = get_model_dict(self.model_id)
+        if self._model_cfg is None:
+            raise ValueError(f"Model '{self.model_id}' not found in catalog")
+
+        # Check architecture first - DeepSeek uses its own loading path
+        architecture = self._model_cfg.get("architecture", "").lower()
+
+        if architecture == "deepseek":
+            return self._load_deepseek()
+
+        # Non-DeepSeek models use standard transformers loading
+        return self._load_transformers_model()
+
+    def _load_deepseek(self) -> Any:
+        """Load DeepSeek VL model using the shared engine."""
+        logger.info(f"Loading DeepSeek VL model for captioning: {self.model_id}")
+
+        self._deepseek_engine = DeepSeekVLEngine(
+            model_id=self.model_id,
+            model_config=self._model_cfg,
+        )
+        self._deepseek_engine.load()
+
+        # Return the model for compatibility with base worker
+        return self._deepseek_engine.model
+
+    def _load_transformers_model(self) -> Any:
+        """Load standard transformers vision model."""
         import torch
         from transformers import (
             AutoProcessor,
@@ -67,12 +101,6 @@ class CaptioningWorker(BaseWorker):
         )
 
         from src.config import get_hf_endpoint, get_hf_model_cache_path
-        from src.db.catalog import get_model_dict
-
-        # Get model config
-        self._model_cfg = get_model_dict(self.model_id)
-        if self._model_cfg is None:
-            raise ValueError(f"Model '{self.model_id}' not found in catalog")
 
         # Check quantization requirements
         if self._model_cfg.get("requires_quantization") and not HAS_BITSANDBYTES:
@@ -138,8 +166,6 @@ class CaptioningWorker(BaseWorker):
 
     def infer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Generate caption for image."""
-        import torch
-
         image_data = payload.get("image", "")
         prompt = payload.get("prompt")
 
@@ -149,6 +175,18 @@ class CaptioningWorker(BaseWorker):
 
         # Decode image
         image = _decode_image(image_data)
+
+        # Use DeepSeek engine if available
+        if self._deepseek_engine is not None:
+            caption = self._deepseek_engine.predict(image, prompt)
+            return {"caption": caption}
+
+        # Standard transformers inference
+        return self._infer_transformers(image, prompt)
+
+    def _infer_transformers(self, image: Image.Image, prompt: str | None) -> Dict[str, Any]:
+        """Run inference with standard transformers models."""
+        import torch
 
         # Process inputs
         if prompt:
@@ -187,9 +225,14 @@ class CaptioningWorker(BaseWorker):
 
     def cleanup(self) -> None:
         """Clean up resources."""
+        if self._deepseek_engine is not None:
+            self._deepseek_engine.cleanup()
+            self._deepseek_engine = None
+
         if self._processor is not None:
             del self._processor
             self._processor = None
+
         super().cleanup()
 
 

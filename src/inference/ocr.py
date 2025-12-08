@@ -2,8 +2,13 @@
 
 import importlib
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
 from PIL import Image
+
+from .deepseek_vl import DeepSeekVLEngine
+
+if TYPE_CHECKING:
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +256,7 @@ class OCRInferenceEngine:
         self.output_format = output_format
         self.model = None
         self.processor = None
+        self._deepseek_engine: Optional[DeepSeekVLEngine] = None
 
     def load(self) -> None:
         """Load the model based on architecture."""
@@ -366,121 +372,15 @@ class OCRInferenceEngine:
             )
 
     def _load_deepseek(self) -> None:
-        """Load DeepSeek-OCR model.
-
-        Some DeepSeek-OCR releases may not ship a multimodal Processor and
-        `AutoProcessor.from_pretrained(...)` can resolve to a tokenizer-only
-        instance. In that case, passing `images=` will raise a
-        `PreTrainedTokenizerFast._batch_encode_plus()` TypeError. To handle
-        this robustly, we fall back to loading `AutoImageProcessor` and
-        `AutoTokenizer` separately and combine their outputs at inference.
-        """
-        try:
-            from transformers import AutoModel, AutoProcessor
-            import torch
-            from pathlib import Path
-
-            # Use hf_model from config if available (for aliased models like DeepSeek-OCR-4bit)
-            hf_model_id = self.model_config.get("hf_model") or self.model_id
-            logger.info(f"Loading DeepSeek-OCR model '{self.model_id}' (hf_model: {hf_model_id})...")
-
-            # Check for local download at HF standard cache path
-            from src.config import get_hf_model_cache_path
-            local_model_dir = get_hf_model_cache_path(hf_model_id)
-
-            if local_model_dir.exists() and (local_model_dir / "config.json").exists():
-                model_path = str(local_model_dir)
-                logger.info(f"Using locally downloaded model from {model_path}")
-                extra_kwargs = {"local_files_only": True}
-            else:
-                model_path = hf_model_id
-                logger.info(f"Model not found locally, will download from HuggingFace to cache: {model_path}")
-                extra_kwargs = {}
-
-            # Try to use flash attention if available, fallback to eager
-            # Note: DeepSeek-OCR doesn't support sdpa, so we use eager as fallback
-            attn_implementation = "eager"  # Default fallback for DeepSeek-OCR
-            try:
-                import flash_attn
-                if torch.cuda.is_available():
-                    attn_implementation = "flash_attention_2"
-                    logger.info("Using flash_attention_2 for DeepSeek-OCR")
-                else:
-                    logger.info("GPU not available, using eager attention for DeepSeek-OCR")
-            except ImportError:
-                logger.info("flash-attn not installed, using eager attention for DeepSeek-OCR")
-
-            # Load model in bfloat16 (fits in 8GB VRAM with high utilization)
-            # Note: 4-bit quantization has dtype mismatch issues with DeepSeek-OCR
-            load_kwargs = {
-                "device_map": "auto",
-                "_attn_implementation": attn_implementation,
-                "use_safetensors": True,
-                "trust_remote_code": True,
-                "torch_dtype": torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-                **extra_kwargs,
-            }
-
-            self.model = AutoModel.from_pretrained(
-                model_path,
-                **load_kwargs,
-            )
-
-            self.processor = AutoProcessor.from_pretrained(
-                model_path,
-                trust_remote_code=True,
-                **extra_kwargs,
-            )
-
-            # Detect tokenizer-only processors and prepare a multimodal fallback
-            self._deepseek_image_processor = None
-            self._deepseek_tokenizer = None
-            try:
-                # Heuristic: a proper multimodal processor exposes either
-                # `image_processor` or `image_processor_class` attributes.
-                has_image_support = any(
-                    hasattr(self.processor, attr)
-                    for attr in ("image_processor", "image_processor_class")
-                )
-                from transformers import AutoTokenizer
-
-                # Always load tokenizer per official usage; processor may be tokenizer-only
-                self._deepseek_tokenizer = AutoTokenizer.from_pretrained(
-                    model_path, use_fast=True, trust_remote_code=True, **extra_kwargs
-                )
-
-                if not has_image_support:
-                    from transformers import AutoImageProcessor
-
-                    logger.info(
-                        "AutoProcessor resolved to tokenizer-only; "
-                        "loading AutoImageProcessor + AutoTokenizer for DeepSeek-OCR"
-                    )
-                    self._deepseek_image_processor = AutoImageProcessor.from_pretrained(
-                        model_path, trust_remote_code=True, **extra_kwargs
-                    )
-            except Exception as probe_err:
-                # Non-fatal: continue without fallback; predict() will still try the processor path first
-                logger.debug(f"DeepSeek-OCR processor probe failed: {probe_err}")
-
-            logger.info(f"DeepSeek-OCR model loaded successfully with {attn_implementation}")
-
-        except ImportError as e:
-            # Extract missing package names from the error message
-            error_msg = str(e)
-            if "packages that were not found in your environment:" in error_msg:
-                # Format: "This modeling file requires the following packages that were not found in your environment: pkg1, pkg2"
-                missing_pkgs = error_msg.split("packages that were not found in your environment:")[1].split(".")[0].strip()
-            elif "No module named" in error_msg:
-                # Format: "No module named 'package'"
-                missing_pkgs = error_msg.split("'")[1] if "'" in error_msg else "unknown"
-            else:
-                missing_pkgs = "unknown"
-
-            raise RuntimeError(
-                f"DeepSeek-OCR dependencies not installed. Missing: {missing_pkgs}. "
-                f"Full error: {error_msg}"
-            )
+        """Load DeepSeek-OCR model using the shared DeepSeekVLEngine."""
+        self._deepseek_engine = DeepSeekVLEngine(
+            model_id=self.model_id,
+            model_config=self.model_config,
+        )
+        self._deepseek_engine.load()
+        # Keep reference for compatibility
+        self.model = self._deepseek_engine.model
+        self.processor = self._deepseek_engine.processor
 
     def _load_granite_docling(self) -> None:
         """Load IBM Granite Docling model."""
@@ -766,131 +666,19 @@ class OCRInferenceEngine:
         return "\n\n".join(texts) if texts else ""
 
     def _predict_deepseek(self, image: Image.Image) -> str:
-        """Run DeepSeek-OCR prediction."""
-        import torch
-        import tempfile
-        import os
+        """Run DeepSeek-OCR prediction using the shared engine."""
+        if self._deepseek_engine is None:
+            raise RuntimeError("DeepSeek engine not loaded")
 
-        # DeepSeek-OCR requires a text prompt; official usage prefixes with "<image>\n"
+        # Build OCR-specific prompt based on output format
         if self.output_format == "markdown":
-            # Use grounding prompt for structured markdown output
-            prompt = "<image>\n<|grounding|>Convert the document to markdown."
+            prompt = "<|grounding|>Convert the document to markdown."
             logger.info("Using markdown grounding prompt for DeepSeek-OCR")
         else:
-            # "Free OCR." is suggested in official prompts for layout-agnostic text extraction
-            prompt = "<image>\nFree OCR."
+            prompt = "Free OCR."
             logger.info("Using text extraction prompt for DeepSeek-OCR")
 
-        try:
-            # Preferred official path: use custom remote-code infer() if available
-            if hasattr(self.model, "infer"):
-                # Ensure tokenizer is available
-                if getattr(self, "_deepseek_tokenizer", None) is None:
-                    from transformers import AutoTokenizer
-                    # Load tokenizer against self.model_id to respect local/remote
-                    self._deepseek_tokenizer = AutoTokenizer.from_pretrained(
-                        self.model_id, use_fast=True, trust_remote_code=True
-                    )
-
-                # Use a dedicated temp directory so we can reliably read saved outputs
-                import tempfile as _tf
-                with _tf.TemporaryDirectory() as td:
-                    tmp_img = os.path.join(td, "in.png")
-                    image.save(tmp_img)
-
-                    # Reasonable defaults per README: base_size=1024, image_size=640, crop_mode=True
-                    res = self.model.infer(
-                        self._deepseek_tokenizer,
-                        prompt=prompt,
-                        image_file=tmp_img,
-                        output_path=td,
-                        base_size=1024,
-                        image_size=640,
-                        crop_mode=True,
-                        save_results=True,  # save to tmp dir so we can read if return is empty
-                        test_compress=True,
-                    )
-
-                    # Prefer return value when it's a non-empty string
-                    if isinstance(res, str) and res.strip():
-                        return res.strip()
-
-                    # If not a usable string, look for a saved .md/.txt/.mmd in the temp dir
-                    # Note: DeepSeek-OCR saves to result.mmd
-                    latest_path = None
-                    latest_mtime = -1.0
-                    for root, _dirs, files in os.walk(td):
-                        for f in files:
-                            if f.lower().endswith((".md", ".txt", ".mmd")):
-                                p = os.path.join(root, f)
-                                try:
-                                    mtime = os.path.getmtime(p)
-                                except Exception:
-                                    mtime = 0
-                                if mtime > latest_mtime:
-                                    latest_mtime = mtime
-                                    latest_path = p
-                    if latest_path:
-                        try:
-                            with open(latest_path, "r", encoding="utf-8", errors="ignore") as fh:
-                                content = fh.read().strip()
-                                if content:
-                                    return content
-                        except Exception:
-                            pass
-
-                    # As a last resort, stringify res if present
-                    if res is not None:
-                        s = str(res).strip()
-                        if s:
-                            return s
-
-                    # If we got here, model.infer() ran but produced no usable output
-                    raise RuntimeError("DeepSeek-OCR model.infer() returned no usable text output")
-
-            # Preferred path: multimodal processor handles both text + images
-            inputs = self.processor(text=prompt, images=[image], return_tensors="pt")
-
-            # Move inputs only when the model is not dispatched across devices
-            hf_device_map = getattr(self.model, "hf_device_map", None) or getattr(self.model, "device_map", None)
-            if not hf_device_map:
-                device = next(self.model.parameters()).device
-                inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-
-            outputs = self.model.generate(**inputs, max_new_tokens=2048)
-            # Prefer processor for decoding if available, otherwise tokenizer fallback
-            decoder = getattr(self.processor, "batch_decode", None)
-            if decoder is None and getattr(self, "_deepseek_tokenizer", None) is not None:
-                text = self._deepseek_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-            else:
-                text = self.processor.batch_decode(outputs, skip_special_tokens=True)[0]
-            return text
-        except TypeError as te:
-            # Fallback: AutoProcessor was tokenizer-only (no image support)
-            if "images" in str(te) and (
-                getattr(self, "_deepseek_image_processor", None) is not None
-                and getattr(self, "_deepseek_tokenizer", None) is not None
-            ):
-                logger.info("Falling back to AutoImageProcessor + AutoTokenizer for DeepSeek-OCR")
-
-                image_inputs = self._deepseek_image_processor(images=[image], return_tensors="pt")
-                text_inputs = self._deepseek_tokenizer(text=prompt, return_tensors="pt")
-                inputs = {**text_inputs, **image_inputs}
-
-                hf_device_map = getattr(self.model, "hf_device_map", None) or getattr(self.model, "device_map", None)
-                if not hf_device_map:
-                    device = next(self.model.parameters()).device
-                    inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-
-                outputs = self.model.generate(**inputs, max_new_tokens=2048)
-                text = self._deepseek_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-                return text
-            # Re-raise other type errors
-            logger.error(f"DeepSeek-OCR prediction failed (TypeError): {te}", exc_info=True)
-            raise
-        except Exception as e:
-            logger.error(f"DeepSeek-OCR prediction failed: {e}", exc_info=True)
-            raise
+        return self._deepseek_engine.predict(image, prompt)
 
     def _predict_granite_docling(self, image: Image.Image) -> str:
         """Run IBM Granite Docling prediction."""
@@ -1025,6 +813,14 @@ class OCRInferenceEngine:
 
     def cleanup(self) -> None:
         """Clean up model resources."""
+        # Use DeepSeek engine's cleanup if available
+        if self._deepseek_engine is not None:
+            self._deepseek_engine.cleanup()
+            self._deepseek_engine = None
+            self.model = None
+            self.processor = None
+            return
+
         # Try to move model (or wrapped model) to CPU before releasing
         def _move_to_cpu(obj: Any) -> None:
             try:
