@@ -533,6 +533,8 @@ async def _get_live_engine(model: str = "large-v3", language: str = "en"):
                         # Enable transcription, disable diarization by default
                         transcription=True,
                         diarization=False,
+                        # Use sentence-based buffer trimming for natural segmentation
+                        buffer_trimming="sentence",
                     )
 
                 _live_transcription_engine = await asyncio.to_thread(_create_engine)
