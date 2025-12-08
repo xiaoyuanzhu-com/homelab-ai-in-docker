@@ -424,7 +424,6 @@ class WorkerCoordinator:
                     worker_logs.complete_log(
                         log_id=log_id,
                         duration_ms=duration_ms,
-                        gpu_memory_before_mb=gpu_memory.get("before_mb"),
                         gpu_memory_peak_mb=gpu_memory.get("peak_mb"),
                         gpu_memory_after_mb=gpu_memory.get("after_mb"),
                         output_size_bytes=output_size,
