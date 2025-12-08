@@ -50,6 +50,7 @@ dependencies = [
     "nvidia-cudnn-cu12==9.10.2.21; platform_system=='Linux'",
     "mcp>=1.8.0",
     "mkdocs-material>=9.5.0",
+    "whisperlivekit>=0.2.16",
 ]
 
 [project.optional-dependencies]

@@ -19,7 +19,8 @@ import {
   UserCircle,
   Monitor,
   ArrowUpDown,
-  Shuffle
+  Shuffle,
+  Radio
 } from "lucide-react";
 
 interface Task {
@@ -141,6 +142,14 @@ const TASK_CATEGORIES: TaskCategory[] = [
         description: "Transcribe speech to text and identify speakers",
         icon: <Volume2 className="h-5 w-5" />,
         href: "/automatic-speech-recognition",
+        available: true
+      },
+      {
+        id: "live-transcription",
+        title: "Live Transcription",
+        description: "Real-time speech-to-text with streaming audio",
+        icon: <Radio className="h-5 w-5" />,
+        href: "/live-transcription",
         available: true
       },
       {
