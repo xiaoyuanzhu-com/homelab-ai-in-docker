@@ -28,7 +28,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     ccache \
     ffmpeg \
+    # LibreOffice runtime dependencies
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libpango-1.0-0 \
+    libx11-6 \
+    libxext6 \
+    libxrender1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install LibreOffice 25.8 for Office document conversion
+RUN curl -L https://mirror-hk.koddos.net/tdf/libreoffice/stable/25.8.3/deb/x86_64/LibreOffice_25.8.3_Linux_x86-64_deb.tar.gz -o /tmp/libreoffice.tar.gz && \
+    tar -xzf /tmp/libreoffice.tar.gz -C /tmp && \
+    dpkg -i /tmp/LibreOffice_25.8.3*_Linux_x86-64_deb/DEBS/*.deb || apt-get install -f -y && \
+    rm -rf /tmp/libreoffice.tar.gz /tmp/LibreOffice_25.8.3*
 
 # Install uv for faster Python package management
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
