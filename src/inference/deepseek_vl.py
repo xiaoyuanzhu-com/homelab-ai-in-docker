@@ -202,23 +202,31 @@ class DeepSeekVLEngine:
                 base_size=1024,
                 image_size=640,
                 crop_mode=True,
-                save_results=True,
-                test_compress=True,
+                save_results=False,
+                test_compress=False,
+                eval_mode=True,  # Required to get return value instead of streaming
             )
 
-            # Prefer return value when it's a non-empty string
+            # Handle dict return value (official API returns dict with "text" key)
+            if isinstance(res, dict):
+                text = res.get("text", "")
+                if text and isinstance(text, str) and text.strip():
+                    return text.strip()
+
+            # Handle string return value (some versions may return string directly)
             if isinstance(res, str) and res.strip():
                 return res.strip()
 
-            # Look for saved output files
+            # Look for saved output files as fallback
             result = self._read_saved_output(td)
             if result:
                 return result
 
-            # Stringify res as last resort
+            # Stringify res as last resort (for unexpected return types)
             if res is not None:
                 s = str(res).strip()
-                if s:
+                # Avoid returning dict string representation
+                if s and not s.startswith("{"):
                     return s
 
             raise RuntimeError("DeepSeek model.infer() returned no usable output")
