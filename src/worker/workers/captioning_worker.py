@@ -6,6 +6,7 @@ Supports multiple architectures:
 - LLaVA (llava)
 - LLaVA-NeXT (llava_next)
 - DeepSeek VL (deepseek)
+- Moondream (moondream)
 """
 
 from __future__ import annotations
@@ -67,13 +68,16 @@ class CaptioningWorker(BaseWorker):
         if self._model_cfg is None:
             raise ValueError(f"Model '{self.model_id}' not found in catalog")
 
-        # Check architecture first - DeepSeek uses its own loading path
+        # Check architecture first - some models use their own loading path
         architecture = self._model_cfg.get("architecture", "").lower()
 
         if architecture == "deepseek":
             return self._load_deepseek()
 
-        # Non-DeepSeek models use standard transformers loading
+        if architecture == "moondream":
+            return self._load_moondream()
+
+        # Other models use standard transformers loading
         return self._load_transformers_model()
 
     def _load_deepseek(self) -> Any:
@@ -88,6 +92,36 @@ class CaptioningWorker(BaseWorker):
 
         # Return the model for compatibility with base worker
         return self._deepseek_engine.model
+
+    def _load_moondream(self) -> Any:
+        """Load Moondream model with custom code support.
+
+        Note: Moondream uses trust_remote_code=True which requires the remote
+        Python code to be downloaded. We always use the model ID (not local path)
+        and let transformers handle caching, as the custom code is stored
+        separately from the model weights.
+        """
+        import torch
+        from transformers import AutoModelForCausalLM
+
+        from src.config import get_hf_endpoint
+
+        os.environ["HF_ENDPOINT"] = get_hf_endpoint()
+
+        logger.info(f"Loading Moondream model: {self.model_id}")
+
+        # Always use model ID - transformers will use cache if available
+        # Don't use local_files_only since trust_remote_code needs to fetch/verify code
+        model = AutoModelForCausalLM.from_pretrained(
+            self.model_id,
+            trust_remote_code=True,
+            torch_dtype=torch.bfloat16,
+            device_map={"": "cuda"},
+            low_cpu_mem_usage=True,
+        )
+
+        logger.info(f"Moondream model loaded successfully: {self.model_id}")
+        return model
 
     def _load_transformers_model(self) -> Any:
         """Load standard transformers vision model."""
@@ -181,8 +215,31 @@ class CaptioningWorker(BaseWorker):
             caption = self._deepseek_engine.predict(image, prompt)
             return {"caption": caption}
 
+        # Check architecture for moondream
+        architecture = self._model_cfg.get("architecture", "").lower()
+        if architecture == "moondream":
+            return self._infer_moondream(image, prompt)
+
         # Standard transformers inference
         return self._infer_transformers(image, prompt)
+
+    def _infer_moondream(self, image: Image.Image, prompt: str | None) -> Dict[str, Any]:
+        """Run inference with Moondream model.
+
+        Moondream has its own API with caption() and query() methods.
+        - caption(): Generate image captions (short or normal length)
+        - query(): Answer visual questions about images
+        """
+        # If no prompt or a generic description prompt, use caption()
+        if prompt is None or "describe" in prompt.lower():
+            result = self._model.caption(image, length="normal")
+            caption = result["caption"]
+        else:
+            # Use query() for specific questions
+            result = self._model.query(image, prompt)
+            caption = result["answer"]
+
+        return {"caption": caption}
 
     def _infer_transformers(self, image: Image.Image, prompt: str | None) -> Dict[str, Any]:
         """Run inference with standard transformers models."""

@@ -245,6 +245,23 @@
       "platform_requirements": "Linux only (requires bitsandbytes)"
     },
     {
+      "id": "vikhyatk/moondream2",
+      "label": "moondream2",
+      "provider": "vikhyatk",
+      "tasks": ["image-captioning"],
+      "architecture": "moondream",
+      "default_prompt": "Describe this image in detail.",
+      "supports_markdown": false,
+      "requires_quantization": false,
+      "requires_download": true,
+      "hf_model": "vikhyatk/moondream2",
+      "reference_url": "https://huggingface.co/vikhyatk/moondream2",
+      "size_mb": 4000,
+      "parameters_m": 2000,
+      "gpu_memory_mb": 4096,
+      "platform_requirements": "Requires trust_remote_code=True. Uses BF16 precision."
+    },
+    {
       "id": "opendatalab/MinerU2.5-2509-1.2B",
       "label": "MinerU2.5-2509-1.2B",
       "provider": "opendatalab",
