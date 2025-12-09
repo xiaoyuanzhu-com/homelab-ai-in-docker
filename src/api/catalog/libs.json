@@ -40,6 +40,19 @@
       "reference_url": "https://github.com/microsoft/markitdown"
     },
     {
+      "id": "screenitshot/screenitshot",
+      "label": "ScreenItShot",
+      "provider": "ScreenItShot",
+      "tasks": ["doc-to-screenshot"],
+      "architecture": "screenitshot",
+      "default_prompt": null,
+      "platform_requirements": "Included with container; browser-based document rendering with retina quality screenshots.",
+      "supports_markdown": false,
+      "requires_quantization": false,
+      "requires_download": false,
+      "reference_url": "https://github.com/xiaoyuanzhu-com/screenitshot"
+    },
+    {
       "id": "whisperx/whisperx",
       "label": "WhisperX",
       "provider": "WhisperX",

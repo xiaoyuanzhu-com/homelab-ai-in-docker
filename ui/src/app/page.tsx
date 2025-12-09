@@ -214,6 +214,14 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
+        id: "doc-to-screenshot",
+        title: "Doc to Screenshot",
+        description: "Convert documents to retina-quality PNG screenshots",
+        icon: <FileImage className="h-5 w-5" />,
+        href: "/doc-to-screenshot",
+        available: true
+      },
+      {
         id: "tabular-regression",
         title: "Tabular Regression",
         description: "Predict continuous values",

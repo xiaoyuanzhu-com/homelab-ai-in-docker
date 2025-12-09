@@ -42,6 +42,7 @@ from src.api.routers import (
     settings,
     mcp,
     doc_to_markdown,
+    doc_to_screenshot,
 )
 from src.db.models import init_models_table, upsert_model
 from src.db.libs import init_libs_table, upsert_lib
@@ -332,6 +333,7 @@ app.include_router(task_options.router)
 app.include_router(hardware.router)
 app.include_router(settings.router)
 app.include_router(doc_to_markdown.router)
+app.include_router(doc_to_screenshot.router)
 
 # Initialize logger for startup messages
 logger = logging.getLogger(__name__)

@@ -1344,6 +1344,7 @@ dependencies = [
     { name = "psutil" },
     { name = "pyannote-audio" },
     { name = "pydantic" },
+    { name = "screenitshot" },
     { name = "sentence-transformers" },
     { name = "sse-starlette" },
     { name = "tokenizers" },
@@ -1396,6 +1397,7 @@ requires-dist = [
     { name = "psutil", specifier = ">=6.0.0" },
     { name = "pyannote-audio", specifier = ">=3.1.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "screenitshot" },
     { name = "sentence-transformers", specifier = ">=3.0.0" },
     { name = "sse-starlette", specifier = ">=2.0.0" },
     { name = "tokenizers", specifier = ">=0.20.3" },
@@ -4098,6 +4100,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ac/70/64b4d7ca92f9cf2e6fc6aaa2eecf80bb9b6b985043a9583f32f8177ea122/scipy-1.16.3-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:ffa6eea95283b2b8079b821dc11f50a17d0571c92b43e2b5b12764dc5f9b285d", size = 38802779, upload-time = "2025-10-28T17:37:59.393Z" },
     { url = "https://files.pythonhosted.org/packages/61/82/8d0e39f62764cce5ffd5284131e109f07cf8955aef9ab8ed4e3aa5e30539/scipy-1.16.3-cp314-cp314t-win_amd64.whl", hash = "sha256:d9f48cafc7ce94cf9b15c6bffdc443a81a27bf7075cf2dcd5c8b40f85d10c4e7", size = 39471128, upload-time = "2025-10-28T17:38:05.259Z" },
     { url = "https://files.pythonhosted.org/packages/64/47/a494741db7280eae6dc033510c319e34d42dd41b7ac0c7ead39354d1a2b5/scipy-1.16.3-cp314-cp314t-win_arm64.whl", hash = "sha256:21d9d6b197227a12dcbf9633320a4e34c6b0e51c57268df255a0942983bac562", size = 26464127, upload-time = "2025-10-28T17:38:11.34Z" },
+]
+
+[[package]]
+name = "screenitshot"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "playwright" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b0/9b/fe4f109f3324545f61a33e476aba90948ecc83e61f2a49399a107d90112d/screenitshot-0.7.0.tar.gz", hash = "sha256:4df3ebe0ee513a7118043eff743cca81eb3c3b48e79d789432e87649f25f16b6", size = 7003391, upload-time = "2025-12-09T04:06:16.442Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/09/7d/441f9c41d74178a84bc56d501e752a3b947a5b6697350611f98bac41b5b6/screenitshot-0.7.0-py3-none-any.whl", hash = "sha256:9735d81e1d2b22296c1f515c5782621eac8ec009bfb9e9378feb116b1c5ace45", size = 7055299, upload-time = "2025-12-09T04:06:14.39Z" },
 ]
 
 [[package]]
