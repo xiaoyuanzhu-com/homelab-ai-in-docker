@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
+import subprocess
+import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +26,9 @@ router = APIRouter(prefix="/api", tags=["doc-to-screenshot"])
 
 # Thread pool for running synchronous screenshot operations
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="screenitshot")
+
+# Formats that need LibreOffice conversion to PDF first
+_LIBREOFFICE_FORMATS = {"doc", "ppt", "xls", "pptx", "docx", "xlsx"}
 
 
 def _available_doc_to_screenshot_libs() -> list[str]:
@@ -52,9 +58,68 @@ def _guess_format(filename: Optional[str]) -> str:
     if not filename:
         return "pdf"  # default
     ext = Path(filename).suffix.lower().lstrip(".")
-    # screenitshot supports: pdf, epub, docx, xlsx, pptx, ipynb, md, html, tex, rtf, csv, geojson, gpx, mmd
-    supported = {"pdf", "epub", "docx", "xlsx", "pptx", "ipynb", "md", "html", "tex", "rtf", "csv", "geojson", "gpx", "mmd"}
-    return ext if ext in supported else "pdf"
+    return ext if ext else "pdf"
+
+
+def _needs_libreoffice_conversion(ext: str) -> bool:
+    """Check if the format needs LibreOffice conversion to PDF."""
+    return ext.lower() in _LIBREOFFICE_FORMATS
+
+
+def _convert_to_pdf_with_libreoffice(input_bytes: bytes, input_ext: str) -> bytes:
+    """Convert document to PDF using LibreOffice.
+
+    Args:
+        input_bytes: Raw document bytes
+        input_ext: File extension (e.g., 'doc', 'pptx')
+
+    Returns:
+        PDF bytes
+
+    Raises:
+        RuntimeError: If conversion fails
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Write input file
+        input_filename = f"input.{input_ext}"
+        input_path = Path(tmpdir) / input_filename
+        input_path.write_bytes(input_bytes)
+
+        # Run LibreOffice conversion
+        try:
+            result = subprocess.run(
+                [
+                    "libreoffice25.8",
+                    "--headless",
+                    "--convert-to", "pdf",
+                    "--outdir", tmpdir,
+                    str(input_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,  # 60 second timeout
+            )
+
+            if result.returncode != 0:
+                logger.error(f"LibreOffice conversion failed: {result.stderr}")
+                raise RuntimeError(f"LibreOffice conversion failed: {result.stderr}")
+
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("LibreOffice conversion timed out")
+        except FileNotFoundError:
+            raise RuntimeError("LibreOffice (libreoffice25.8) not found")
+
+        # Find the output PDF
+        pdf_path = Path(tmpdir) / "input.pdf"
+        if not pdf_path.exists():
+            # Try to find any PDF in the output directory
+            pdf_files = list(Path(tmpdir).glob("*.pdf"))
+            if pdf_files:
+                pdf_path = pdf_files[0]
+            else:
+                raise RuntimeError("LibreOffice did not produce a PDF output")
+
+        return pdf_path.read_bytes()
 
 
 @router.post("/doc-to-screenshot", response_model=DocToScreenshotResponse)
@@ -109,6 +174,14 @@ async def convert_document(request: DocToScreenshotRequest) -> DocToScreenshotRe
         # Run the conversion in a thread pool to avoid blocking the event loop
         # screenitshot uses Playwright internally which has its own event loop
         def _do_screenshot():
+            nonlocal raw_bytes, doc_format
+
+            # For Office formats (doc, ppt, xls, pptx, docx, xlsx), convert to PDF first
+            if _needs_libreoffice_conversion(doc_format):
+                logger.info(f"Converting {doc_format} to PDF using LibreOffice")
+                raw_bytes = _convert_to_pdf_with_libreoffice(raw_bytes, doc_format)
+                doc_format = "pdf"
+
             return screenshot(raw_bytes, doc_format)
 
         try:
