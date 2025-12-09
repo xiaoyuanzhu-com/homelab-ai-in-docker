@@ -156,6 +156,11 @@ class WorkerCoordinator:
         env.setdefault("PYTHONUNBUFFERED", "1")
         env.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
+        # Ensure HF_HOME is set for model caching (workers may not inherit from main.py)
+        if "HF_HOME" not in env:
+            from ..config import get_data_dir
+            env["HF_HOME"] = str(get_data_dir() / "models")
+
         # For sub-environments, add PYTHONPATH so it can find src module
         if config.python_env:
             project_root = Path(__file__).resolve().parent.parent.parent
