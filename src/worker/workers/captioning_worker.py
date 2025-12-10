@@ -12,8 +12,6 @@ Supports multiple architectures:
 
 from __future__ import annotations
 
-import base64
-import io
 import logging
 import os
 import platform
@@ -23,6 +21,7 @@ from typing import Any, Dict, Tuple
 from PIL import Image
 
 from ..base import BaseWorker, create_worker_main
+from ..image_utils import decode_image
 from src.inference.deepseek_vl import DeepSeekVLEngine
 from src.inference.jina_vlm import JinaVLMEngine
 
@@ -34,14 +33,6 @@ try:
     HAS_BITSANDBYTES = True
 except ImportError:
     HAS_BITSANDBYTES = False
-
-
-def _decode_image(image_data: str) -> Image.Image:
-    """Decode base64 image to PIL Image."""
-    if image_data.startswith("data:image"):
-        image_data = image_data.split(",", 1)[1]
-    image_bytes = base64.b64decode(image_data)
-    return Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
 
 class CaptioningWorker(BaseWorker):
@@ -226,8 +217,8 @@ class CaptioningWorker(BaseWorker):
         if prompt is None and self._model_cfg.get("default_prompt"):
             prompt = self._model_cfg["default_prompt"]
 
-        # Decode image
-        image = _decode_image(image_data)
+        # Decode image (supports HEIC/HEIF via pillow-heif)
+        image = decode_image(image_data)
 
         # Use DeepSeek engine if available
         if self._deepseek_engine is not None:

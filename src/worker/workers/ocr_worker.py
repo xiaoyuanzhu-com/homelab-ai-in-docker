@@ -10,8 +10,6 @@ Supports multiple architectures:
 
 from __future__ import annotations
 
-import base64
-import io
 import logging
 import sys
 from typing import Any, Dict
@@ -19,6 +17,7 @@ from typing import Any, Dict
 from PIL import Image
 
 from ..base import BaseWorker, create_worker_main
+from ..image_utils import decode_image
 from src.inference.ocr import OCRInferenceEngine
 from src.db.catalog import get_model_dict, get_lib_dict
 
@@ -31,15 +30,6 @@ def _get_model_config(model_id: str) -> Dict[str, Any]:
     if cfg is None:
         raise RuntimeError(f"Engine '{model_id}' not found in catalog")
     return cfg
-
-
-def _decode_image(image_data: str) -> Image.Image:
-    """Decode base64 image data to PIL Image."""
-    if image_data.startswith("data:image"):
-        image_data = image_data.split(",", 1)[1]
-    image_bytes = base64.b64decode(image_data)
-    img = Image.open(io.BytesIO(image_bytes))
-    return img.convert("RGB")
 
 
 class OCRWorker(BaseWorker):
@@ -92,8 +82,8 @@ class OCRWorker(BaseWorker):
         # Update engine's output format for this request
         self._engine.output_format = output_format
 
-        # Decode and process image
-        image = _decode_image(image_data)
+        # Decode and process image (supports HEIC/HEIF via pillow-heif)
+        image = decode_image(image_data)
         text = self._engine.predict(image)
 
         return {
