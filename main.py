@@ -44,7 +44,7 @@ from src.api.routers import (
     doc_to_markdown,
     doc_to_screenshot,
 )
-from src.db.models import init_models_table, upsert_model
+from src.db.models import init_models_table, upsert_model, delete_model, get_all_models
 from src.db.libs import init_libs_table, upsert_lib
 from src.db.status import DownloadStatus
 
@@ -190,6 +190,18 @@ async def lifespan(app: FastAPI):
                     except Exception as e:
                         logger.warning(f"Failed to upsert model '{item.get('id')}': {e}")
                 logger.info(f"Loaded {m_count} models from manifest into database")
+
+                # Clean up models not in manifest
+                manifest_ids = {item["id"] for item in models_manifest.get("models", [])}
+                db_models = get_all_models()
+                removed_count = 0
+                for row in db_models:
+                    if row["id"] not in manifest_ids:
+                        delete_model(row["id"])
+                        removed_count += 1
+                        logger.info(f"Removed model '{row['id']}' (not in manifest)")
+                if removed_count > 0:
+                    logger.info(f"Cleaned up {removed_count} models not in manifest")
         else:
             logger.warning(f"Models manifest not found at {models_manifest_path}")
 
