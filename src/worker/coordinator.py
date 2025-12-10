@@ -162,9 +162,12 @@ class WorkerCoordinator:
             env["HF_HOME"] = str(get_data_dir() / "models")
 
         # For sub-environments, add PYTHONPATH so it can find src module
+        # Also clear VIRTUAL_ENV/CONDA_PREFIX so uv finds the sub-env's .venv
         if config.python_env:
             project_root = Path(__file__).resolve().parent.parent.parent
             env["PYTHONPATH"] = str(project_root)
+            env.pop("VIRTUAL_ENV", None)
+            env.pop("CONDA_PREFIX", None)
 
         logger.info(f"Spawning worker: {config.task}:{config.model_id} on port {port}")
         proc = subprocess.Popen(cmd, env=env, cwd=cwd)
