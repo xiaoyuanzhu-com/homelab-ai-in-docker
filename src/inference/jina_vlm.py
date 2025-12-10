@@ -6,11 +6,72 @@ SigLIP2 vision encoder and Qwen3-1.7B language backbone.
 
 import logging
 import os
+import shutil
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+def _sync_dynamic_modules_to_cache(model_path: str) -> None:
+    """
+    Sync all Python files from a local model directory to the transformers modules cache.
+
+    When loading models with trust_remote_code=True and local_files_only=True,
+    transformers creates a modules cache directory but may not copy all required
+    Python files (especially when files have relative imports to each other).
+
+    This function ensures all Python files are present in the modules cache before
+    loading, preventing FileNotFoundError for dynamic module imports.
+
+    Args:
+        model_path: Path to the local model directory
+    """
+    model_dir = Path(model_path)
+    if not model_dir.exists():
+        return
+
+    # Find all Python files in the model directory
+    py_files = list(model_dir.glob("*.py"))
+    if not py_files:
+        return
+
+    # Determine the HF_HOME and modules cache path
+    from src.config import get_data_dir
+
+    hf_home = Path(os.getenv("HF_HOME", get_data_dir() / "models"))
+    modules_cache = hf_home / "modules" / "transformers_modules"
+
+    # Build the escaped module directory name
+    # transformers escapes hyphens as _hyphen_ and slashes as _hyphen__hyphen_
+    # For a path like models--jinaai--jina-vlm, it becomes:
+    # models_hyphen__hyphen_jinaai_hyphen__hyphen_jina_hyphen_vlm
+    model_dir_name = model_dir.name
+    escaped_name = model_dir_name.replace("-", "_hyphen_")
+
+    target_dir = modules_cache / escaped_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # Sync all Python files to the cache
+    synced_count = 0
+    for py_file in py_files:
+        target_file = target_dir / py_file.name
+        # Only copy if missing or source is newer
+        if not target_file.exists() or py_file.stat().st_mtime > target_file.stat().st_mtime:
+            shutil.copy2(py_file, target_file)
+            synced_count += 1
+            logger.debug(f"Synced {py_file.name} to transformers modules cache")
+
+    # Ensure __init__.py exists
+    init_file = target_dir / "__init__.py"
+    if not init_file.exists():
+        init_file.touch()
+        synced_count += 1
+
+    if synced_count > 0:
+        logger.info(f"Synced {synced_count} files to transformers modules cache: {target_dir}")
 
 
 class JinaVLMEngine:
@@ -41,10 +102,22 @@ class JinaVLMEngine:
         """Load the Jina VLM model and processor."""
         import torch
         from transformers import AutoModelForCausalLM, AutoProcessor
+        import transformers.dynamic_module_utils as dmu
 
-        from src.config import get_hf_endpoint, get_hf_model_cache_path
+        from src.config import get_data_dir, get_hf_endpoint, get_hf_model_cache_path
 
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
+
+        # Ensure HF_HOME is set so transformers uses the correct modules cache
+        hf_home = Path(os.getenv("HF_HOME", get_data_dir() / "models"))
+        os.environ["HF_HOME"] = str(hf_home)
+
+        # Monkey-patch the modules cache path if it differs from our expected path
+        # This is necessary because HF_MODULES_CACHE is determined at import time
+        expected_modules_cache = str(hf_home / "modules")
+        if dmu.HF_MODULES_CACHE != expected_modules_cache:
+            logger.info(f"Updating HF_MODULES_CACHE from {dmu.HF_MODULES_CACHE} to {expected_modules_cache}")
+            dmu.HF_MODULES_CACHE = expected_modules_cache
 
         hf_model_id = self.model_config.get("hf_model") or self.model_id
         logger.info(f"Loading Jina VLM model '{self.model_id}' (hf_model: {hf_model_id})...")
@@ -55,6 +128,11 @@ class JinaVLMEngine:
             model_path = str(local_model_dir)
             logger.info(f"Using locally downloaded model from {model_path}")
             extra_kwargs = {"local_files_only": True}
+
+            # Sync dynamic module files to transformers cache before loading
+            # This prevents FileNotFoundError when loading models with trust_remote_code
+            # that have Python files with relative imports to each other
+            _sync_dynamic_modules_to_cache(model_path)
         else:
             model_path = hf_model_id
             logger.info(f"Model not found locally, will download from HuggingFace: {model_path}")

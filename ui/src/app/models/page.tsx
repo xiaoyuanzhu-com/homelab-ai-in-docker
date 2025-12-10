@@ -180,7 +180,12 @@ export default function ModelsPage() {
                 <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No models available</TableCell>
               </TableRow>
             ) : (
-              models.map((m) => (
+              [...models].sort((a, b) => {
+                const taskA = a.tasks[0] ? getTaskDisplayName(a.tasks[0]) : "zzz";
+                const taskB = b.tasks[0] ? getTaskDisplayName(b.tasks[0]) : "zzz";
+                if (taskA !== taskB) return taskA.localeCompare(taskB);
+                return a.label.localeCompare(b.label);
+              }).map((m) => (
                 <React.Fragment key={m.id}>
                   <TableRow>
                     <TableCell className="font-medium">
