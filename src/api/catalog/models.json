@@ -211,6 +211,23 @@
       "platform_requirements": null
     },
     {
+      "id": "jinaai/jina-vlm",
+      "label": "jina-vlm",
+      "provider": "jinaai",
+      "tasks": ["image-captioning"],
+      "architecture": "jina-vlm",
+      "default_prompt": "Describe this image",
+      "supports_markdown": true,
+      "requires_quantization": false,
+      "requires_download": true,
+      "hf_model": "jinaai/jina-vlm",
+      "reference_url": "https://huggingface.co/jinaai/jina-vlm",
+      "size_mb": 4800,
+      "parameters_m": 2400,
+      "gpu_memory_mb": 5120,
+      "platform_requirements": "Requires trust_remote_code=True. Uses float16 or bfloat16 precision. Optional: flash-attn for GPU acceleration."
+    },
+    {
       "id": "unsloth/llava-1.5-7b-hf-bnb-4bit",
       "label": "llava-1.5-7b-hf-bnb-4bit",
       "provider": "unsloth",
@@ -397,6 +414,23 @@
       "parameters_m": 1000,
       "gpu_memory_mb": 10240,
       "platform_requirements": "Requires 10GB+ VRAM (vision transformer needs ~7GB during inference). Requires transformers from commit 82a06db (not yet in stable release): pip install git+https://github.com/huggingface/transformers@82a06db03535c49aa987719ed0746a76093b1ec4. Uses bfloat16. Supports multilingual OCR, document parsing, tables (HTML), formulas (LaTeX), and flowcharts (Mermaid)."
+    },
+    {
+      "id": "PaddlePaddle/PaddleOCR-VL",
+      "label": "PaddleOCR-VL",
+      "provider": "PaddlePaddle",
+      "tasks": ["image-ocr"],
+      "architecture": "paddleocr",
+      "default_prompt": null,
+      "supports_markdown": true,
+      "requires_quantization": false,
+      "requires_download": true,
+      "hf_model": "PaddlePaddle/PaddleOCR-VL",
+      "reference_url": "https://huggingface.co/PaddlePaddle/PaddleOCR-VL",
+      "size_mb": 2000,
+      "parameters_m": 1000,
+      "gpu_memory_mb": 4096,
+      "platform_requirements": "Requires PaddlePaddle 3.2.1+, paddleocr[doc-parser], and safetensors with Paddle support (pip install https://paddle-whl.bj.bcebos.com/nightly/cu126/safetensors/safetensors-0.6.2.dev0-cp38-abi3-linux_x86_64.whl). Uses bfloat16. Supports 109 languages, tables, formulas, charts, and markdown output."
     }
   ]
 }

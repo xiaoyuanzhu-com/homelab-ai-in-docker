@@ -7,6 +7,7 @@ Supports multiple architectures:
 - LLaVA-NeXT (llava_next)
 - DeepSeek VL (deepseek)
 - Moondream (moondream)
+- Jina VLM (jina-vlm)
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from PIL import Image
 
 from ..base import BaseWorker, create_worker_main
 from src.inference.deepseek_vl import DeepSeekVLEngine
+from src.inference.jina_vlm import JinaVLMEngine
 
 logger = logging.getLogger("captioning_worker")
 
@@ -58,6 +60,7 @@ class CaptioningWorker(BaseWorker):
         self._processor = None
         self._model_cfg: Dict[str, Any] = {}
         self._deepseek_engine: DeepSeekVLEngine | None = None
+        self._jina_vlm_engine: JinaVLMEngine | None = None
 
     def load_model(self) -> Any:
         """Load image captioning model."""
@@ -76,6 +79,9 @@ class CaptioningWorker(BaseWorker):
 
         if architecture == "moondream":
             return self._load_moondream()
+
+        if architecture == "jina-vlm":
+            return self._load_jina_vlm()
 
         # Other models use standard transformers loading
         return self._load_transformers_model()
@@ -122,6 +128,19 @@ class CaptioningWorker(BaseWorker):
 
         logger.info(f"Moondream model loaded successfully: {self.model_id}")
         return model
+
+    def _load_jina_vlm(self) -> Any:
+        """Load Jina VLM model using the shared engine."""
+        logger.info(f"Loading Jina VLM model for captioning: {self.model_id}")
+
+        self._jina_vlm_engine = JinaVLMEngine(
+            model_id=self.model_id,
+            model_config=self._model_cfg,
+        )
+        self._jina_vlm_engine.load()
+
+        # Return the model for compatibility with base worker
+        return self._jina_vlm_engine.model
 
     def _load_transformers_model(self) -> Any:
         """Load standard transformers vision model."""
@@ -215,6 +234,11 @@ class CaptioningWorker(BaseWorker):
             caption = self._deepseek_engine.predict(image, prompt)
             return {"caption": caption}
 
+        # Use Jina VLM engine if available
+        if self._jina_vlm_engine is not None:
+            caption = self._jina_vlm_engine.predict(image, prompt)
+            return {"caption": caption}
+
         # Check architecture for moondream
         architecture = self._model_cfg.get("architecture", "").lower()
         if architecture == "moondream":
@@ -227,12 +251,12 @@ class CaptioningWorker(BaseWorker):
         """Run inference with Moondream model.
 
         Moondream has its own API with caption() and query() methods.
-        - caption(): Generate image captions (short or normal length)
+        - caption(): Generate image captions (short, normal, or long)
         - query(): Answer visual questions about images
         """
         # If no prompt or a generic description prompt, use caption()
         if prompt is None or "describe" in prompt.lower():
-            result = self._model.caption(image, length="normal")
+            result = self._model.caption(image, length="long")
             caption = result["caption"]
         else:
             # Use query() for specific questions
@@ -285,6 +309,10 @@ class CaptioningWorker(BaseWorker):
         if self._deepseek_engine is not None:
             self._deepseek_engine.cleanup()
             self._deepseek_engine = None
+
+        if self._jina_vlm_engine is not None:
+            self._jina_vlm_engine.cleanup()
+            self._jina_vlm_engine = None
 
         if self._processor is not None:
             del self._processor

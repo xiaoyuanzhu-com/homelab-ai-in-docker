@@ -68,11 +68,11 @@ def _ensure_paddleocr_vl_dtype_patch() -> bool:
             logger.debug("Paddle not available for PaddleOCR-VL dtype patch: %s", exc)
             return False
 
-        def _patched_convert(state_dict, model_to_load, _orig=convert_fn):
+        def _patched_convert(state_dict, model_to_load, *args, _orig=convert_fn, **kwargs):
             try:
                 reference_state = model_to_load.state_dict()
             except Exception:  # pragma: no cover - fallback to original
-                return _orig(state_dict, model_to_load)
+                return _orig(state_dict, model_to_load, *args, **kwargs)
 
             for param_name, ref_tensor in reference_state.items():
                 candidate = state_dict.get(param_name)
@@ -100,7 +100,7 @@ def _ensure_paddleocr_vl_dtype_patch() -> bool:
                                 ref_tensor.dtype,
                             )
                         state_dict[param_name] = converted
-            return _orig(state_dict, model_to_load)
+            return _orig(state_dict, model_to_load, *args, **kwargs)
 
         module._convert_state_dict_dtype_and_shape = _patched_convert
         if load_state_fn is not None:
