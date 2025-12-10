@@ -2,97 +2,139 @@
 
 ## Goals
 
-1. **Migrate all AI tasks to worker subprocess pattern** - Uniform architecture
+1. **All AI inference in worker subprocesses** - Uniform architecture, clean separation
 2. **GPU memory protection** - Coordinator ensures only one GPU-heavy operation at a time
-3. **Worker lingering** - Keep workers alive for 60s after task completion for better perf
-4. **Multi-env support** - Workers can use different Python environments for conflicting dependencies
-
-## Current State
-
-| Task | Current Pattern | Worker Needed |
-|------|----------------|---------------|
-| image-ocr | Worker subprocess | ✅ Already done |
-| text-to-embedding | In-process + coordinator | ✅ Migrate |
-| image-captioning | In-process + coordinator | ✅ Migrate |
-| text-generation | In-process + coordinator | ✅ Migrate |
-| automatic-speech-recognition | In-process + coordinator | ✅ Migrate |
-| speaker-diarization | In-process + coordinator | ✅ Migrate |
+3. **Worker lingering** - Keep workers alive for 60s after task completion
+4. **Multi-env support** - Workers use isolated Python environments per framework/constraint
+5. **Lean main process** - API server has no ML dependencies, just coordination
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         Main Process (.venv)                            │
+│                    Main Process (main env - lean)                       │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                      FastAPI Application                          │   │
-│  │  /api/image-ocr, /api/text-to-embedding, /api/asr, etc.          │   │
-│  └───────────────────────────────┬──────────────────────────────────┘   │
-│                                  │                                       │
-│                                  ▼                                       │
+│  │                      FastAPI Application                         │   │
+│  │  /api/image-ocr, /api/text-to-embedding, /api/asr, etc.         │   │
+│  └───────────────────────────────┬─────────────────────────────────┘   │
+│                                  │                                      │
+│                                  ▼                                      │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                    WorkerCoordinator                             │   │
-│  │                                                                   │   │
-│  │  - Serializes GPU access (only one worker active at a time)      │   │
-│  │  - Manages worker lifecycle (spawn, reuse, terminate)            │   │
-│  │  - Routes requests to appropriate workers                        │   │
-│  │  - Handles worker health monitoring                              │   │
-│  └───────────────────────────────┬──────────────────────────────────┘   │
-│                                  │                                       │
-└──────────────────────────────────┼───────────────────────────────────────┘
+│  │              WorkerCoordinator + EnvironmentManager              │   │
+│  │                                                                  │   │
+│  │  - Serializes GPU access (one worker active at a time)          │   │
+│  │  - Ensures worker env is installed before spawning              │   │
+│  │  - Manages worker lifecycle (spawn, reuse, terminate)           │   │
+│  └───────────────────────────────┬─────────────────────────────────┘   │
+│                                  │                                      │
+└──────────────────────────────────┼──────────────────────────────────────┘
                                    │ spawns / HTTP
           ┌────────────────────────┼────────────────────────┐
           ▼                        ▼                        ▼
 ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
 │  OCR Worker      │    │  Embedding       │    │  ASR Worker      │
-│  (.venv-deepseek)│    │  Worker (.venv)  │    │  (.venv)         │
-│                  │    │                  │    │                  │
+│  (paddle env)    │    │  Worker          │    │  (whisper env)   │
+│                  │    │  (transformers)  │    │                  │
 │  localhost:PORT1 │    │  localhost:PORT2 │    │  localhost:PORT3 │
-│  /healthz        │    │  /healthz        │    │  /healthz        │
-│  /infer          │    │  /infer          │    │  /infer          │
-│  /shutdown       │    │  /shutdown       │    │  /shutdown       │
 └──────────────────┘    └──────────────────┘    └──────────────────┘
 ```
 
-## Key Components
+## Environment System
 
-### 1. WorkerCoordinator (replaces ModelCoordinator)
+### Main Env (API only)
 
-Location: `src/services/worker_coordinator.py`
+The main environment is lean - just the API server with no ML dependencies:
 
-```python
-class WorkerCoordinator:
-    """
-    Centralized coordinator for all AI workers.
+- `fastapi`, `uvicorn`, `pydantic`, `httpx`
+- `psutil`, `nvidia-ml-py` (hardware info)
+- `mcp` (MCP server)
+- `crawl4ai`, `playwright` (web crawling - runs in-process)
+- `markitdown`, `screenitshot` (document conversion)
 
-    Responsibilities:
-    - Serialize GPU access (mutex across all workers)
-    - Manage worker lifecycle
-    - Route requests to correct worker
-    - Handle worker pool and reuse
-    """
+**No torch, transformers, paddleocr, whisperx, etc.**
 
-    def __init__(
-        self,
-        max_concurrent_workers: int = 1,  # GPU serialization
-        worker_idle_timeout: int = 60,    # Keep warm for 60s
-        worker_startup_timeout: int = 120,
-    ):
-        self._gpu_lock = asyncio.Lock()  # Only one GPU operation at a time
-        self._workers: Dict[str, WorkerHandle] = {}
-        self._worker_lock = asyncio.Lock()
-        ...
+### Worker Environments
+
+Each environment has an ID that models reference in their manifest:
+
+| Env ID | Models | Key Dependencies | Reason |
+|--------|--------|------------------|--------|
+| `transformers` | MinerU, Jina-VLM, Moondream, Jina-Embed, Qwen-Embed, Gemma, Qwen-Text | torch, transformers>=4.51, sentence-transformers, accelerate, flash-attn | Standard HF/PyTorch stack |
+| `deepseek` | DeepSeek-OCR (+ future DeepSeek models) | torch, transformers==4.47.1, flash-attn, bitsandbytes | Pinned old transformers |
+| `paddle` | PaddleOCR-VL, PP-OCRv5 | paddlepaddle-gpu, paddleocr, paddlex, custom safetensors | PaddlePaddle framework |
+| `whisper` | Whisper-v3, Whisper-turbo, WhisperX, pyannote/* | torch, whisperx, pyannote.audio, librosa, torchaudio | Audio processing stack |
+| `hunyuan` | HunyuanOCR | torch, transformers@git-commit | Unreleased transformers feature |
+
+### Model → Env Mapping
+
+Models declare their environment in `models.json`:
+
+```json
+{
+  "id": "deepseek-ai/DeepSeek-OCR",
+  "python_env": "deepseek"
+}
 ```
 
-**GPU Serialization Strategy:**
+Models without `python_env` default to `transformers`.
 
-The coordinator holds a `_gpu_lock` that MUST be acquired before:
-1. Spawning a new worker (which loads a model)
-2. Sending inference request to a worker
+### Directory Layout
 
-This ensures only one GPU-heavy operation happens at a time, preventing OOM.
+```
+homelab-ai-in-docker/
+├── pyproject.toml              # Main API (lean, no ML deps)
+├── .venv/                      # Main env
+│
+└── envs/
+    ├── transformers/           # Default HF/PyTorch worker env
+    │   ├── pyproject.toml
+    │   ├── .python-version     # 3.13
+    │   └── uv.lock
+    │
+    ├── deepseek/               # DeepSeek models
+    │   ├── pyproject.toml
+    │   ├── .python-version     # 3.12 (flash-attn wheel compat)
+    │   └── uv.lock
+    │
+    ├── paddle/                 # PaddlePaddle models
+    │   ├── pyproject.toml
+    │   ├── .python-version
+    │   └── uv.lock
+    │
+    ├── whisper/                # Audio/ASR models
+    │   ├── pyproject.toml
+    │   ├── .python-version
+    │   └── uv.lock
+    │
+    └── hunyuan/                # HunyuanOCR
+        ├── pyproject.toml
+        ├── .python-version
+        └── uv.lock
+```
 
-### 2. Worker Protocol
+### Why Standalone Projects (Not uv Workspaces)
+
+We use standalone projects because:
+- Workspaces share a single lockfile and require consistent dependencies
+- We need **conflicting versions** of the same package (e.g., different `transformers` versions)
+- See [uv docs](https://docs.astral.sh/uv/concepts/projects/workspaces/): "Workspaces are not suited for cases in which members have conflicting requirements"
+
+### On-Demand Environment Installation
+
+Environments are installed on first use:
+
+1. Request arrives for model requiring `whisper` env
+2. Coordinator checks if `envs/whisper/.venv` exists
+3. If not, runs `uv sync --frozen` in that directory
+4. Spawns worker once env is ready
+
+This enables:
+- Smaller Docker images (ship templates, not installed envs)
+- Pay-as-you-go disk usage
+- Fresh containers start fast, install envs on demand
+
+## Worker Protocol
 
 All workers expose the same HTTP interface:
 
@@ -103,7 +145,7 @@ POST /shutdown    -> Graceful shutdown request
 GET  /info        -> {"model": "...", "memory_mb": ..., "load_time_ms": ...}
 ```
 
-### 3. Worker Lifecycle
+## Worker Lifecycle
 
 ```
                     spawn
@@ -123,134 +165,20 @@ GET  /info        -> {"model": "...", "memory_mb": ..., "load_time_ms": ...}
                                TERMINATED
 ```
 
-**Worker lingering behavior (worker self-terminates):**
+**Worker lingering:** Workers self-terminate after 60s idle. The coordinator observes worker state and spawns new workers when needed.
 
-Workers manage their own idle timeout (same pattern as existing OCR worker in `src/worker/image_ocr_worker.py`):
+## GPU Memory Protection
 
-1. Worker updates `last_active` timestamp after each inference
-2. Worker runs an internal watchdog timer
-3. If new request arrives before timeout → reset timer, process request
-4. If timeout expires → worker calls `os._exit(0)` to fully release GPU context
+**Problem:** Multiple workers loading models simultaneously causes OOM.
 
-The coordinator does NOT manage idle timeouts. It only:
-- Observes worker state (`proc.poll()` to detect exit)
-- Cleans up stale worker handles
-- Spawns new workers when needed
+**Solution:** Single `asyncio.Lock` in coordinator. Acquired before:
+- Spawning a new worker (model loading)
+- Sending inference request
 
-**Coordinator side:**
-
-1. Before inference: acquire `_gpu_lock`
-2. Check if worker exists and is alive (`proc.poll() is None`)
-3. If not, spawn new worker (still holding lock)
-4. Send `/infer` request
-5. Release `_gpu_lock` after response received
-
-### 4. Base Worker Class
-
-Location: `src/worker/base_worker.py`
-
-```python
-class BaseWorker(ABC):
-    """Base class for all inference workers."""
-
-    def __init__(self, model_id: str, port: int, idle_timeout: int = 60):
-        self.model_id = model_id
-        self.port = port
-        self.idle_timeout = idle_timeout
-        self._last_active = time.time()
-        self._idle_task: Optional[asyncio.Task] = None
-        self._model = None
-
-    @abstractmethod
-    async def load_model(self) -> None:
-        """Load the model into memory. Called once at startup."""
-        pass
-
-    @abstractmethod
-    async def infer(self, request: dict) -> dict:
-        """Run inference on the loaded model."""
-        pass
-
-    def cleanup(self) -> None:
-        """Cleanup resources. Called before shutdown."""
-        if self._model is not None:
-            del self._model
-            self._model = None
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-```
-
-### 5. Worker Manager (per-task type)
-
-Each task type has a manager that knows how to spawn and configure workers:
-
-```python
-# src/worker/managers/embedding_worker_manager.py
-class EmbeddingWorkerManager(BaseWorkerManager):
-    """Manages embedding workers."""
-
-    def get_worker_module(self) -> str:
-        return "src.worker.workers.embedding_worker"
-
-    def get_python_env(self, model_config: dict) -> str:
-        # Most embedding models use main env
-        return model_config.get("python_env", None)
-```
-
-## Interface Contracts
-
-### Main Process → Coordinator
-
-```python
-# Usage from routers
-from src.services.worker_coordinator import coordinator
-
-@router.post("/text-to-embedding")
-async def embed_text(request: EmbeddingRequest):
-    result = await coordinator.infer(
-        task="embedding",
-        model_id=request.model,
-        payload={"texts": request.texts},
-    )
-    return EmbeddingResponse(embeddings=result["embeddings"], ...)
-```
-
-### Coordinator → Worker
-
-```python
-@dataclass
-class InferRequest:
-    """Standard inference request to worker."""
-    payload: dict       # Task-specific data
-    request_id: str     # For tracking
-
-@dataclass
-class InferResponse:
-    """Standard inference response from worker."""
-    result: dict        # Task-specific result
-    request_id: str
-    processing_time_ms: int
-    model: str
-```
-
-### Worker Internal
-
-```python
-# Worker receives HTTP POST to /infer
-{
-    "payload": {"texts": ["hello", "world"]},
-    "request_id": "uuid"
-}
-
-# Worker responds
-{
-    "result": {"embeddings": [[0.1, 0.2, ...], ...]},
-    "request_id": "uuid",
-    "processing_time_ms": 150,
-    "model": "sentence-transformers/all-MiniLM-L6-v2"
-}
-```
+**Constraint:** Requires single Uvicorn worker (`--workers 1`). Acceptable because:
+- Single GPU = single bottleneck
+- Model loading is expensive, can't parallelize
+- Homelab app doesn't need distributed locking complexity
 
 ## File Structure
 
@@ -260,6 +188,7 @@ src/
     __init__.py
     base.py                    # BaseWorker abstract class
     coordinator.py             # WorkerCoordinator (GPU serialization)
+    env_manager.py             # EnvironmentManager (on-demand install)
     protocol.py                # Shared request/response models
     utils.py                   # Port finding, process management
 
@@ -269,209 +198,10 @@ src/
       captioning_worker.py
       text_generation_worker.py
       asr_worker.py
-      ocr_worker.py           # Migrate from image_ocr_worker.py
+      ocr_worker.py
 ```
-
-**Migration mapping from current files:**
-
-| Current | New Location | Notes |
-|---------|--------------|-------|
-| `src/worker/manager.py` | `src/worker/coordinator.py` | Generalize OCRWorkerManager → WorkerCoordinator |
-| `src/worker/image_ocr_worker.py` | `src/worker/workers/ocr_worker.py` | Refactor to use BaseWorker |
-| `src/services/model_coordinator.py` | (removed) | Replaced by WorkerCoordinator |
-| Router in-process loading | (removed) | Routers call coordinator.infer() instead |
-
-## Migration Plan
-
-### Phase 1: Infrastructure
-
-1. Create `BaseWorker` and worker protocol
-2. Create `WorkerCoordinator` with GPU serialization
-3. Migrate existing `OCRWorkerManager` to new pattern
-
-### Phase 2: Migrate Tasks (one at a time)
-
-1. **text-to-embedding** (simplest, good test case)
-2. **image-captioning**
-3. **text-generation**
-4. **automatic-speech-recognition**
-5. **speaker-diarization**
-
-For each:
-1. Create worker in `src/worker/workers/`
-2. Update router to use coordinator
-3. Remove old in-process loading code
-4. Test thoroughly
-
-### Phase 3: Multi-env Support
-
-1. Add `python_env` to model configs in catalog
-2. Update worker spawning to use correct interpreter
-3. Create additional venvs for conflicting models
-
-See [Multi-Environment Support](#multi-environment-support) section for details.
-
-## Worker Idle Behavior (60s linger)
-
-**Why 60s?**
-
-- Most interactive use cases have < 60s between requests
-- Keeps model "warm" for better response times
-- Avoids repeated load times during active sessions
-- 60s is long enough for user workflows, short enough to free resources
-
-**Implementation:**
-
-```python
-# In worker
-async def _idle_watchdog(self):
-    while True:
-        await asyncio.sleep(1)
-        idle_time = time.time() - self._last_active
-        if idle_time >= self.idle_timeout:
-            logger.info(f"Worker idle for {idle_time:.1f}s, shutting down")
-            await self._shutdown()
-            break
-
-# After each inference
-self._last_active = time.time()
-```
-
-**Coordinator tracking:**
-
-```python
-@dataclass
-class WorkerHandle:
-    model_key: str
-    port: int
-    proc: subprocess.Popen
-    state: WorkerState  # STARTING, READY, BUSY, TERMINATED
-    last_active: float
-
-    def is_alive(self) -> bool:
-        return self.proc.poll() is None
-```
-
-## GPU Memory Protection
-
-**Problem:** If two workers try to load models simultaneously, GPU runs out of memory.
-
-**Solution:** In-process `asyncio.Lock` in the coordinator. Since ALL worker access goes through the single coordinator instance in the main process, a simple async lock is sufficient:
-
-```python
-class WorkerCoordinator:
-    def __init__(self):
-        self._gpu_lock = asyncio.Lock()  # Simple in-process lock
-        self._workers: Dict[str, WorkerHandle] = {}
-
-    async def infer(self, task: str, model_id: str, payload: dict) -> dict:
-        async with self._gpu_lock:
-            # Only one coroutine can be here at a time
-            # This serializes ALL GPU operations across ALL workers
-
-            # 1. Get or spawn worker (may load model → uses GPU)
-            worker = await self._ensure_worker(task, model_id)
-
-            # 2. Send inference request (uses GPU)
-            result = await self._send_request(worker, payload)
-
-            return result
-```
-
-**Why this works:**
-
-1. **Single coordinator instance** - All API routes call the same coordinator
-2. **asyncio.Lock is sufficient** - FastAPI runs in a single event loop, so async lock serializes all concurrent requests
-3. **No distributed locking needed** - Workers are subprocesses of main process, not separate services
-4. **Simple to reason about** - Same pattern as current `ModelCoordinator`
-
-**Deployment constraint:**
-
-This requires running with a single Uvicorn worker (`--workers 1`, which is the default). Multi-worker deployment (e.g., `--workers 4`) would break the in-process lock. This is acceptable because:
-- Single GPU = single bottleneck (no benefit from multiple API workers)
-- Model loading is expensive, can't have N workers each loading models
-- Complexity of cross-process locking isn't worth it for a homelab app
-
-**Lock scope:**
-
-The lock is held during:
-- Worker spawn (model loading)
-- Inference request
-
-This prevents:
-- Two models loading simultaneously → OOM
-- Inference while another model is loading → OOM
-- Memory fragmentation from concurrent operations
-
-**Future optimization:** Could release lock after spawn if model supports concurrent inference (worker handles its own batching).
-
-## Error Handling
-
-### Worker Crash
-
-```python
-async def _ensure_worker(self, task: str, model_id: str) -> WorkerHandle:
-    key = f"{task}:{model_id}"
-    worker = self._workers.get(key)
-
-    # Check if worker is still alive
-    if worker and not worker.is_alive():
-        logger.warning(f"Worker {key} crashed, removing")
-        self._workers.pop(key)
-        worker = None
-
-    if worker is None:
-        worker = await self._spawn_worker(task, model_id)
-        self._workers[key] = worker
-
-    return worker
-```
-
-### Request Timeout
-
-Use stdlib `urllib` (like existing OCR manager) or `httpx` for async HTTP:
-
-```python
-async def _send_request(self, worker: WorkerHandle, payload: dict) -> dict:
-    """Send inference request to worker via HTTP."""
-    import json
-    from urllib import request as urlrequest
-    from urllib.error import HTTPError, URLError
-
-    url = f"http://127.0.0.1:{worker.port}/infer"
-    data = json.dumps(payload).encode()
-
-    def _do_request():
-        req = urlrequest.Request(
-            url, data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urlrequest.urlopen(req, timeout=300) as resp:
-            return json.loads(resp.read().decode())
-
-    try:
-        return await asyncio.to_thread(_do_request)
-    except TimeoutError:
-        # Kill the worker - it's stuck
-        await self._terminate_worker(worker)
-        raise TimeoutError(f"Worker inference timed out after 300s")
-```
-
-This matches the existing pattern in `src/worker/manager.py` and avoids adding new dependencies.
 
 ## Configuration
-
-Settings stored via `src/db/settings.py` (SQLite-backed):
-
-```python
-from src.db.settings import get_setting_int
-
-# Read settings (with defaults)
-idle_timeout = get_setting_int("worker_idle_timeout_seconds", 60)
-startup_timeout = get_setting_int("worker_startup_timeout_seconds", 120)
-request_timeout = get_setting_int("worker_request_timeout_seconds", 300)
-```
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -479,203 +209,66 @@ request_timeout = get_setting_int("worker_request_timeout_seconds", 300)
 | `worker_startup_timeout_seconds` | 120 | Max time to wait for worker `/healthz` |
 | `worker_request_timeout_seconds` | 300 | Max time for a single inference request |
 
-## Monitoring
+## API Endpoints
 
-### Health endpoint enhancement
+### Environment Management
+
+```
+GET  /api/environments              # List all envs and status
+GET  /api/environments/{env_id}     # Get specific env status
+POST /api/environments/{env_id}/install  # Pre-install an env
+DELETE /api/environments/{env_id}   # Delete to free disk space
+```
+
+### Health Endpoint
 
 ```json
 GET /api/health
 {
     "status": "healthy",
     "workers": {
-        "embedding:all-MiniLM-L6-v2": {
+        "embedding:jina-embeddings-v3": {
             "state": "READY",
+            "env": "transformers",
             "port": 50001,
-            "idle_seconds": 12.5,
-            "memory_mb": 450
-        },
-        "ocr:DeepSeek-OCR": {
-            "state": "READY",
-            "port": 50002,
-            "idle_seconds": 3.2,
-            "memory_mb": 8500
+            "idle_seconds": 12.5
         }
     },
-    "gpu_lock_held": false
+    "environments": {
+        "transformers": {"status": "ready", "size_mb": 2500},
+        "whisper": {"status": "not_installed"},
+        "paddle": {"status": "installing"}
+    }
 }
 ```
 
-Workers can report memory via `/info` endpoint using:
+## Docker Strategy
 
-```python
-def get_gpu_memory_mb() -> float:
-    """Get GPU memory used by this process."""
-    if torch.cuda.is_available():
-        return torch.cuda.memory_allocated() / 1024 / 1024
-    return 0.0
-```
-
-## Testing
-
-1. **Unit tests:** Worker base class, coordinator logic
-2. **Integration tests:** Full request flow through coordinator
-3. **Load tests:** Concurrent requests to verify serialization
-4. **Memory tests:** Verify OOM doesn't happen with sequential loads
-
-## Multi-Environment Support
-
-Some AI models have conflicting Python dependency requirements:
-
-| Model | transformers requirement |
-|-------|-------------------------|
-| DeepSeek-OCR | ==4.47.1 (uses `LlamaFlashAttention2`) |
-| MinerU | >=4.56.0 |
-| HunyuanOCR | git commit (not in stable release) |
-| Most others | >=4.51.0 |
-
-Since workers are subprocesses communicating via HTTP, each can use a different Python interpreter.
-
-### Why Not uv Workspaces?
-
-We use **standalone projects** instead of uv workspaces because:
-
-- Workspaces share a single lockfile and require consistent dependencies across all members
-- We need **conflicting versions** of the same package (e.g., different `transformers` versions)
-- See [uv workspace docs](https://docs.astral.sh/uv/concepts/projects/workspaces/): "Workspaces are not suited for cases in which members have conflicting requirements"
-
-### Environment Layout
-
-Each sub-environment is a standalone uv project with its own `pyproject.toml` and `.venv`:
-
-```
-homelab-ai-in-docker/
-├── pyproject.toml          # Main project
-├── .venv/                  # Main env (Python 3.13)
-│
-└── envs/
-    └── deepseek-ocr/
-        ├── pyproject.toml  # Standalone project (NOT a workspace member)
-        ├── uv.lock         # Own lockfile
-        ├── .venv/          # Own venv (Python 3.12)
-        └── .python-version # Pin Python version
-```
-
-### How uv Finds the Right Environment
-
-`uv run` searches for `.venv` in the following order:
-1. `VIRTUAL_ENV` environment variable
-2. `CONDA_PREFIX` environment variable
-3. `.venv` in current directory or nearest parent
-
-This means:
-```bash
-# From project root - uses main .venv
-cd /path/to/homelab-ai-in-docker
-uv run python -c "import transformers; print(transformers.__version__)"
-# → 4.57.1
-
-# From sub-env directory - uses its own .venv
-cd envs/deepseek-ocr
-uv run python -c "import transformers; print(transformers.__version__)"
-# → 4.47.1
-```
-
-### Model Configuration
-
-In the models database (via `src/db/catalog.py`), add `python_env` field:
-
-```json
-{
-  "id": "deepseek-ai/DeepSeek-OCR",
-  "architecture": "deepseek",
-  "python_env": "deepseek-ocr"
-}
-```
-
-### Spawning Workers with Correct Environment
-
-The coordinator spawns workers using `uv run` with the correct working directory:
-
-```python
-def _spawn_worker(self, task: str, model_config: dict) -> subprocess.Popen:
-    """Spawn a worker subprocess with the correct Python environment."""
-    env_name = model_config.get("python_env")
-
-    if env_name:
-        # Use sub-environment
-        cwd = Path(f"envs/{env_name}")
-    else:
-        # Use main environment
-        cwd = Path(".")
-
-    return subprocess.Popen(
-        ["uv", "run", "python", "-m", "src.worker.workers.ocr_worker", ...],
-        cwd=cwd,
-    )
-```
-
-### Creating Additional Environments
-
-Each sub-environment is a standalone uv project. Create with:
-
-```bash
-# 1. Create directory structure
-mkdir -p envs/deepseek-ocr
-cd envs/deepseek-ocr
-
-# 2. Initialize as standalone project (NOT workspace member)
-uv init --name deepseek-ocr-worker --no-workspace
-
-# 3. Set Python version (must match available flash-attn wheels)
-echo "3.12" > .python-version
-
-# 4. Configure PyTorch CUDA index in pyproject.toml
-# Add [[tool.uv.index]] and [tool.uv.sources] sections
-
-# 5. Add dependencies
-uv add 'torch==2.8.0' 'torchvision==0.23.0' 'torchaudio==2.8.0'
-uv add 'transformers==4.47.1'
-uv add 'flash-attn>=2.8.3'  # Uses URL from [tool.uv.sources]
-uv add 'accelerate>=0.20.0' 'bitsandbytes>=0.41.0' ...
-
-# 6. Verify
-uv run python -c "import transformers; print(transformers.__version__)"
-# → 4.47.1
-```
-
-**Key points:**
-- Use `--no-workspace` flag to prevent uv from adding to parent workspace
-- Pin Python version via `.python-version` file
-- Configure custom indexes in `pyproject.toml` before adding packages
-- All dependencies managed via `uv add` for proper lockfile generation
-
-### Docker Strategy
-
-**Option A: Host/dev only (recommended initially)**
-
-Keep Docker simple (single env). Models requiring alternate envs marked as "host-only" in catalog.
-
-**Option B: Multi-venv in Docker**
+**Lean image approach:**
+- Docker image contains only main env + env templates (~1GB vs ~10GB+)
+- Worker environments installed on-demand to data volume
+- First request for new env takes 1-2 min (install), subsequent requests are fast
 
 ```dockerfile
-# Copy sub-environment project files
-COPY envs/deepseek-ocr/pyproject.toml envs/deepseek-ocr/uv.lock /app/envs/deepseek-ocr/
-COPY envs/deepseek-ocr/.python-version /app/envs/deepseek-ocr/
+# Copy only API server dependencies
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen
 
-# Sync sub-environment (creates .venv and installs deps)
-RUN cd /app/envs/deepseek-ocr && uv sync
+# Copy environment templates (pyproject.toml + uv.lock only, no .venv)
+COPY envs/ ./envs/
+
+# Envs installed to data volume on demand
+ENV HAID_ENVS_DIR=/haid/data/envs
 ```
 
-### When to Add a New Environment
+## When to Add a New Environment
 
-Add a new env only when:
-
-1. A model has **hard conflicts** with the main env (different version of same package)
-2. The conflict **cannot be resolved** by updating the main env
-3. The model is **worth supporting** despite the overhead
+Add a new env when:
+1. Model has **hard conflicts** with existing envs (different version of same package)
+2. Conflict **cannot be resolved** by updating an existing env
+3. Model is **worth supporting** despite the overhead
 
 Don't add a new env for:
-
-- Models that work with the main env
+- Models that work with an existing env
 - Models with optional dependencies (mark as unavailable if deps missing)
 - Experimental models you're just testing
