@@ -10,7 +10,6 @@ Handles:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import os
 import shutil
@@ -168,14 +167,7 @@ class EnvironmentManager:
             )
 
         # Check if template has changed since installation
-        template_hash = self._compute_template_hash(template_dir)
-        installed_hash = self._get_installed_hash(env_id)
-        # Outdated if we have a hash AND it differs (missing hash = legacy install, treat as OK)
-        is_outdated = installed_hash is not None and installed_hash != template_hash
-
-        # If no hash file exists (legacy install), create one to track future changes
-        if installed_hash is None:
-            self._save_installed_hash(env_id, template_hash)
+        is_outdated = self._is_template_changed(env_id)
 
         # Calculate size
         size_mb = self._get_dir_size_mb(venv_dir)
@@ -214,35 +206,29 @@ class EnvironmentManager:
         except Exception:
             return 0.0
 
-    def _compute_template_hash(self, template_dir: Path) -> str:
-        """Compute hash of pyproject.toml and uv.lock to detect changes."""
-        hasher = hashlib.sha256()
+    def _is_template_changed(self, env_id: str) -> bool:
+        """Check if template pyproject.toml differs from installed copy.
 
-        for filename in ["pyproject.toml", "uv.lock"]:
-            filepath = template_dir / filename
-            if filepath.exists():
-                hasher.update(filename.encode())
-                hasher.update(filepath.read_bytes())
+        Compares the template file directly with the copy in the data dir.
+        Returns False if no installed copy exists (new install, not outdated).
+        """
+        template_dir = self._get_template_dir(env_id)
+        template_pyproject = template_dir / "pyproject.toml"
 
-        return hasher.hexdigest()[:16]  # Short hash is enough
+        # Get the installed pyproject.toml location
+        if self.data_envs_dir:
+            installed_pyproject = self.data_envs_dir / env_id / "pyproject.toml"
+        else:
+            # Local dev mode - template IS the installed location
+            return False
 
-    def _get_installed_hash_file(self, env_id: str) -> Path:
-        """Get path to the file storing the installed template hash."""
-        venv_dir = self._get_venv_dir(env_id)
-        return venv_dir.parent / ".template_hash"
+        if not installed_pyproject.exists():
+            return False  # Not installed yet, not "outdated"
 
-    def _get_installed_hash(self, env_id: str) -> Optional[str]:
-        """Get the hash of the template used for the current installation."""
-        hash_file = self._get_installed_hash_file(env_id)
-        if hash_file.exists():
-            return hash_file.read_text().strip()
-        return None
+        if not template_pyproject.exists():
+            return False  # No template to compare
 
-    def _save_installed_hash(self, env_id: str, template_hash: str) -> None:
-        """Save the template hash after successful installation."""
-        hash_file = self._get_installed_hash_file(env_id)
-        hash_file.parent.mkdir(parents=True, exist_ok=True)
-        hash_file.write_text(template_hash)
+        return template_pyproject.read_bytes() != installed_pyproject.read_bytes()
 
     def list_environments(self) -> Dict[str, EnvInfo]:
         """
@@ -380,10 +366,6 @@ class EnvironmentManager:
 
             progress.success = True
             logger.info(f"Environment '{env_id}' installed in {duration:.1f}s")
-
-            # Save template hash to detect future changes
-            template_hash = self._compute_template_hash(template_dir)
-            self._save_installed_hash(env_id, template_hash)
 
             return self.get_env_status(env_id)
 

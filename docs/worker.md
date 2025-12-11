@@ -134,6 +134,19 @@ This enables:
 - Pay-as-you-go disk usage
 - Fresh containers start fast, install envs on demand
 
+### Automatic Environment Updates
+
+When you update an environment template (e.g., add a dependency to `envs/transformers/pyproject.toml`), deployed Docker services auto-sync on next use:
+
+1. New Docker image deployed with updated `pyproject.toml` in template
+2. Request arrives for model in that env
+3. Coordinator compares template `pyproject.toml` with installed copy
+4. If different → status is `OUTDATED` → triggers reinstall
+5. `uv sync --frozen` runs, updating the installed copy
+6. Worker spawns with new dependencies
+
+**No user interaction required.** The comparison is a simple byte comparison of `pyproject.toml` files - the installed copy in the data volume vs the template in the Docker image.
+
 ## Worker Protocol
 
 All workers expose the same HTTP interface:
@@ -237,7 +250,8 @@ GET /api/health
     "environments": {
         "transformers": {"status": "ready", "size_mb": 2500},
         "whisper": {"status": "not_installed"},
-        "paddle": {"status": "installing"}
+        "paddle": {"status": "installing"},
+        "deepseek": {"status": "outdated", "size_mb": 1800}
     }
 }
 ```
