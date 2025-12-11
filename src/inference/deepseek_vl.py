@@ -199,9 +199,9 @@ class DeepSeekVLEngine:
                 prompt=prompt,
                 image_file=tmp_img,
                 output_path=td,
-                base_size=1024,
+                base_size=640,
                 image_size=640,
-                crop_mode=True,
+                crop_mode=False,
                 save_results=False,
                 test_compress=False,
                 eval_mode=True,  # Required to get return value instead of streaming
