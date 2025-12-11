@@ -292,10 +292,21 @@ class OCRInferenceEngine:
                     paddleocr_vl_cls.__name__,
                 )
 
+                # Check GPU availability for PaddleOCR-VL
+                try:
+                    import paddle
+                    has_gpu = (
+                        paddle.device.is_compiled_with_cuda()
+                        and paddle.device.cuda.device_count() > 0
+                    )
+                    device = "gpu:0" if has_gpu else "cpu"
+                except Exception:
+                    device = "cpu"
+
                 # PaddleOCR-VL models provide built-in multilingual support and
                 # expose markdown-friendly outputs via the paddlex pipeline.
-                self.model = paddleocr_vl_cls()
-                logger.info("PaddleOCR-VL loaded successfully (supports markdown output)")
+                self.model = paddleocr_vl_cls(device=device)
+                logger.info(f"PaddleOCR-VL loaded successfully on {device} (supports markdown output)")
             else:
                 from paddleocr import PaddleOCR
                 logger.info(f"Loading legacy PaddleOCR model '{self.model_id}'...")
@@ -546,7 +557,13 @@ class OCRInferenceEngine:
         try:
             if is_vl_model:
                 # PaddleOCR-VL: Use predict() method which returns result objects
-                output = self.model.predict(tmp_path)
+                # Limit image resolution to reduce GPU memory usage
+                # min_pixels=256*28*28 (~200k), max_pixels=1280*28*28 (~1M) for ~8GB VRAM
+                output = self.model.predict(
+                    tmp_path,
+                    min_pixels=256 * 28 * 28,
+                    max_pixels=1280 * 28 * 28,
+                )
 
                 if self.output_format == "markdown":
                     # Extract markdown content from result objects
