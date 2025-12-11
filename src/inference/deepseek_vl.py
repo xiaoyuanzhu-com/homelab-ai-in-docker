@@ -78,8 +78,13 @@ class DeepSeekVLEngine:
                 logger.info("flash-attn not installed, using eager attention")
 
             # Load model
+            # Use device_map="cuda" instead of "auto" because the DeepSeek model's
+            # infer() method explicitly calls .cuda() on tensors and assumes the
+            # entire model is on GPU. With "auto", some layers may be placed on CPU
+            # causing device mismatch errors during generation.
+            device = "cuda" if torch.cuda.is_available() else "cpu"
             load_kwargs = {
-                "device_map": "auto",
+                "device_map": device,
                 "_attn_implementation": attn_implementation,
                 "use_safetensors": True,
                 "trust_remote_code": True,
