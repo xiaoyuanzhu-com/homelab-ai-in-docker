@@ -267,10 +267,10 @@
       "hf_model": "PaddlePaddle/PaddleOCR-VL",
       "reference_url": "https://huggingface.co/PaddlePaddle/PaddleOCR-VL",
       "size_mb": 2000,
-      "parameters_m": 1000,
-      "gpu_memory_mb": 4096,
-      "platform_requirements": "Requires PaddlePaddle 3.2.1+, paddleocr[doc-parser], and safetensors with Paddle support (pip install https://paddle-whl.bj.bcebos.com/nightly/cu126/safetensors/safetensors-0.6.2.dev0-cp38-abi3-linux_x86_64.whl). Uses bfloat16. Supports 109 languages, tables, formulas, charts, and markdown output.",
-      "python_env": "paddle"
+      "parameters_m": 900,
+      "gpu_memory_mb": 3500,
+      "platform_requirements": "Uses transformers backend with flash_attention_2 for 12x memory reduction (~3.3GB vs ~40GB). Optional: pip install flash-attn for best performance. Supports 109 languages, tables, formulas, charts, and markdown output.",
+      "python_env": "transformers"
     }
   ]
 }

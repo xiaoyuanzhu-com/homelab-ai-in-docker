@@ -1,6 +1,5 @@
 """Unified OCR inference module supporting multiple architectures."""
 
-import importlib
 import logging
 from typing import Any, Dict, Optional, TYPE_CHECKING
 from PIL import Image
@@ -11,214 +10,6 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
-
-
-_PADDLEOCR_VL_DTYPE_PATCHED = False
-_PADDLEOCR_VL_CLASS = None
-
-
-def _ensure_paddleocr_vl_dtype_patch() -> bool:
-    """
-    Ensure PaddleOCR-VL checkpoints in bfloat16 can load on float32 targets.
-
-    Recent PaddleOCR-VL releases publish bfloat16 weights (especially via
-    HuggingFace). When PaddleX constructs the DocVLM models on CPU it expects
-    float32 tensors and the stock loader does not promote bfloat16 tensors,
-    leading to assertions such as:
-        AssertionError: Variable dtype not match, Variable [...] need tensor
-        with dtype paddle.float32 but load tensor with dtype paddle.bfloat16
-
-    We monkey-patch PaddleX's `_convert_state_dict_dtype_and_shape` helper so
-    checkpoints are promoted to the destination dtype when needed.
-
-    Returns:
-        bool: True if the patch was applied (or already active), False otherwise.
-    """
-    global _PADDLEOCR_VL_DTYPE_PATCHED
-
-    if _PADDLEOCR_VL_DTYPE_PATCHED:
-        return True
-
-    module_candidates = [
-        # PaddleX ≥3.0 ships its loader here.
-        "paddlex.inference.models.common.vlm.transformers.model_utils",
-        # Older preview builds used PaddleOCR's bundled copy.
-        "paddleocr._pipelines.utils.model_utils",
-    ]
-
-    for module_name in module_candidates:
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError:
-            continue
-
-        if getattr(module, "_haid_dtype_patch_applied", False):
-            _PADDLEOCR_VL_DTYPE_PATCHED = True
-            return True
-
-        convert_fn = getattr(module, "_convert_state_dict_dtype_and_shape", None)
-        load_fn = getattr(module, "_load_state_dict_into_model", None)
-        load_state_fn = getattr(module, "load_state_dict", None)
-        if convert_fn is None:
-            continue
-
-        try:
-            import paddle
-        except Exception as exc:  # pragma: no cover - defensive guard
-            logger.debug("Paddle not available for PaddleOCR-VL dtype patch: %s", exc)
-            return False
-
-        def _patched_convert(state_dict, model_to_load, *args, _orig=convert_fn, **kwargs):
-            try:
-                reference_state = model_to_load.state_dict()
-            except Exception:  # pragma: no cover - fallback to original
-                return _orig(state_dict, model_to_load, *args, **kwargs)
-
-            for param_name, ref_tensor in reference_state.items():
-                candidate = state_dict.get(param_name)
-                if candidate is None:
-                    continue
-                if not isinstance(candidate, paddle.Tensor):
-                    continue
-                if candidate.dtype != ref_tensor.dtype:
-                    try:
-                        converted = paddle.cast(candidate, dtype=ref_tensor.dtype)
-                    except Exception as cast_err:
-                        logger.warning(
-                            "PaddleOCR-VL dtype patch failed to cast %s from %s to %s: %s",
-                            param_name,
-                            candidate.dtype,
-                            ref_tensor.dtype,
-                            cast_err,
-                        )
-                    else:
-                        if str(candidate.dtype).lower().find("bfloat16") != -1:
-                            logger.debug(
-                                "PaddleOCR-VL dtype patch promoting %s from %s to %s",
-                                param_name,
-                                candidate.dtype,
-                                ref_tensor.dtype,
-                            )
-                        state_dict[param_name] = converted
-            return _orig(state_dict, model_to_load, *args, **kwargs)
-
-        module._convert_state_dict_dtype_and_shape = _patched_convert
-        if load_state_fn is not None:
-            orig_load_state = load_state_fn
-
-            def _patched_load_state_dict(*args, _orig=orig_load_state, **kwargs):
-                state_dict = _orig(*args, **kwargs)
-                try:
-                    for key, value in list(state_dict.items()):
-                        if not isinstance(value, paddle.Tensor):
-                            continue
-                        if str(value.dtype).lower().find("bfloat16") != -1:
-                            try:
-                                state_dict[key] = paddle.cast(value, paddle.float32)
-                                logger.debug(
-                                    "PaddleOCR-VL dtype patch promoting %s from %s to float32 (load_state)",
-                                    key,
-                                    value.dtype,
-                                )
-                            except Exception as cast_err:
-                                logger.warning(
-                                    "PaddleOCR-VL dtype load_state patch failed to cast %s: %s",
-                                    key,
-                                    cast_err,
-                                )
-                except Exception as err:
-                    logger.debug(
-                        "PaddleOCR-VL dtype load_state patch skipped due to: %s",
-                        err,
-                    )
-                return state_dict
-
-            module.load_state_dict = _patched_load_state_dict
-        if load_fn is not None:
-            orig_load_fn = load_fn
-
-            def _patched_load(model_to_load, state_dict, start_prefix, *args, _orig=orig_load_fn, **kwargs):
-                try:
-                    reference_state = model_to_load.state_dict()
-                except Exception:
-                    reference_state = None
-
-                try:
-                    for key, value in list(state_dict.items()):
-                        if not isinstance(value, paddle.Tensor):
-                            continue
-                        target_dtype = None
-                        if reference_state and key in reference_state:
-                            target_dtype = reference_state[key].dtype
-                        if target_dtype is None:
-                            target_dtype = paddle.float32
-                        if value.dtype != target_dtype:
-                            try:
-                                if str(value.dtype).lower().find("bfloat16") != -1:
-                                    logger.debug(
-                                        "PaddleOCR-VL dtype patch promoting %s from %s to %s (load wrapper)",
-                                        key,
-                                        value.dtype,
-                                        target_dtype,
-                                    )
-                                state_dict[key] = paddle.cast(value, target_dtype)
-                            except Exception as cast_err:
-                                logger.warning(
-                                    "PaddleOCR-VL dtype load wrapper failed to cast %s from %s to %s: %s",
-                                    key,
-                                    value.dtype,
-                                    target_dtype,
-                                    cast_err,
-                                )
-                except Exception as err:
-                    logger.debug("PaddleOCR-VL dtype load wrapper skipped due to: %s", err)
-
-                return _orig(model_to_load, state_dict, start_prefix, *args, **kwargs)
-
-            module._load_state_dict_into_model = _patched_load
-
-        module._haid_dtype_patch_applied = True
-        _PADDLEOCR_VL_DTYPE_PATCHED = True
-        logger.debug(
-            "Patched PaddleOCR-VL dtype conversion hook via module '%s'.", module_name
-        )
-        return True
-
-    logger.debug(
-        "Unable to locate PaddleOCR-VL dtype conversion hook; proceeding without patch."
-    )
-    return False
-
-
-def _resolve_paddleocr_vl_class():
-    """
-    Locate the PaddleOCR-VL wrapper class across PaddleOCR releases.
-
-    Returns:
-        type: The PaddleOCR-VL class exported by the installed PaddleOCR build.
-
-    Raises:
-        ImportError: If the class cannot be located.
-    """
-    global _PADDLEOCR_VL_CLASS
-
-    if _PADDLEOCR_VL_CLASS is not None:
-        return _PADDLEOCR_VL_CLASS
-
-    try:
-        module = importlib.import_module("paddleocr")
-    except ImportError as exc:
-        raise RuntimeError("PaddleOCR is not installed.") from exc
-
-    for attr_name in ("PaddleOCRVL", "DocVLM"):
-        candidate = getattr(module, attr_name, None)
-        if candidate is not None:
-            _PADDLEOCR_VL_CLASS = candidate
-            return candidate
-
-    raise RuntimeError(
-        "Unable to locate PaddleOCR-VL/DocVLM class in installed paddleocr package."
-    )
 
 
 class OCRInferenceEngine:
@@ -274,59 +65,107 @@ class OCRInferenceEngine:
             raise ValueError(f"Unsupported OCR architecture: {self.architecture}")
 
     def _load_paddleocr(self) -> None:
-        """Load PaddleOCR model."""
+        """Load PaddleOCR model.
+
+        For PaddleOCR-VL: Uses transformers backend with flash_attention_2 for
+        ~12x memory reduction (40GB -> 3.3GB) and ~6x speed improvement.
+        For legacy PaddleOCR: Uses native paddleocr package.
+        """
+        # Determine if this is PaddleOCR-VL (Vision-Language model) or legacy PaddleOCR
+        is_vl_model = "PaddleOCR-VL" in self.model_id or "paddleocr-vl" in self.model_id.lower()
+
+        if is_vl_model:
+            self._load_paddleocr_vl_transformers()
+        else:
+            self._load_paddleocr_legacy()
+
+    def _load_paddleocr_vl_transformers(self) -> None:
+        """Load PaddleOCR-VL using transformers with flash_attention_2.
+
+        This provides massive memory savings compared to the native paddleocr backend:
+        - Memory: ~3.3GB vs ~40GB (12x reduction)
+        - Speed: ~19s vs ~2min (6x faster)
+
+        Reference: https://huggingface.co/PaddlePaddle/PaddleOCR-VL/discussions/59
+        """
         try:
-            # Determine if this is PaddleOCR-VL (Vision-Language model) or legacy PaddleOCR
-            # PaddleOCR-VL supports markdown output via save_to_markdown() method
-            is_vl_model = "PaddleOCR-VL" in self.model_id or "paddleocr-vl" in self.model_id.lower()
+            from transformers import AutoModelForCausalLM, AutoProcessor
+            import torch
 
-            if is_vl_model:
-                patched = _ensure_paddleocr_vl_dtype_patch()
-                if patched:
-                    logger.debug("PaddleOCR-VL dtype compatibility patch enabled.")
+            logger.info(f"Loading PaddleOCR-VL model '{self.model_id}' via transformers...")
 
-                paddleocr_vl_cls = _resolve_paddleocr_vl_class()
-                logger.info(
-                    "Loading PaddleOCR-VL model '%s' using %s...",
-                    self.model_id,
-                    paddleocr_vl_cls.__name__,
-                )
+            # Check for local download at HF standard cache path
+            from src.config import get_hf_model_cache_path
+            local_model_dir = get_hf_model_cache_path(self.model_id)
 
-                # Check GPU availability for PaddleOCR-VL
-                try:
-                    import paddle
-                    has_gpu = (
-                        paddle.device.is_compiled_with_cuda()
-                        and paddle.device.cuda.device_count() > 0
-                    )
-                    device = "gpu:0" if has_gpu else "cpu"
-                except Exception:
-                    device = "cpu"
-
-                # PaddleOCR-VL models provide built-in multilingual support and
-                # expose markdown-friendly outputs via the paddlex pipeline.
-                self.model = paddleocr_vl_cls(device=device)
-                logger.info(f"PaddleOCR-VL loaded successfully on {device} (supports markdown output)")
+            if local_model_dir.exists() and (local_model_dir / "config.json").exists():
+                model_path = str(local_model_dir)
+                logger.info(f"Using locally downloaded model from {model_path}")
+                extra_kwargs = {"local_files_only": True}
             else:
-                from paddleocr import PaddleOCR
-                logger.info(f"Loading legacy PaddleOCR model '{self.model_id}'...")
+                model_path = self.model_id
+                logger.info(f"Model not found locally, will download from HuggingFace")
+                extra_kwargs = {}
 
-                # Determine language: request param > model config > default 'ch'
-                lang = self.language or self.model_config.get("language", "ch")
+            device = "cuda" if torch.cuda.is_available() else "cpu"
 
-                # Check GPU availability
+            # Try flash_attention_2 first (12x memory reduction), fallback to sdpa
+            attn_impl = "sdpa"  # Safe default
+            if device == "cuda":
                 try:
-                    import paddle
-                    has_gpu = (
-                        paddle.device.is_compiled_with_cuda()
-                        and paddle.device.cuda.device_count() > 0
-                    )
-                    device = "gpu:0" if has_gpu else "cpu"
-                except Exception:
-                    device = "cpu"
+                    import flash_attn
+                    attn_impl = "flash_attention_2"
+                    logger.info("Using flash_attention_2 for PaddleOCR-VL (12x memory reduction)")
+                except ImportError:
+                    logger.info("flash-attn not installed, using sdpa attention for PaddleOCR-VL")
 
-                self.model = PaddleOCR(lang=lang, device=device)
-                logger.info(f"Legacy PaddleOCR loaded with lang={lang}, device={device}")
+            # Load model with optimized settings
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                trust_remote_code=True,
+                torch_dtype=torch.bfloat16,
+                attn_implementation=attn_impl,
+                **extra_kwargs,
+            ).to(dtype=torch.bfloat16, device=device).eval()
+
+            # Load processor
+            self.processor = AutoProcessor.from_pretrained(
+                model_path,
+                trust_remote_code=True,
+                **extra_kwargs,
+            )
+
+            logger.info(f"PaddleOCR-VL loaded successfully on {device} with {attn_impl}")
+
+        except ImportError as e:
+            missing_pkg = str(e).split("'")[1] if "'" in str(e) else "unknown"
+            raise RuntimeError(
+                f"PaddleOCR-VL (transformers) dependencies not installed. Missing: {missing_pkg}. "
+                "Please install: pip install transformers torch"
+            )
+
+    def _load_paddleocr_legacy(self) -> None:
+        """Load legacy PaddleOCR model using native paddleocr package."""
+        try:
+            from paddleocr import PaddleOCR
+            logger.info(f"Loading legacy PaddleOCR model '{self.model_id}'...")
+
+            # Determine language: request param > model config > default 'ch'
+            lang = self.language or self.model_config.get("language", "ch")
+
+            # Check GPU availability
+            try:
+                import paddle
+                has_gpu = (
+                    paddle.device.is_compiled_with_cuda()
+                    and paddle.device.cuda.device_count() > 0
+                )
+                device = "gpu:0" if has_gpu else "cpu"
+            except Exception:
+                device = "cpu"
+
+            self.model = PaddleOCR(lang=lang, device=device)
+            logger.info(f"Legacy PaddleOCR loaded with lang={lang}, device={device}")
 
         except ImportError:
             raise RuntimeError(
@@ -543,99 +382,122 @@ class OCRInferenceEngine:
 
     def _predict_paddleocr(self, image: Image.Image) -> str:
         """Run PaddleOCR prediction."""
-        import tempfile
-        import os
-
         # Determine if this is PaddleOCR-VL or legacy PaddleOCR
         is_vl_model = "PaddleOCR-VL" in self.model_id or "paddleocr-vl" in self.model_id.lower()
 
-        # Both APIs expect file path
+        if is_vl_model:
+            return self._predict_paddleocr_vl_transformers(image)
+        else:
+            return self._predict_paddleocr_legacy(image)
+
+    def _predict_paddleocr_vl_transformers(self, image: Image.Image) -> str:
+        """Run PaddleOCR-VL prediction using transformers backend.
+
+        Supports task types: ocr, table, chart, formula
+        Reference: https://huggingface.co/PaddlePaddle/PaddleOCR-VL
+        """
+        import torch
+
+        # Map output_format to task prompts
+        # PaddleOCR-VL supports: OCR, Table Recognition, Chart Recognition, Formula Recognition
+        if self.output_format == "markdown":
+            # For markdown, use table recognition which outputs structured markdown
+            task_prompt = "Table Recognition:"
+        else:
+            task_prompt = "OCR:"
+
+        # Build messages in chat format
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image.convert("RGB")},
+                    {"type": "text", "text": task_prompt}
+                ]
+            }
+        ]
+
+        # Process inputs using the processor
+        inputs = self.processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+            return_tensors="pt"
+        )
+
+        # Move to model device
+        device = next(self.model.parameters()).device
+        inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
+
+        # Generate output
+        with torch.inference_mode():
+            output_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=2048,
+                do_sample=False,
+                use_cache=True
+            )
+
+        # Decode output
+        outputs = self.processor.batch_decode(output_ids, skip_special_tokens=True)[0]
+
+        # Extract just the response (after the prompt)
+        # The output typically includes the conversation, we want the model's response
+        if task_prompt in outputs:
+            outputs = outputs.split(task_prompt)[-1].strip()
+
+        return outputs
+
+    def _predict_paddleocr_legacy(self, image: Image.Image) -> str:
+        """Run legacy PaddleOCR prediction using native paddleocr package."""
+        import tempfile
+        import os
+
+        # Legacy PaddleOCR API expects file path
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
             image.save(tmp_file.name)
             tmp_path = tmp_file.name
 
         try:
-            if is_vl_model:
-                # PaddleOCR-VL: Use predict() method which returns result objects
-                # Limit image resolution to reduce GPU memory usage
-                # min_pixels=256*28*28 (~200k), max_pixels=1280*28*28 (~1M) for ~8GB VRAM
-                output = self.model.predict(
-                    tmp_path,
-                    min_pixels=256 * 28 * 28,
-                    max_pixels=1280 * 28 * 28,
-                )
+            # PaddleOCR 3.x: Use ocr() method
+            # Note: PP-OCRv5 changed API and doesn't accept cls parameter
+            result = self.model.ocr(tmp_path)
 
-                if self.output_format == "markdown":
-                    # Extract markdown content from result objects
-                    markdown_texts = []
-                    for res in output:
-                        # Access the markdown property which returns a dict with markdown_texts
-                        md_info = res.markdown
-                        if isinstance(md_info, dict) and "markdown_texts" in md_info:
-                            # markdown_texts can be a list or string
-                            md_content = md_info["markdown_texts"]
-                            if isinstance(md_content, list):
-                                markdown_texts.extend(md_content)
-                            else:
-                                markdown_texts.append(str(md_content))
-                        elif isinstance(md_info, str):
-                            markdown_texts.append(md_info)
+            # PaddleOCR 3.x returns a list of dicts with 'rec_texts' key
+            extracted_text = []
 
-                    return "\n\n".join(markdown_texts) if markdown_texts else ""
-                else:
-                    # Text format: Extract text from JSON structure
-                    all_text = []
-                    for res in output:
-                        json_data = res.json
-                        if isinstance(json_data, dict):
-                            # Try to extract text from common fields
-                            if "text" in json_data:
-                                all_text.append(json_data["text"])
-                            elif "content" in json_data:
-                                all_text.append(json_data["content"])
-                        elif isinstance(json_data, str):
-                            all_text.append(json_data)
+            if isinstance(result, list) and len(result) > 0:
+                # PaddleOCR 3.x format: [{'rec_texts': [...], 'dt_polys': [...], ...}]
+                first_item = result[0]
+                if isinstance(first_item, dict) and 'rec_texts' in first_item:
+                    # New PaddleOCR 3.x format
+                    rec_texts = first_item['rec_texts']
+                    if isinstance(rec_texts, list):
+                        for item in rec_texts:
+                            # Items are strings
+                            if isinstance(item, str):
+                                extracted_text.append(item)
+                            elif isinstance(item, dict) and 'text' in item:
+                                extracted_text.append(item['text'])
+                elif isinstance(first_item, list):
+                    # Old format: [[[bbox, (text, confidence)], ...]]
+                    for line in first_item:
+                        if len(line) >= 2:
+                            text = line[1][0] if isinstance(line[1], tuple) else line[1]
+                            extracted_text.append(text)
+            elif isinstance(result, dict):
+                # Direct dict format (fallback)
+                if 'rec_texts' in result:
+                    rec_texts = result['rec_texts']
+                    if isinstance(rec_texts, list):
+                        extracted_text.extend([str(t) for t in rec_texts if t])
+                elif 'rec_text' in result:
+                    rec_texts = result['rec_text']
+                    if isinstance(rec_texts, list):
+                        extracted_text.extend([str(t) for t in rec_texts if t])
 
-                    return "\n".join(all_text) if all_text else ""
-            else:
-                # PaddleOCR 3.x: Use ocr() method
-                # Note: PP-OCRv5 changed API and doesn't accept cls parameter
-                result = self.model.ocr(tmp_path)
-
-                # PaddleOCR 3.x returns a list of dicts with 'rec_texts' key
-                extracted_text = []
-
-                if isinstance(result, list) and len(result) > 0:
-                    # PaddleOCR 3.x format: [{'rec_texts': [...], 'dt_polys': [...], ...}]
-                    first_item = result[0]
-                    if isinstance(first_item, dict) and 'rec_texts' in first_item:
-                        # New PaddleOCR 3.x format
-                        rec_texts = first_item['rec_texts']
-                        if isinstance(rec_texts, list):
-                            for item in rec_texts:
-                                # Items are strings
-                                if isinstance(item, str):
-                                    extracted_text.append(item)
-                                elif isinstance(item, dict) and 'text' in item:
-                                    extracted_text.append(item['text'])
-                    elif isinstance(first_item, list):
-                        # Old format: [[[bbox, (text, confidence)], ...]]
-                        for line in first_item:
-                            if len(line) >= 2:
-                                text = line[1][0] if isinstance(line[1], tuple) else line[1]
-                                extracted_text.append(text)
-                elif isinstance(result, dict):
-                    # Direct dict format (fallback)
-                    if 'rec_texts' in result:
-                        rec_texts = result['rec_texts']
-                        if isinstance(rec_texts, list):
-                            extracted_text.extend([str(t) for t in rec_texts if t])
-                    elif 'rec_text' in result:
-                        rec_texts = result['rec_text']
-                        if isinstance(rec_texts, list):
-                            extracted_text.extend([str(t) for t in rec_texts if t])
-
-                return "\n".join(extracted_text) if extracted_text else ""
+            return "\n".join(extracted_text) if extracted_text else ""
 
         finally:
             if os.path.exists(tmp_path):
