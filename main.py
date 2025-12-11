@@ -199,6 +199,7 @@ async def lifespan(app: FastAPI):
                             python_env=item.get("python_env"),
                             platform_requirements=item.get("platform_requirements"),
                             supports_markdown=item.get("supports_markdown", False),
+                            supports_live_streaming=item.get("supports_live_streaming", False),
                             requires_quantization=item.get("requires_quantization", False),
                             requires_download=item.get("requires_download", False),
                             reference_url=item.get("reference_url"),

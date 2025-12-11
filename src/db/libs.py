@@ -22,6 +22,7 @@ def _create_libs_schema(conn: sqlite3.Connection) -> None:
             python_env TEXT,
             platform_requirements TEXT,
             supports_markdown INTEGER DEFAULT 0,
+            supports_live_streaming INTEGER DEFAULT 0,
             requires_quantization INTEGER DEFAULT 0,
             requires_download INTEGER DEFAULT 0,
             reference_url TEXT,
@@ -50,7 +51,7 @@ def init_libs_table() -> None:
             cols = {row[1] for row in cur.fetchall()}
         except Exception:
             cols = set()
-        required = {"id", "label", "provider", "tasks", "status", "python_env"}
+        required = {"id", "label", "provider", "tasks", "status", "python_env", "supports_live_streaming"}
         if not required.issubset(cols):
             conn.execute("DROP TABLE IF EXISTS libs")
             _create_libs_schema(conn)
@@ -84,6 +85,7 @@ def upsert_lib(
     python_env: Optional[str] = None,
     platform_requirements: Optional[str] = None,
     supports_markdown: bool = False,
+    supports_live_streaming: bool = False,
     requires_quantization: bool = False,
     requires_download: bool = False,
     reference_url: Optional[str] = None,
@@ -98,9 +100,9 @@ def upsert_lib(
             """
             INSERT INTO libs (
                 id, label, provider, tasks, architecture, default_prompt,
-                python_env, platform_requirements, supports_markdown, requires_quantization,
-                requires_download, reference_url, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                python_env, platform_requirements, supports_markdown, supports_live_streaming,
+                requires_quantization, requires_download, reference_url, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 label = excluded.label,
                 provider = excluded.provider,
@@ -110,6 +112,7 @@ def upsert_lib(
                 python_env = excluded.python_env,
                 platform_requirements = excluded.platform_requirements,
                 supports_markdown = excluded.supports_markdown,
+                supports_live_streaming = excluded.supports_live_streaming,
                 requires_quantization = excluded.requires_quantization,
                 requires_download = excluded.requires_download,
                 reference_url = excluded.reference_url,
@@ -126,6 +129,7 @@ def upsert_lib(
                 python_env,
                 platform_requirements,
                 1 if supports_markdown else 0,
+                1 if supports_live_streaming else 0,
                 1 if requires_quantization else 0,
                 1 if requires_download else 0,
                 reference_url,
@@ -162,6 +166,7 @@ def _row_to_lib(row: sqlite3.Row) -> Dict[str, Any]:
         "python_env": row["python_env"] if "python_env" in row.keys() else None,
         "platform_requirements": row["platform_requirements"],
         "supports_markdown": bool(row["supports_markdown"]),
+        "supports_live_streaming": bool(row["supports_live_streaming"]) if "supports_live_streaming" in row.keys() else False,
         "requires_quantization": bool(row["requires_quantization"]),
         "requires_download": bool(row["requires_download"]),
         "reference_url": row["reference_url"],

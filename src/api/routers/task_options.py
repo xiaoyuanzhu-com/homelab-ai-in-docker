@@ -20,7 +20,9 @@ class TaskOption(BaseModel):
     label: str
     provider: str
     type: Literal["model", "lib"]
+    architecture: Optional[str] = None
     supports_markdown: bool = False
+    supports_live_streaming: bool = False
     requires_download: bool = False
     status: str
 
@@ -42,21 +44,25 @@ async def get_task_options(task: Optional[str] = None) -> TaskOptionsResponse:
                 label=m.get("label", m["id"]),
                 provider=m.get("provider", ""),
                 type="model",
+                architecture=m.get("architecture"),
                 supports_markdown=bool(m.get("supports_markdown", False)),
+                supports_live_streaming=bool(m.get("supports_live_streaming", False)),
                 requires_download=bool(m.get("requires_download", True)),
                 status=str(m.get("status", "init")),
             )
         )
-    for l in libs:
+    for lib in libs:
         options.append(
             TaskOption(
-                id=l["id"],
-                label=l.get("label", l["id"]),
-                provider=l.get("provider", ""),
+                id=lib["id"],
+                label=lib.get("label", lib["id"]),
+                provider=lib.get("provider", ""),
                 type="lib",
-                supports_markdown=bool(l.get("supports_markdown", False)),
-                requires_download=bool(l.get("requires_download", False)),
-                status=str(l.get("status", "ready")),
+                architecture=lib.get("architecture"),
+                supports_markdown=bool(lib.get("supports_markdown", False)),
+                supports_live_streaming=bool(lib.get("supports_live_streaming", False)),
+                requires_download=bool(lib.get("requires_download", False)),
+                status=str(lib.get("status", "ready")),
             )
         )
     # Sort options by provider+label for consistent UI order

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Volume2, Loader2, Mic, MicOff } from "lucide-react";
+import { Volume2, Loader2, Mic, MicOff, Radio } from "lucide-react";
 import { toast } from "sonner";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
@@ -42,6 +42,8 @@ interface ChoiceInfo {
   provider: string;
   status: string;
   type: ChoiceType;
+  architecture?: string;
+  supports_live_streaming: boolean;
 }
 
 interface ASRRequestBody {
@@ -83,7 +85,12 @@ type TranscriptionMode = "transcription" | "live";
 function AutomaticSpeechRecognitionContent() {
   const searchParams = useSearchParams();
 
-  // Mode state
+  // Engine/choice state - comes first
+  const [selectedChoice, setSelectedChoice] = useState<string>("");
+  const [choices, setChoices] = useState<ChoiceInfo[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+
+  // Mode state - depends on selected engine
   const [mode, setMode] = useState<TranscriptionMode>("transcription");
 
   // Common state
@@ -98,9 +105,6 @@ function AutomaticSpeechRecognitionContent() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedChoice, setSelectedChoice] = useState<string>("");
-  const [choices, setChoices] = useState<ChoiceInfo[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
   const [whisperxAsrModel, setWhisperxAsrModel] = useState<string>("large-v3");
 
   // File recording state
@@ -125,6 +129,17 @@ function AutomaticSpeechRecognitionContent() {
   const [liveError, setLiveError] = useState<string | null>(null);
   const liveChunkDuration = 100;
 
+  // Get the selected choice info
+  const selectedChoiceInfo = choices.find(c => `${c.type}:${c.id}` === selectedChoice);
+  const supportsLiveMode = selectedChoiceInfo?.supports_live_streaming ?? false;
+
+  // Reset mode to transcription if the selected engine doesn't support live mode
+  useEffect(() => {
+    if (mode === "live" && !supportsLiveMode) {
+      setMode("transcription");
+    }
+  }, [selectedChoice, supportsLiveMode, mode]);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const supported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
@@ -142,10 +157,20 @@ function AutomaticSpeechRecognitionContent() {
           provider: string;
           status: string;
           type: string;
+          architecture?: string;
+          supports_live_streaming?: boolean;
         }
         const merged: ChoiceInfo[] = (data.options || [])
           .filter((o: OptionData) => o.status === "ready")
-          .map((o: OptionData) => ({ id: o.id, label: o.label, provider: o.provider, status: o.status, type: o.type as ChoiceType }));
+          .map((o: OptionData) => ({
+            id: o.id,
+            label: o.label,
+            provider: o.provider,
+            status: o.status,
+            type: o.type as ChoiceType,
+            architecture: o.architecture,
+            supports_live_streaming: o.supports_live_streaming ?? false,
+          }));
         setChoices(merged);
 
         const modelParam = searchParams.get("model");
@@ -571,7 +596,9 @@ function AutomaticSpeechRecognitionContent() {
 
   const modelOptions = choices.map((c) => ({
     value: `${c.type}:${c.id}`,
-    label: `${c.label} (${c.provider}) [${c.type}]`,
+    label: c.supports_live_streaming
+      ? `${c.label} (${c.provider}) [${c.type}] ⚡ Live`
+      : `${c.label} (${c.provider}) [${c.type}]`,
   }));
 
   const rawResponsePayload = result;
@@ -580,9 +607,29 @@ function AutomaticSpeechRecognitionContent() {
   // Unified input panel
   const inputPanel = (
     <div className="space-y-4">
-      {/* Mode Selection */}
+      {/* Step 1: Engine Selection */}
       <div className="space-y-2">
-        <Label>Mode</Label>
+        <Label htmlFor="engine">1. Select Engine</Label>
+        <ModelSelector
+          value={selectedChoice}
+          onChange={setSelectedChoice}
+          options={modelOptions}
+          loading={modelsLoading}
+          disabled={loading || isLiveStreaming}
+          emptyMessage="No ASR engines ready. Visit Models/Libs to set them up."
+        />
+        {selectedChoiceInfo && (
+          <p className="text-xs text-muted-foreground">
+            {selectedChoiceInfo.supports_live_streaming
+              ? "This engine supports both file transcription and live streaming."
+              : "This engine only supports file transcription."}
+          </p>
+        )}
+      </div>
+
+      {/* Step 2: Mode Selection */}
+      <div className="space-y-2">
+        <Label>2. Select Mode</Label>
         <RadioGroup
           value={mode}
           onValueChange={(val) => setMode(val as TranscriptionMode)}
@@ -592,136 +639,130 @@ function AutomaticSpeechRecognitionContent() {
           <div className="flex items-center space-x-2 rounded-lg border p-3">
             <RadioGroupItem value="transcription" id="mode-transcription" disabled={isLiveStreaming || loading} />
             <Label htmlFor="mode-transcription" className="cursor-pointer flex-1">
-              <div className="font-medium">Transcription</div>
+              <div className="font-medium">File Transcription</div>
               <div className="text-xs text-muted-foreground">Upload or record audio file</div>
             </Label>
           </div>
-          <div className="flex items-center space-x-2 rounded-lg border p-3">
-            <RadioGroupItem value="live" id="mode-live" disabled={isLiveStreaming || loading} />
-            <Label htmlFor="mode-live" className="cursor-pointer flex-1">
-              <div className="font-medium">Live Transcription</div>
-              <div className="text-xs text-muted-foreground">Real-time streaming</div>
+          <div className={`flex items-center space-x-2 rounded-lg border p-3 ${!supportsLiveMode ? "opacity-50" : ""}`}>
+            <RadioGroupItem
+              value="live"
+              id="mode-live"
+              disabled={isLiveStreaming || loading || !supportsLiveMode}
+            />
+            <Label htmlFor="mode-live" className={`flex-1 ${supportsLiveMode ? "cursor-pointer" : "cursor-not-allowed"}`}>
+              <div className="font-medium flex items-center gap-2">
+                Live Transcription
+                {supportsLiveMode && <Radio className="h-3 w-3 text-green-500" />}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {supportsLiveMode
+                  ? "Real-time streaming via microphone"
+                  : "Not supported by this engine"}
+              </div>
             </Label>
           </div>
         </RadioGroup>
       </div>
 
-      {/* Diarization Toggle */}
-      <div className="flex items-center justify-between rounded-lg border p-3">
-        <div className="space-y-0.5">
-          <Label htmlFor="diarization-toggle">Enable Diarization</Label>
-          <div className="text-xs text-muted-foreground">Identify different speakers</div>
+      {/* Step 3: Options (common) */}
+      <div className="space-y-4 pt-2 border-t">
+        <Label className="text-sm font-medium">3. Options</Label>
+
+        {/* Diarization Toggle */}
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="space-y-0.5">
+            <Label htmlFor="diarization-toggle">Enable Diarization</Label>
+            <div className="text-xs text-muted-foreground">Identify different speakers</div>
+          </div>
+          <Switch
+            id="diarization-toggle"
+            checked={enableDiarization}
+            onCheckedChange={setEnableDiarization}
+            disabled={isLiveStreaming || loading}
+          />
         </div>
-        <Switch
-          id="diarization-toggle"
-          checked={enableDiarization}
-          onCheckedChange={setEnableDiarization}
-          disabled={isLiveStreaming || loading}
-        />
-      </div>
 
-      {/* Diarization Options */}
-      {enableDiarization && (
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="min-speakers">Min Speakers</Label>
-            <Input
-              id="min-speakers"
-              type="number"
-              min="1"
-              value={minSpeakers}
-              onChange={(e) => setMinSpeakers(e.target.value)}
-              disabled={isLiveStreaming || loading}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="max-speakers">Max Speakers</Label>
-            <Input
-              id="max-speakers"
-              type="number"
-              min="1"
-              value={maxSpeakers}
-              onChange={(e) => setMaxSpeakers(e.target.value)}
-              disabled={isLiveStreaming || loading}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Language Selection */}
-      <div className="space-y-2">
-        <Label htmlFor="language">Language</Label>
-        <Select
-          value={language || "auto"}
-          onValueChange={(val) => setLanguage(val === "auto" ? "" : val)}
-          disabled={isLiveStreaming || loading}
-        >
-          <SelectTrigger id="language">
-            <SelectValue placeholder="Auto-detect" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="auto">Auto-detect</SelectItem>
-            <SelectItem value="en">English</SelectItem>
-            <SelectItem value="zh">Chinese</SelectItem>
-            <SelectItem value="es">Spanish</SelectItem>
-            <SelectItem value="fr">French</SelectItem>
-            <SelectItem value="de">German</SelectItem>
-            <SelectItem value="ja">Japanese</SelectItem>
-            <SelectItem value="ko">Korean</SelectItem>
-            <SelectItem value="ru">Russian</SelectItem>
-            <SelectItem value="pt">Portuguese</SelectItem>
-            <SelectItem value="it">Italian</SelectItem>
-            <SelectItem value="nl">Dutch</SelectItem>
-            <SelectItem value="ar">Arabic</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Model Selection - different for each mode */}
-      {mode === "transcription" ? (
-        <>
-          <div className="space-y-2">
-            <Label htmlFor="model">Engine</Label>
-            <ModelSelector
-              value={selectedChoice}
-              onChange={setSelectedChoice}
-              options={modelOptions}
-              loading={modelsLoading}
-              disabled={loading}
-              emptyMessage="No ASR engines ready. Visit Models/Libs to set them up."
-            />
-          </div>
-
-          {/* WhisperX-specific model selection */}
-          {selectedChoice.startsWith("lib:") && selectedChoice.endsWith("whisperx/whisperx") && (
+        {/* Diarization Options */}
+        {enableDiarization && mode === "transcription" && (
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="whisperx-asr">WhisperX ASR Model</Label>
-              <Select value={whisperxAsrModel} onValueChange={(val) => setWhisperxAsrModel(val)} disabled={loading}>
-                <SelectTrigger id="whisperx-asr">
-                  <SelectValue placeholder="Select ASR model" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="tiny">tiny</SelectItem>
-                  <SelectItem value="base">base</SelectItem>
-                  <SelectItem value="small">small</SelectItem>
-                  <SelectItem value="small.en">small.en</SelectItem>
-                  <SelectItem value="medium">medium</SelectItem>
-                  <SelectItem value="medium.en">medium.en</SelectItem>
-                  <SelectItem value="large-v2">large-v2</SelectItem>
-                  <SelectItem value="large-v3">large-v3</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="min-speakers">Min Speakers</Label>
+              <Input
+                id="min-speakers"
+                type="number"
+                min="1"
+                value={minSpeakers}
+                onChange={(e) => setMinSpeakers(e.target.value)}
+                disabled={isLiveStreaming || loading}
+              />
             </div>
-          )}
-        </>
-      ) : (
-        <>
-          {/* Live mode status */}
-          <div className="flex items-center justify-between">
-            <Label>Status</Label>
-            {getLiveStatusBadge()}
+            <div className="space-y-2">
+              <Label htmlFor="max-speakers">Max Speakers</Label>
+              <Input
+                id="max-speakers"
+                type="number"
+                min="1"
+                value={maxSpeakers}
+                onChange={(e) => setMaxSpeakers(e.target.value)}
+                disabled={isLiveStreaming || loading}
+              />
+            </div>
           </div>
+        )}
 
+        {/* Language Selection */}
+        <div className="space-y-2">
+          <Label htmlFor="language">Language</Label>
+          <Select
+            value={language || "auto"}
+            onValueChange={(val) => setLanguage(val === "auto" ? "" : val)}
+            disabled={isLiveStreaming || loading}
+          >
+            <SelectTrigger id="language">
+              <SelectValue placeholder="Auto-detect" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto-detect</SelectItem>
+              <SelectItem value="en">English</SelectItem>
+              <SelectItem value="zh">Chinese</SelectItem>
+              <SelectItem value="es">Spanish</SelectItem>
+              <SelectItem value="fr">French</SelectItem>
+              <SelectItem value="de">German</SelectItem>
+              <SelectItem value="ja">Japanese</SelectItem>
+              <SelectItem value="ko">Korean</SelectItem>
+              <SelectItem value="ru">Russian</SelectItem>
+              <SelectItem value="pt">Portuguese</SelectItem>
+              <SelectItem value="it">Italian</SelectItem>
+              <SelectItem value="nl">Dutch</SelectItem>
+              <SelectItem value="ar">Arabic</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Engine-specific options */}
+        {mode === "transcription" && selectedChoice.startsWith("lib:") && selectedChoice.endsWith("whisperx/whisperx") && (
+          <div className="space-y-2">
+            <Label htmlFor="whisperx-asr">WhisperX ASR Model</Label>
+            <Select value={whisperxAsrModel} onValueChange={(val) => setWhisperxAsrModel(val)} disabled={loading}>
+              <SelectTrigger id="whisperx-asr">
+                <SelectValue placeholder="Select ASR model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tiny">tiny</SelectItem>
+                <SelectItem value="base">base</SelectItem>
+                <SelectItem value="small">small</SelectItem>
+                <SelectItem value="small.en">small.en</SelectItem>
+                <SelectItem value="medium">medium</SelectItem>
+                <SelectItem value="medium.en">medium.en</SelectItem>
+                <SelectItem value="large-v2">large-v2</SelectItem>
+                <SelectItem value="large-v3">large-v3</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Live mode model selection */}
+        {mode === "live" && (
           <div className="space-y-2">
             <Label htmlFor="live-model">Whisper Model</Label>
             <Select
@@ -742,69 +783,79 @@ function AutomaticSpeechRecognitionContent() {
               </SelectContent>
             </Select>
           </div>
-        </>
-      )}
+        )}
+      </div>
 
-      {/* Audio Input - different for each mode */}
-      {mode === "transcription" ? (
-        <div className="space-y-4">
-          <AudioRecorderControls
-            isRecording={isRecording}
-            onStart={startRecording}
-            onStop={stopRecording}
-            onClear={recordedAudioUrl || audioFile ? clearRecording : undefined}
-            supported={isRecordingSupported}
-            disabled={loading}
-          />
+      {/* Step 4: Audio Input */}
+      <div className="space-y-4 pt-2 border-t">
+        <Label className="text-sm font-medium">4. {mode === "live" ? "Start Streaming" : "Provide Audio"}</Label>
 
-          <AudioUpload
-            id="audio-file"
-            label="Audio File"
-            onChange={handleFileChange}
-            disabled={loading || isRecording}
-            fileName={audioFile ? audioFile.name : undefined}
-            accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
-          />
+        {mode === "transcription" ? (
+          <div className="space-y-4">
+            <AudioRecorderControls
+              isRecording={isRecording}
+              onStart={startRecording}
+              onStop={stopRecording}
+              onClear={recordedAudioUrl || audioFile ? clearRecording : undefined}
+              supported={isRecordingSupported}
+              disabled={loading}
+            />
 
-          {audioPreviewUrl && !isRecording && (
-            <AudioPlayer src={audioPreviewUrl} label="Audio Preview" />
-          )}
+            <AudioUpload
+              id="audio-file"
+              label="Audio File"
+              onChange={handleFileChange}
+              disabled={loading || isRecording}
+              fileName={audioFile ? audioFile.name : undefined}
+              accept="audio/*,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm"
+            />
 
-          {isRecording && (
-            <div className="flex items-center gap-2 p-4 bg-destructive/10 text-destructive rounded-lg">
-              <div className="h-3 w-3 bg-destructive rounded-full animate-pulse" />
-              <span className="text-sm font-medium">Recording in progress...</span>
+            {audioPreviewUrl && !isRecording && (
+              <AudioPlayer src={audioPreviewUrl} label="Audio Preview" />
+            )}
+
+            {isRecording && (
+              <div className="flex items-center gap-2 p-4 bg-destructive/10 text-destructive rounded-lg">
+                <div className="h-3 w-3 bg-destructive rounded-full animate-pulse" />
+                <span className="text-sm font-medium">Recording in progress...</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Live mode status */}
+            <div className="flex items-center justify-between">
+              <Label>Status</Label>
+              {getLiveStatusBadge()}
             </div>
-          )}
-        </div>
-      ) : (
-        <>
-          {!isRecordingSupported && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Not Supported</AlertTitle>
-              <AlertDescription>
-                Your browser does not support audio recording. Please use a modern browser with HTTPS.
-              </AlertDescription>
-            </Alert>
-          )}
 
-          {liveError && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{liveError}</AlertDescription>
-            </Alert>
-          )}
+            {!isRecordingSupported && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Not Supported</AlertTitle>
+                <AlertDescription>
+                  Your browser does not support audio recording. Please use a modern browser with HTTPS.
+                </AlertDescription>
+              </Alert>
+            )}
 
-          {isLiveStreaming && (
-            <div className="flex items-center gap-2 p-4 bg-destructive/10 text-destructive rounded-lg">
-              <div className="h-3 w-3 bg-destructive rounded-full animate-pulse" />
-              <span className="text-sm font-medium">Listening...</span>
-            </div>
-          )}
-        </>
-      )}
+            {liveError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{liveError}</AlertDescription>
+              </Alert>
+            )}
+
+            {isLiveStreaming && (
+              <div className="flex items-center gap-2 p-4 bg-destructive/10 text-destructive rounded-lg">
+                <div className="h-3 w-3 bg-destructive rounded-full animate-pulse" />
+                <span className="text-sm font-medium">Listening...</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 
@@ -958,7 +1009,7 @@ function AutomaticSpeechRecognitionContent() {
   ) : (
     <Button
       onClick={isLiveStreaming ? stopLiveStreaming : startLiveStreaming}
-      disabled={!isRecordingSupported || liveConnectionStatus === "connecting"}
+      disabled={!isRecordingSupported || liveConnectionStatus === "connecting" || !supportsLiveMode}
       className="w-full"
       variant={isLiveStreaming ? "destructive" : "default"}
     >

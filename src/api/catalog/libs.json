@@ -69,6 +69,21 @@
       "requires_quantization": false,
       "requires_download": false,
       "reference_url": "https://github.com/m-bain/whisperX"
+    },
+    {
+      "id": "whisperlivekit/whisperlivekit",
+      "label": "WhisperLiveKit",
+      "provider": "WhisperLiveKit",
+      "tasks": ["automatic-speech-recognition"],
+      "architecture": "whisperlivekit",
+      "default_prompt": null,
+      "python_env": "whisper",
+      "platform_requirements": "Included with container (whisperlivekit>=0.2.16). Supports real-time streaming transcription via WebSocket with optional speaker diarization.",
+      "supports_markdown": false,
+      "requires_quantization": false,
+      "requires_download": false,
+      "supports_live_streaming": true,
+      "reference_url": "https://github.com/QuentinFuxa/WhisperLiveKit"
     }
   ]
 }
