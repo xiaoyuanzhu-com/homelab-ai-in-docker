@@ -20,6 +20,8 @@ dependencies = [
     "pillow-heif>=1.0.0",
     # Utilities
     "einops>=0.7.0",
+    # MinerU OCR
+    "mineru-vl-utils[transformers]>=0.1.17",
     # Worker HTTP server
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
