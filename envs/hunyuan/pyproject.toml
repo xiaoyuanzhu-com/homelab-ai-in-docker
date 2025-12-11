@@ -14,7 +14,6 @@ dependencies = [
     # Image handling
     "pillow>=10.0.0",
     "pillow-heif>=1.0.0",
-    "opencv-python-headless>=4.8.0",
     # Utilities
     "einops>=0.7.0",
     # Worker HTTP server

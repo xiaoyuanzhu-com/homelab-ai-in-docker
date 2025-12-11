@@ -78,11 +78,9 @@ class OCRWorker(BaseWorker):
         # Extract request parameters
         image_data = payload.get("image", "")
         output_format = payload.get("output_format", "text")
-        preprocess_scene = payload.get("preprocess_scene", False)
 
         # Update engine settings for this request
         self._engine.output_format = output_format
-        self._engine.preprocess_scene = preprocess_scene
 
         # Decode and process image (supports HEIC/HEIF via pillow-heif)
         image = decode_image(image_data)
@@ -91,7 +89,6 @@ class OCRWorker(BaseWorker):
         return {
             "text": text,
             "output_format": output_format,
-            "preprocess_scene": preprocess_scene,
         }
 
     def cleanup(self) -> None:
