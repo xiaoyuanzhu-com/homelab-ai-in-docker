@@ -74,8 +74,8 @@ async def periodic_worker_status():
             try:
                 coordinator = get_coordinator()
                 status = await coordinator.get_worker_status()
-                if status:
-                    logger.debug(f"Active workers: {list(status.keys())}")
+                if status.get("workers"):
+                    logger.debug(f"Active worker: {status.get('active_worker')}")
             except Exception as e:
                 logger.debug(f"Error checking worker status: {e}")
 

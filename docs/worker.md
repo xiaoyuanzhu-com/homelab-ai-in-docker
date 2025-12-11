@@ -345,16 +345,44 @@ GET  /info        -> {"model": "...", "memory_mb": ..., "load_time_ms": ...}
 
 ## GPU Memory Protection
 
-**Problem:** Multiple workers loading models simultaneously causes OOM.
+**Problem:** Multiple workers loading models simultaneously causes OOM. Even with serialized loading, multiple lingering workers can accumulate GPU memory.
 
-**Solution:** Single `asyncio.Lock` in coordinator. Acquired before:
-- Spawning a new worker (model loading)
-- Sending inference request
+**Solution:** Single-model GPU residency architecture.
+
+### Single-Model Architecture
+
+Only ONE model can be loaded in GPU memory at a time:
+
+1. **Same model request:** Reuse existing worker (no eviction)
+2. **Different model request:** Evict current worker first, then spawn new one
+
+```
+Request Flow:
+
+Req A (OCR)  ──► [Evict none] ──► Spawn OCR worker ──► Inference ──► Done
+                                        │
+                                   OCR in GPU memory
+                                        │
+Req B (Embed) ──► [Evict OCR] ──► Spawn Embed worker ──► Inference ──► Done
+                      │
+               OCR terminated,
+               GPU memory freed
+```
+
+### Implementation Details
+
+- Single `asyncio.Lock` (`_gpu_lock`) serializes: eviction → spawn → inference
+- `_active_worker_key` tracks currently loaded model
+- `_evict_other_workers()` terminates all workers except the requested one
+- 0.5s delay after eviction allows CUDA memory to be released
+
+### Why This Design
 
 **Constraint:** Requires single Uvicorn worker (`--workers 1`). Acceptable because:
 - Single GPU = single bottleneck
 - Model loading is expensive, can't parallelize
 - Homelab app doesn't need distributed locking complexity
+- Predictable memory usage (only one model at a time)
 
 ## File Structure
 

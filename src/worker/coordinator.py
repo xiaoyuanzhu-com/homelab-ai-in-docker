@@ -59,11 +59,17 @@ class WorkerCoordinator:
     """
     Centralized coordinator for all AI workers.
 
+    Architecture: Single-model GPU residency
+    - Only ONE worker (model) can be loaded in GPU memory at a time
+    - If a request arrives for a different model, evict the current worker first
+    - Same-model requests reuse the existing worker
+
     Uses a single GPU lock to serialize all GPU operations:
+    - Worker eviction (model unloading)
     - Worker spawn (model loading)
     - Inference requests
 
-    This prevents OOM from concurrent GPU operations.
+    This prevents OOM on limited GPU systems.
     """
 
     def __init__(
@@ -83,6 +89,7 @@ class WorkerCoordinator:
         self._gpu_lock = asyncio.Lock()  # Serializes ALL GPU operations
         self._workers: Dict[str, WorkerHandle] = {}  # key -> worker
         self._worker_lock = asyncio.Lock()  # Protects _workers dict
+        self._active_worker_key: Optional[str] = None  # Currently loaded model
 
         self.worker_idle_timeout = worker_idle_timeout
         self.worker_startup_timeout = worker_startup_timeout
@@ -238,6 +245,11 @@ class WorkerCoordinator:
         """
         Get existing worker or spawn a new one.
 
+        Single-model GPU architecture:
+        - If requesting the same model as active, reuse the worker
+        - If requesting a different model, evict all others first
+        - Only one model loaded in GPU memory at a time
+
         Args:
             config: Worker configuration
 
@@ -252,15 +264,34 @@ class WorkerCoordinator:
             # Check if existing worker is still alive
             if worker is not None:
                 if worker.is_alive():
+                    # Same model, reuse - no eviction needed
                     return worker
                 else:
                     # Clean up dead worker
                     logger.warning(f"Worker {key} died, removing")
                     self._workers.pop(key, None)
+                    if self._active_worker_key == key:
+                        self._active_worker_key = None
 
-            # Spawn new worker
+        # Different model requested - evict all other workers first
+        # This happens OUTSIDE _worker_lock to avoid deadlock with _terminate_worker
+        if self._active_worker_key is not None and self._active_worker_key != key:
+            logger.info(
+                f"Switching models: {self._active_worker_key} -> {key}, "
+                "evicting current worker"
+            )
+            await self._evict_other_workers(keep_key=key)
+
+        # Spawn new worker
+        async with self._worker_lock:
+            # Double-check another request didn't spawn it while we were evicting
+            worker = self._workers.get(key)
+            if worker is not None and worker.is_alive():
+                return worker
+
             worker = await self._spawn_worker(config)
             self._workers[key] = worker
+            self._active_worker_key = key
             return worker
 
     async def _send_request(
@@ -351,6 +382,36 @@ class WorkerCoordinator:
         # Remove from registry
         async with self._worker_lock:
             self._workers.pop(worker.key, None)
+            if self._active_worker_key == worker.key:
+                self._active_worker_key = None
+
+    async def _evict_other_workers(self, keep_key: Optional[str] = None) -> None:
+        """
+        Evict all workers except the one with keep_key.
+
+        This ensures only one model is loaded in GPU memory at a time.
+        Called before spawning a new worker for a different model.
+
+        Args:
+            keep_key: Worker key to keep (None = evict all)
+        """
+        async with self._worker_lock:
+            workers_to_evict = [
+                w for key, w in self._workers.items()
+                if key != keep_key and w.is_alive()
+            ]
+
+        if not workers_to_evict:
+            return
+
+        for worker in workers_to_evict:
+            logger.info(f"Evicting worker {worker.key} to free GPU memory")
+            await self._terminate_worker(worker)
+
+        # Give GPU memory time to be released
+        # CUDA memory isn't immediately freed after process exit
+        if workers_to_evict:
+            await asyncio.sleep(0.5)
 
     async def infer(
         self,
@@ -452,25 +513,29 @@ class WorkerCoordinator:
         # Extract result from response
         return response.get("result", response)
 
-    async def get_worker_status(self) -> Dict[str, Dict[str, Any]]:
+    async def get_worker_status(self) -> Dict[str, Any]:
         """
         Get status of all workers.
 
         Returns:
-            Dict of worker key -> status info
+            Dict with 'active_worker' key and 'workers' dict
         """
         async with self._worker_lock:
-            status = {}
+            workers = {}
             for key, worker in self._workers.items():
                 if worker.is_alive():
                     idle_seconds = time.time() - worker.last_active
-                    status[key] = {
+                    workers[key] = {
                         "state": worker.state.value,
                         "port": worker.port,
                         "idle_seconds": round(idle_seconds, 1),
                         "python_env": worker.python_env,
+                        "is_active": key == self._active_worker_key,
                     }
-            return status
+            return {
+                "active_worker": self._active_worker_key,
+                "workers": workers,
+            }
 
     async def shutdown_all(self) -> None:
         """Terminate all workers."""
