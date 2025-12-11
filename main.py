@@ -1,18 +1,8 @@
-"""Main FastAPI application for Homelab AI Services."""
+"""Main FastAPI application for Homelab AI Services.
 
-# Configure PyTorch CUDA allocator BEFORE any imports
-# This reduces memory fragmentation and improves OOM handling
-import os
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-# Initialize CUDA/NVIDIA library paths before any torch/whisperx imports
-try:
-    from src.runtime.cuda_paths import setup_cuda_libraries  # type: ignore
-
-    setup_cuda_libraries()
-except Exception:
-    # Non-fatal; continue without explicit CUDA lib setup
-    pass
+This is the lean API server - all ML dependencies are in worker environments.
+Workers are spawned on-demand with their own isolated Python environments.
+"""
 
 import asyncio
 import json
@@ -43,6 +33,7 @@ from src.api.routers import (
     mcp,
     doc_to_markdown,
     doc_to_screenshot,
+    environments,
 )
 from src.db.models import init_models_table, upsert_model, delete_model, get_all_models
 from src.db.libs import init_libs_table, upsert_lib
@@ -52,28 +43,10 @@ from src.db.status import DownloadStatus
 # Use environment variables if set, otherwise default to /haid/data
 HAID_DATA_DIR = Path(os.getenv("HAID_DATA_DIR", "/haid/data"))
 
-# Set HuggingFace home directory for model caching (replaces deprecated TRANSFORMERS_CACHE)
+# Set HuggingFace home directory for model caching
+# Workers inherit this via environment variables
 if "HF_HOME" not in os.environ:
     os.environ["HF_HOME"] = str(HAID_DATA_DIR / "models")
-
-# Configure PyTorch TF32 for better performance on Ampere+ GPUs
-# This suppresses pyannote.audio reproducibility warnings
-try:
-    import torch
-
-    if torch.cuda.is_available():
-        # Prefer new TF32 configuration API to avoid deprecation warnings (PyTorch 2.9+)
-        try:
-            torch.backends.cuda.matmul.fp32_precision = "tf32"
-        except AttributeError:
-            torch.backends.cuda.matmul.allow_tf32 = True
-
-        try:
-            torch.backends.cudnn.conv.fp32_precision = "tf32"
-        except AttributeError:
-            torch.backends.cudnn.allow_tf32 = True
-except ImportError:
-    pass  # torch not installed, skip
 
 # Configure logging
 logging.basicConfig(
@@ -346,6 +319,7 @@ app.include_router(hardware.router)
 app.include_router(settings.router)
 app.include_router(doc_to_markdown.router)
 app.include_router(doc_to_screenshot.router)
+app.include_router(environments.router)
 
 # Initialize logger for startup messages
 logger = logging.getLogger(__name__)
@@ -425,8 +399,8 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    """Health check endpoint with worker status."""
-    from src.worker import get_coordinator
+    """Health check endpoint with worker and environment status."""
+    from src.worker import get_coordinator, get_env_manager
 
     try:
         coordinator = get_coordinator()
@@ -436,10 +410,21 @@ async def health():
         workers = {}
         gpu_lock_held = False
 
+    try:
+        env_manager = get_env_manager()
+        envs = env_manager.list_environments()
+        environments = {
+            env_id: {"status": info.status.value, "size_mb": info.size_mb}
+            for env_id, info in envs.items()
+        }
+    except Exception:
+        environments = {}
+
     return {
         "status": "healthy",
         "workers": workers,
         "gpu_lock_held": gpu_lock_held,
+        "environments": environments,
     }
 
 

@@ -52,8 +52,8 @@ class EmbeddingWorker(BaseWorker):
             model_path = self.model_id
             logger.info(f"Model not found locally, will download from HuggingFace: {self.model_id}")
 
-        # Load model
-        model = SentenceTransformer(model_path)
+        # Load model with trust_remote_code for models like jina-embeddings-v3
+        model = SentenceTransformer(model_path, trust_remote_code=True)
 
         # Calculate batch size based on GPU memory
         self._batch_size = self._calculate_batch_size(torch)

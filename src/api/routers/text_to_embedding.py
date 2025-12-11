@@ -62,12 +62,16 @@ async def embed_text(request: EmbeddingRequest) -> EmbeddingResponse:
         if model_info is None:
             raise ValueError(f"Model '{request.model}' not found in catalog")
 
+        # Get python_env for worker isolation
+        python_env = model_info.get("python_env")
+
         # Call worker via coordinator
         result = await coordinator_infer(
             task="embedding",
             model_id=request.model,
             payload={"texts": request.texts},
             request_id=request_id,
+            python_env=python_env,
         )
 
         processing_time_ms = int((time.time() - start_time) * 1000)

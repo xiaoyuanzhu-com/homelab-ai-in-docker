@@ -1,4 +1,10 @@
-"""Speaker embedding API endpoints using pyannote.audio."""
+"""Speaker embedding API endpoints using pyannote.audio.
+
+NOTE: This module loads pyannote.audio in-process. The pyannote models
+are specified to use the 'whisper' environment which includes pyannote.
+For now, this will fail at runtime if pyannote is not installed.
+TODO: Convert to use worker subprocess pattern for full env isolation.
+"""
 
 import asyncio
 import base64
@@ -8,10 +14,16 @@ import tempfile
 import time
 from pathlib import Path
 
-import numpy as np
-import torch
 from fastapi import APIRouter, HTTPException
-from scipy.spatial.distance import cdist
+
+# Lazy imports for ML libraries - will fail at runtime if not available
+# These are in the whisper worker environment
+try:
+    import numpy as np
+    from scipy.spatial.distance import cdist
+except ImportError:
+    np = None  # type: ignore
+    cdist = None  # type: ignore
 
 from ..models.speaker_embedding import (
     EmbeddingRequest,
@@ -41,7 +53,9 @@ async def _load_model_impl(model_name: str) -> tuple:
     Returns:
         Tuple of (model, inference)
     """
+    # Lazy import - will fail if pyannote not installed
     from pyannote.audio import Model, Inference
+    import torch
     from ...db.settings import get_setting
     from ...config import get_hf_endpoint, get_hf_model_cache_path
 

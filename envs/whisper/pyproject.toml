@@ -1,0 +1,37 @@
+[project]
+name = "whisper-worker"
+version = "0.1.0"
+description = "Audio/ASR worker environment for Whisper and speaker diarization"
+requires-python = ">=3.13"
+dependencies = [
+    # Core ML stack
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+    # Audio processing
+    "whisperx>=3.1.0",
+    "pyannote.audio>=3.1.0",
+    "librosa>=0.10.0",
+    "omegaconf>=2.0.0",
+    "whisperlivekit>=0.2.16",
+    # Worker HTTP server
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    # CUDA runtime libs (Linux only)
+    "nvidia-cuda-runtime-cu12>=12.6,<12.7; platform_system=='Linux'",
+    "nvidia-cuda-nvrtc-cu12>=12.6,<12.7; platform_system=='Linux'",
+    "nvidia-cuda-cupti-cu12>=12.6,<12.7; platform_system=='Linux'",
+    "nvidia-cublas-cu12>=12.6,<12.7; platform_system=='Linux'",
+    "nvidia-cufft-cu12>=11.3,<11.4; platform_system=='Linux'",
+    "nvidia-nvjitlink-cu12>=12.6,<12.7; platform_system=='Linux'",
+    "nvidia-cudnn-cu12==9.10.2.21; platform_system=='Linux'",
+]
+
+# PyTorch CUDA 12.6 index
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchaudio = { index = "pytorch-cu126" }

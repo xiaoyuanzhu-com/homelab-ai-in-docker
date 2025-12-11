@@ -1,0 +1,29 @@
+[project]
+name = "paddle-worker"
+version = "0.1.0"
+description = "PaddlePaddle worker environment for PaddleOCR models"
+requires-python = ">=3.13"
+dependencies = [
+    # PaddlePaddle framework
+    "paddlepaddle>=3.0.0",
+    "paddleocr[doc-parser]>=3.0.0",
+    "paddlex[ocr]>=3.0.0",
+    # MinerU VL utilities
+    "mineru-vl-utils>=0.1.0",
+    # Image handling
+    "pillow>=10.0.0",
+    "pillow-heif>=1.0.0",
+    # Utilities
+    "einops>=0.7.0",
+    "docling-core>=2.0.0",
+    "addict>=2.4.0",
+    "matplotlib>=3.7.0",
+    "easydict>=1.9",
+    # Worker HTTP server
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+]
+
+[tool.uv.sources]
+# Custom safetensors build with paddle framework support for PaddleOCR-VL
+safetensors = { url = "https://paddle-whl.bj.bcebos.com/nightly/cu126/safetensors/safetensors-0.6.2.dev0-cp38-abi3-linux_x86_64.whl" }

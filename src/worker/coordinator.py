@@ -24,6 +24,7 @@ from urllib.error import HTTPError, URLError
 
 from .protocol import WorkerHandle, WorkerState
 from .utils import find_free_port, get_python_for_env
+from .env_manager import get_env_manager, EnvStatus
 from ..db import worker_logs
 
 logger = logging.getLogger(__name__)
@@ -91,8 +92,8 @@ class WorkerCoordinator:
         """
         Spawn a new worker subprocess.
 
-        For sub-environments (python_env is set), uses 'uv run' with the correct
-        working directory so uv finds the right .venv.
+        For sub-environments (python_env is set), ensures the environment is
+        installed first, then uses 'uv run' with the correct working directory.
 
         Args:
             config: Worker configuration
@@ -108,13 +109,16 @@ class WorkerCoordinator:
 
         # Determine how to spawn based on python_env
         if config.python_env:
+            # Ensure environment is installed (on-demand installation)
+            env_manager = get_env_manager()
+            env_info = await env_manager.ensure_installed(config.python_env)
+            logger.info(f"Environment '{config.python_env}' ready: {env_info.status.value}")
+
             # Sub-environment: use 'uv run' from the env directory
             # uv will find .venv in that directory
             # Use __file__ to get project root (more reliable than cwd)
             project_root = Path(__file__).resolve().parent.parent.parent
             env_dir = project_root / "envs" / config.python_env
-            if not env_dir.exists():
-                raise ValueError(f"Python env '{config.python_env}' not found at {env_dir}")
 
             cmd = [
                 "uv",

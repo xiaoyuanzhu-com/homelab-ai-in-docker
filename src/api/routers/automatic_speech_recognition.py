@@ -7,7 +7,6 @@ import time
 import uuid
 from typing import Dict, Any
 
-import torch
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from ..models.automatic_speech_recognition import (
@@ -147,6 +146,10 @@ async def _process_transcription(
     # Validate model
     validate_model(request.model)
 
+    # Get python_env for worker isolation
+    model_config = get_model_config(request.model)
+    python_env = model_config.get("python_env")
+
     # Call worker via coordinator
     result = await coordinator_infer(
         task="asr",
@@ -157,6 +160,7 @@ async def _process_transcription(
             "return_timestamps": request.return_timestamps,
         },
         request_id=request_id,
+        python_env=python_env,
     )
 
     processing_time_ms = int((time.time() - start_time) * 1000)
@@ -195,6 +199,10 @@ async def _process_diarization(
     # Validate model
     validate_model(request.model)
 
+    # Get python_env for worker isolation
+    model_config = get_model_config(request.model)
+    python_env = model_config.get("python_env")
+
     # Call worker via coordinator
     result = await coordinator_infer(
         task="speaker-diarization",
@@ -206,6 +214,7 @@ async def _process_diarization(
             "max_speakers": request.max_speakers,
         },
         request_id=request_id,
+        python_env=python_env,
     )
 
     processing_time_ms = int((time.time() - start_time) * 1000)
@@ -283,8 +292,12 @@ async def _get_live_engine(model: str = "large-v3", language: str = "en", diariz
             import gc
 
             gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass  # torch not in main env, workers handle GPU
 
         if _live_transcription_engine is None:
             try:

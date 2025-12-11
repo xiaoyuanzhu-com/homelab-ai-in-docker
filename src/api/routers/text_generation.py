@@ -108,6 +108,10 @@ async def generate_text(request: TextGenerationRequest) -> TextGenerationRespons
         # Validate model
         validate_model(request.model)
 
+        # Get python_env for worker isolation
+        model_config = get_model_config(request.model)
+        python_env = model_config.get("python_env")
+
         # Call worker via coordinator
         result = await coordinator_infer(
             task="text-generation",
@@ -120,6 +124,7 @@ async def generate_text(request: TextGenerationRequest) -> TextGenerationRespons
                 "do_sample": request.do_sample,
             },
             request_id=request_id,
+            python_env=python_env,
         )
 
         processing_time_ms = int((time.time() - start_time) * 1000)

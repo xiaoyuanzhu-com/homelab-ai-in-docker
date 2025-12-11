@@ -5,12 +5,26 @@ from typing import Optional
 
 import psutil
 import pynvml
-import torch
 from fastapi import APIRouter
+
+# Lazy import torch - not in main env anymore
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    torch = None  # type: ignore
+    TORCH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["hardware"])
+
+
+def _cuda_available() -> bool:
+    """Check if CUDA is available via PyTorch."""
+    if not TORCH_AVAILABLE:
+        return False
+    return torch.cuda.is_available()
 
 
 @router.get("/hardware/gpu/memory")
@@ -20,15 +34,17 @@ async def get_gpu_memory_details():
     This provides a breakdown similar to nvidia-smi but with PyTorch-specific
     details about allocated vs cached memory, and which models are loaded.
     """
-    if not torch.cuda.is_available():
-        return {
-            "error": "CUDA is not available",
-        }
-
+    # Use pynvml to check for GPU, not torch
     try:
         pynvml.nvmlInit()
         device_count = pynvml.nvmlDeviceGetCount()
+        if device_count == 0:
+            pynvml.nvmlShutdown()
+            return {"error": "No GPU devices found"}
+    except Exception as e:
+        return {"error": f"NVML initialization failed: {e}"}
 
+    try:
         devices = []
         for i in range(device_count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
@@ -39,21 +55,25 @@ async def get_gpu_memory_details():
             nvml_used_mb = mem_info.used / (1024**2)
             nvml_free_mb = mem_info.free / (1024**2)
 
-            # Get PyTorch memory info
-            try:
-                torch_allocated_mb = torch.cuda.memory_allocated(i) / (1024**2)
-                torch_reserved_mb = torch.cuda.memory_reserved(i) / (1024**2)
-                torch_cached_mb = torch_reserved_mb - torch_allocated_mb
-            except Exception:
-                torch_allocated_mb = 0.0
-                torch_reserved_mb = 0.0
-                torch_cached_mb = 0.0
+            # Get PyTorch memory info (if torch available)
+            torch_allocated_mb = 0.0
+            torch_reserved_mb = 0.0
+            torch_cached_mb = 0.0
+            memory_summary = None
 
-            # Get memory summary from PyTorch
-            try:
-                memory_summary = torch.cuda.memory_summary(i)
-            except Exception:
-                memory_summary = None
+            if TORCH_AVAILABLE and torch.cuda.is_available():
+                try:
+                    torch_allocated_mb = torch.cuda.memory_allocated(i) / (1024**2)
+                    torch_reserved_mb = torch.cuda.memory_reserved(i) / (1024**2)
+                    torch_cached_mb = torch_reserved_mb - torch_allocated_mb
+                except Exception:
+                    pass
+
+                # Get memory summary from PyTorch
+                try:
+                    memory_summary = torch.cuda.memory_summary(i)
+                except Exception:
+                    pass
 
             device_info = {
                 "device_id": i,
@@ -153,9 +173,17 @@ async def get_hardware_stats():
 
         # GPU stats using NVML (nvidia-smi equivalent)
         gpu_stats = []
-        cuda_available = torch.cuda.is_available()
+        cuda_available = _cuda_available()
 
-        if cuda_available:
+        # Also check via pynvml if torch is not available
+        nvml_available = False
+        try:
+            pynvml.nvmlInit()
+            nvml_available = pynvml.nvmlDeviceGetCount() > 0
+        except Exception:
+            pass
+
+        if cuda_available or nvml_available:
             pynvml.nvmlInit()
 
             # Get driver and CUDA versions (system-wide, not per-GPU)
@@ -209,13 +237,15 @@ async def get_hardware_stats():
                     logger.debug(f"Could not get temperature for GPU {i}: {e}")
                     temperature = None
 
-                # Get PyTorch memory stats for additional context
-                try:
-                    torch_mem_allocated = torch.cuda.memory_allocated(i) / (1024**3)
-                    torch_mem_reserved = torch.cuda.memory_reserved(i) / (1024**3)
-                except Exception:
-                    torch_mem_allocated = None
-                    torch_mem_reserved = None
+                # Get PyTorch memory stats for additional context (if torch available)
+                torch_mem_allocated = None
+                torch_mem_reserved = None
+                if TORCH_AVAILABLE and torch.cuda.is_available():
+                    try:
+                        torch_mem_allocated = torch.cuda.memory_allocated(i) / (1024**3)
+                        torch_mem_reserved = torch.cuda.memory_reserved(i) / (1024**3)
+                    except Exception:
+                        pass
 
                 gpu_info = {
                     "id": i,
