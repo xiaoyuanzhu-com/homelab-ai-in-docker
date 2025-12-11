@@ -28,7 +28,7 @@ class EnvStatusResponse(BaseModel):
     """Response model for environment status."""
 
     env_id: str = Field(..., description="Environment identifier")
-    status: str = Field(..., description="Current status (not_installed, installing, ready, failed)")
+    status: str = Field(..., description="Current status (not_installed, installing, ready, outdated, failed)")
     size_mb: Optional[float] = Field(None, description="Installed size in MB")
     python_version: Optional[str] = Field(None, description="Python version")
     error_message: Optional[str] = Field(None, description="Error message if failed")

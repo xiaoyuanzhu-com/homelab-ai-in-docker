@@ -10,6 +10,7 @@ Handles:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import shutil
@@ -29,6 +30,7 @@ class EnvStatus(str, Enum):
     NOT_INSTALLED = "not_installed"  # Template exists, .venv does not
     INSTALLING = "installing"  # Currently running uv sync
     READY = "ready"  # Installed and ready to use
+    OUTDATED = "outdated"  # Installed but template has changed
     FAILED = "failed"  # Installation failed
     NOT_FOUND = "not_found"  # Template doesn't exist
 
@@ -165,6 +167,16 @@ class EnvironmentManager:
                 error_message="Missing python binary in .venv",
             )
 
+        # Check if template has changed since installation
+        template_hash = self._compute_template_hash(template_dir)
+        installed_hash = self._get_installed_hash(env_id)
+        # Outdated if we have a hash AND it differs (missing hash = legacy install, treat as OK)
+        is_outdated = installed_hash is not None and installed_hash != template_hash
+
+        # If no hash file exists (legacy install), create one to track future changes
+        if installed_hash is None:
+            self._save_installed_hash(env_id, template_hash)
+
         # Calculate size
         size_mb = self._get_dir_size_mb(venv_dir)
 
@@ -184,7 +196,7 @@ class EnvironmentManager:
 
         return EnvInfo(
             env_id=env_id,
-            status=EnvStatus.READY,
+            status=EnvStatus.OUTDATED if is_outdated else EnvStatus.READY,
             template_path=template_dir,
             venv_path=venv_dir,
             size_mb=size_mb,
@@ -201,6 +213,36 @@ class EnvironmentManager:
             return round(total / (1024 * 1024), 1)
         except Exception:
             return 0.0
+
+    def _compute_template_hash(self, template_dir: Path) -> str:
+        """Compute hash of pyproject.toml and uv.lock to detect changes."""
+        hasher = hashlib.sha256()
+
+        for filename in ["pyproject.toml", "uv.lock"]:
+            filepath = template_dir / filename
+            if filepath.exists():
+                hasher.update(filename.encode())
+                hasher.update(filepath.read_bytes())
+
+        return hasher.hexdigest()[:16]  # Short hash is enough
+
+    def _get_installed_hash_file(self, env_id: str) -> Path:
+        """Get path to the file storing the installed template hash."""
+        venv_dir = self._get_venv_dir(env_id)
+        return venv_dir.parent / ".template_hash"
+
+    def _get_installed_hash(self, env_id: str) -> Optional[str]:
+        """Get the hash of the template used for the current installation."""
+        hash_file = self._get_installed_hash_file(env_id)
+        if hash_file.exists():
+            return hash_file.read_text().strip()
+        return None
+
+    def _save_installed_hash(self, env_id: str, template_hash: str) -> None:
+        """Save the template hash after successful installation."""
+        hash_file = self._get_installed_hash_file(env_id)
+        hash_file.parent.mkdir(parents=True, exist_ok=True)
+        hash_file.write_text(template_hash)
 
     def list_environments(self) -> Dict[str, EnvInfo]:
         """
@@ -245,6 +287,10 @@ class EnvironmentManager:
         if status.status == EnvStatus.NOT_FOUND:
             raise ValueError(f"Environment template '{env_id}' not found")
 
+        # OUTDATED means template changed - need to reinstall
+        if status.status == EnvStatus.OUTDATED:
+            logger.info(f"Environment '{env_id}' is outdated, will reinstall")
+
         # Need to install - acquire lock to prevent concurrent installs
         lock = self._get_install_lock(env_id)
 
@@ -254,7 +300,7 @@ class EnvironmentManager:
             if status.status == EnvStatus.READY:
                 return status
 
-            # Install the environment
+            # Install (or reinstall if outdated) the environment
             return await self._install_env(env_id)
 
     async def _install_env(self, env_id: str) -> EnvInfo:
@@ -334,6 +380,10 @@ class EnvironmentManager:
 
             progress.success = True
             logger.info(f"Environment '{env_id}' installed in {duration:.1f}s")
+
+            # Save template hash to detect future changes
+            template_hash = self._compute_template_hash(template_dir)
+            self._save_installed_hash(env_id, template_hash)
 
             return self.get_env_status(env_id)
 
