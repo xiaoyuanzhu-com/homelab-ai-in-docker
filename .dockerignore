@@ -6,10 +6,12 @@ build/
 dist/
 wheels/
 
-# Virtual environments
+# Virtual environments (main .venv and all worker envs)
 .venv/
 venv/
 env/
+envs/*/.venv/
+envs/*/.installed_*
 
 # IDEs
 .vscode/
@@ -49,5 +51,4 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# UV lock file (we use pyproject.toml)
-uv.lock
+# NOTE: uv.lock is NOT ignored - we need it for uv sync --frozen
