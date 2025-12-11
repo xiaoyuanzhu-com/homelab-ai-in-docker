@@ -26,6 +26,9 @@ dependencies = [
     "nvidia-cudnn-cu12==9.10.2.21; platform_system=='Linux'",
 ]
 
+[tool.uv]
+package = false
+
 # PyTorch CUDA 12.6 index
 [[tool.uv.index]]
 name = "pytorch-cu126"

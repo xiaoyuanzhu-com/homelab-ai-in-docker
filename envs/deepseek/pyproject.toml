@@ -2,7 +2,6 @@
 name = "deepseek-worker"
 version = "0.1.0"
 description = "DeepSeek models worker environment (transformers==4.47.1)"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "accelerate>=0.20.0",
@@ -20,6 +19,9 @@ dependencies = [
     "transformers==4.47.1",
     "uvicorn>=0.32.0",
 ]
+
+[tool.uv]
+package = false
 
 # PyTorch CUDA 12.6 index
 [[tool.uv.index]]

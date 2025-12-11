@@ -32,6 +32,9 @@ dependencies = [
 # Note: flash-attn requires specific pre-built wheels for each Python/CUDA/torch combo
 # and will be installed separately if needed
 
+[tool.uv]
+package = false
+
 # PyTorch CUDA 12.6 index
 [[tool.uv.index]]
 name = "pytorch-cu126"

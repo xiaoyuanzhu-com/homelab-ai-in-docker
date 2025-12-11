@@ -24,6 +24,9 @@ dependencies = [
     "uvicorn>=0.32.0",
 ]
 
+[tool.uv]
+package = false
+
 [[tool.uv.index]]
 name = "paddlepaddle-cu126"
 url = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"

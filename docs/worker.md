@@ -136,6 +136,36 @@ We use standalone projects because:
 - We need **conflicting versions** of the same package (e.g., different `transformers` versions)
 - See [uv docs](https://docs.astral.sh/uv/concepts/projects/workspaces/): "Workspaces are not suited for cases in which members have conflicting requirements"
 
+### pyproject.toml Structure
+
+All worker environments must include `package = false` under `[tool.uv]`:
+
+```toml
+[project]
+name = "transformers-worker"
+version = "0.1.0"
+description = "Default HuggingFace/PyTorch worker environment"
+requires-python = ">=3.13"
+dependencies = [
+    "torch==2.8.0",
+    # ... other deps
+]
+
+[tool.uv]
+package = false  # Required! Marks this as a virtual project (deps only, no package)
+
+# Optional: custom package indexes
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+```
+
+**Why `package = false`?** When `pyproject.toml` has a `[project]` section, uv expects to find a Python package to build and install. Since our worker environments are "virtual projects" (they only define dependencies, not an installable package), we must set `package = false` to tell uv to skip package discovery. Without this, `uv sync` fails with "Could not find root package".
+
 ### On-Demand Environment Installation
 
 Environments are installed on first use:
