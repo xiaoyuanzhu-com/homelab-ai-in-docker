@@ -70,6 +70,17 @@ export function Header() {
             </NavigationMenuItem>
             <NavigationMenuItem>
               <Link
+                href="/envs"
+                className={cn(
+                  navigationMenuTriggerStyle(),
+                  isActive("/envs") && "bg-accent text-accent-foreground"
+                )}
+              >
+                Envs
+              </Link>
+            </NavigationMenuItem>
+            <NavigationMenuItem>
+              <Link
                 href="/status"
                 className={cn(
                   navigationMenuTriggerStyle(),
