@@ -13,6 +13,8 @@ dependencies = [
     # Image handling
     "pillow>=10.0.0",
     "pillow-heif>=1.0.0",
+    "opencv-python-headless>=4.8.0",
+    "imutils>=0.5.4",
     # Utilities
     "einops>=0.7.0",
     "docling-core>=2.0.0",

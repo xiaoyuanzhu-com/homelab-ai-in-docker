@@ -140,6 +140,7 @@ async def ocr_image(request: OCRRequest) -> OCRResponse:
             payload={
                 "image": request.image,
                 "output_format": request.output_format or "text",
+                "preprocess_scene": request.preprocess_scene,
             },
             request_id=request_id,
             python_env=python_env,

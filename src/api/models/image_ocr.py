@@ -26,6 +26,10 @@ class OCRRequest(BaseModel):
         default="text",
         description="Output format: 'text' for plain text, 'markdown' for structured markdown (supported by PaddleOCR-VL, Granite Docling, MinerU, DeepSeek)",
     )
+    preprocess_scene: bool = Field(
+        default=False,
+        description="Apply scene preprocessing (perspective correction, deskew) for real-world photos taken at angles. Useful for signs, documents on tables, etc.",
+    )
 
     @model_validator(mode="after")
     def _validate_choice(self):

@@ -7,7 +7,7 @@ from PIL import Image
 from .deepseek_vl import DeepSeekVLEngine
 
 if TYPE_CHECKING:
-    pass
+    from .scene_preprocess import preprocess_scene_image
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ class OCRInferenceEngine:
         model_config: Dict[str, Any],
         language: Optional[str] = None,
         output_format: str = "text",
+        preprocess_scene: bool = False,
     ):
         """
         Initialize OCR inference engine.
@@ -39,12 +40,15 @@ class OCRInferenceEngine:
             model_config: Model configuration from database
             language: Optional language hint for OCR
             output_format: Output format ('text' or 'markdown')
+            preprocess_scene: Whether to apply scene preprocessing (perspective
+                              correction, deskew) for real-world photos
         """
         self.model_id = model_id
         self.architecture = architecture
         self.model_config = model_config
         self.language = language
         self.output_format = output_format
+        self.preprocess_scene = preprocess_scene
         self.model = None
         self.processor = None
         self._deepseek_engine: Optional[DeepSeekVLEngine] = None
@@ -367,6 +371,10 @@ class OCRInferenceEngine:
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
 
+        # Apply scene preprocessing if enabled
+        if self.preprocess_scene:
+            image = self._apply_scene_preprocessing(image)
+
         if self.architecture in ("paddleocr", "paddleocr-legacy"):
             return self._predict_paddleocr(image)
         elif self.architecture == "mineru":
@@ -379,6 +387,39 @@ class OCRInferenceEngine:
             return self._predict_hunyuan_ocr(image)
         else:
             raise ValueError(f"Unsupported architecture: {self.architecture}")
+
+    def _apply_scene_preprocessing(self, image: Image.Image) -> Image.Image:
+        """Apply scene preprocessing (perspective correction, deskew).
+
+        Args:
+            image: Input PIL Image
+
+        Returns:
+            Preprocessed PIL Image
+
+        Raises:
+            ImportError: If opencv is not installed
+        """
+        # Import will raise ImportError if opencv not installed - don't catch it
+        from .scene_preprocess import preprocess_scene_image
+
+        try:
+            processed, metadata = preprocess_scene_image(
+                image,
+                apply_perspective=True,
+                apply_deskew=True,
+                apply_binarize=False,  # Most modern OCR models handle color well
+                apply_enhance=True,
+            )
+
+            if metadata.get("perspective_corrected") or metadata.get("deskew_angle", 0) != 0:
+                logger.info(f"Scene preprocessing applied: {metadata}")
+
+            return processed
+        except Exception as e:
+            # Processing failures fallback to original image
+            logger.warning(f"Scene preprocessing failed, using original image: {e}")
+            return image
 
     def _predict_paddleocr(self, image: Image.Image) -> str:
         """Run PaddleOCR prediction."""
