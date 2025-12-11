@@ -1,0 +1,12 @@
+[project]
+name = "markitdown-worker"
+version = "0.1.0"
+description = "Worker environment for document-to-markdown conversion with MarkItDown"
+requires-python = ">=3.13"
+dependencies = [
+    # Document conversion
+    "markitdown[all]",
+    # Worker HTTP server
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+]

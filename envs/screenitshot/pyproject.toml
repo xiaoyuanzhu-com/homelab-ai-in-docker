@@ -1,0 +1,15 @@
+[project]
+name = "screenitshot-worker"
+version = "0.1.0"
+description = "Worker environment for document-to-screenshot conversion with ScreenItShot"
+requires-python = ">=3.13"
+dependencies = [
+    # Screenshot conversion
+    "screenitshot",
+    # Image handling
+    "pillow>=10.0.0",
+    "pillow-heif>=1.0.0",
+    # Worker HTTP server
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+]

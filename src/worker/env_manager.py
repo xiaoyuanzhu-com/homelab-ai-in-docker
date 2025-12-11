@@ -207,28 +207,40 @@ class EnvironmentManager:
             return 0.0
 
     def _is_template_changed(self, env_id: str) -> bool:
-        """Check if template pyproject.toml differs from installed copy.
+        """Check if template files differ from installed copies.
 
-        Compares the template file directly with the copy in the data dir.
+        Compares pyproject.toml and post_install.sh (if exists) between
+        template and installed copies in the data dir.
         Returns False if no installed copy exists (new install, not outdated).
         """
         template_dir = self._get_template_dir(env_id)
-        template_pyproject = template_dir / "pyproject.toml"
 
-        # Get the installed pyproject.toml location
-        if self.data_envs_dir:
-            installed_pyproject = self.data_envs_dir / env_id / "pyproject.toml"
-        else:
-            # Local dev mode - template IS the installed location
+        # Local dev mode - template IS the installed location
+        if not self.data_envs_dir:
             return False
 
-        if not installed_pyproject.exists():
-            return False  # Not installed yet, not "outdated"
+        installed_dir = self.data_envs_dir / env_id
 
-        if not template_pyproject.exists():
-            return False  # No template to compare
+        # Check each tracked file
+        tracked_files = ["pyproject.toml", "post_install.sh"]
 
-        return template_pyproject.read_bytes() != installed_pyproject.read_bytes()
+        for filename in tracked_files:
+            template_file = template_dir / filename
+            installed_file = installed_dir / filename
+
+            # If template has the file but installed doesn't (or vice versa), outdated
+            if template_file.exists() != installed_file.exists():
+                if template_file.exists():
+                    return True  # New file added to template
+                # File removed from template - not necessarily outdated
+                continue
+
+            # If both exist, compare contents
+            if template_file.exists() and installed_file.exists():
+                if template_file.read_bytes() != installed_file.read_bytes():
+                    return True
+
+        return False
 
     def list_environments(self) -> Dict[str, EnvInfo]:
         """
@@ -317,12 +329,14 @@ class EnvironmentManager:
                 env_data_dir = self.data_envs_dir / env_id
                 env_data_dir.mkdir(parents=True, exist_ok=True)
 
-                # Copy pyproject.toml and uv.lock to data dir
+                # Copy template files to data dir
                 shutil.copy(template_dir / "pyproject.toml", env_data_dir / "pyproject.toml")
                 if (template_dir / "uv.lock").exists():
                     shutil.copy(template_dir / "uv.lock", env_data_dir / "uv.lock")
                 if (template_dir / ".python-version").exists():
                     shutil.copy(template_dir / ".python-version", env_data_dir / ".python-version")
+                if (template_dir / "post_install.sh").exists():
+                    shutil.copy(template_dir / "post_install.sh", env_data_dir / "post_install.sh")
 
                 cwd = env_data_dir
             else:
@@ -367,6 +381,9 @@ class EnvironmentManager:
             progress.success = True
             logger.info(f"Environment '{env_id}' installed in {duration:.1f}s")
 
+            # Run post-install script if it exists
+            await self._run_post_install(env_id, template_dir, cwd, progress)
+
             return self.get_env_status(env_id)
 
         except Exception as e:
@@ -378,6 +395,68 @@ class EnvironmentManager:
             # Keep progress for a bit for status queries, then clean up
             # (In practice, we keep it until the next install attempt)
             pass
+
+    async def _run_post_install(
+        self, env_id: str, template_dir: Path, cwd: Path, progress: InstallProgress
+    ) -> None:
+        """
+        Run post-install script if it exists.
+
+        Looks for post_install.sh in the template directory and runs it
+        with the environment's Python/venv activated.
+
+        Args:
+            env_id: Environment identifier
+            template_dir: Template directory (contains post_install.sh)
+            cwd: Working directory for installation (template or data dir)
+            progress: Progress tracker for logging
+        """
+        post_install_script = template_dir / "post_install.sh"
+        if not post_install_script.exists():
+            return
+
+        logger.info(f"Running post-install script for '{env_id}'")
+
+        venv_dir = self._get_venv_dir(env_id)
+        venv_bin = venv_dir / "bin"
+
+        # Build environment with venv activated
+        env = {
+            **os.environ,
+            "VIRTUAL_ENV": str(venv_dir),
+            "PATH": f"{venv_bin}:{os.environ.get('PATH', '')}",
+        }
+        # Remove PYTHONHOME if set (can interfere with venv)
+        env.pop("PYTHONHOME", None)
+
+        proc = await asyncio.create_subprocess_exec(
+            "bash",
+            str(post_install_script),
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
+        )
+
+        output_lines = []
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            line_str = line.decode().rstrip()
+            output_lines.append(line_str)
+            progress.log_lines.append(f"[post_install] {line_str}")
+            logger.debug(f"[{env_id}:post_install] {line_str}")
+
+        await proc.wait()
+
+        if proc.returncode != 0:
+            error = f"post_install.sh failed with code {proc.returncode}"
+            logger.error(f"Environment '{env_id}' post-install failed: {error}")
+            logger.error(f"Output:\n" + "\n".join(output_lines[-20:]))
+            raise RuntimeError(f"Post-install failed for '{env_id}': {error}")
+
+        logger.info(f"Post-install completed for '{env_id}'")
 
     async def delete_env(self, env_id: str) -> bool:
         """

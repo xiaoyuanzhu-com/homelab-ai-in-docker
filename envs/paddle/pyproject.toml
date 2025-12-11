@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "PaddlePaddle worker environment for PaddleOCR models"
 requires-python = ">=3.13"
 dependencies = [
-    # PaddlePaddle framework
-    "paddlepaddle>=3.0.0",
+    # PaddlePaddle framework (GPU version from custom index)
+    "paddlepaddle-gpu>=3.0.0",
     "paddleocr[doc-parser]>=3.0.0",
     "paddlex[ocr]>=3.0.0",
     # MinerU VL utilities
@@ -24,6 +24,13 @@ dependencies = [
     "uvicorn>=0.32.0",
 ]
 
+[[tool.uv.index]]
+name = "paddlepaddle-cu126"
+url = "https://www.paddlepaddle.org.cn/packages/stable/cu126/"
+explicit = true
+
 [tool.uv.sources]
+# PaddlePaddle GPU from CUDA 12.6 index (explicit = only use this index for paddlepaddle-gpu)
+paddlepaddle-gpu = { index = "paddlepaddle-cu126" }
 # Custom safetensors build with paddle framework support for PaddleOCR-VL
 safetensors = { url = "https://paddle-whl.bj.bcebos.com/nightly/cu126/safetensors/safetensors-0.6.2.dev0-cp38-abi3-linux_x86_64.whl" }
