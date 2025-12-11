@@ -178,6 +178,24 @@ wheels = [
 ]
 
 [[package]]
+name = "flash-attn"
+version = "2.8.3"
+source = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.4.12/flash_attn-2.8.3+cu126torch2.8-cp313-cp313-linux_x86_64.whl" }
+dependencies = [
+    { name = "einops" },
+    { name = "torch" },
+]
+wheels = [
+    { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.4.12/flash_attn-2.8.3+cu126torch2.8-cp313-cp313-linux_x86_64.whl", hash = "sha256:151b92969096827b7d04a45424ddaeef75ae87787b4fb30979e91f042003ab6c" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "einops" },
+    { name = "torch" },
+]
+
+[[package]]
 name = "fsspec"
 version = "2025.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1261,6 +1279,7 @@ dependencies = [
     { name = "bitsandbytes", marker = "sys_platform == 'linux'" },
     { name = "einops" },
     { name = "fastapi" },
+    { name = "flash-attn", marker = "sys_platform == 'linux'" },
     { name = "mineru-vl-utils", extra = ["transformers"] },
     { name = "nvidia-cublas-cu12", marker = "sys_platform == 'linux'" },
     { name = "nvidia-cuda-cupti-cu12", marker = "sys_platform == 'linux'" },
@@ -1289,6 +1308,7 @@ requires-dist = [
     { name = "bitsandbytes", marker = "sys_platform == 'linux'", specifier = ">=0.41.0" },
     { name = "einops", specifier = ">=0.7.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "flash-attn", marker = "sys_platform == 'linux'", url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.4.12/flash_attn-2.8.3+cu126torch2.8-cp313-cp313-linux_x86_64.whl" },
     { name = "mineru-vl-utils", extras = ["transformers"], specifier = ">=0.1.17" },
     { name = "nvidia-cublas-cu12", marker = "sys_platform == 'linux'", specifier = ">=12.6,<12.7" },
     { name = "nvidia-cuda-cupti-cu12", marker = "sys_platform == 'linux'", specifier = ">=12.6,<12.7" },

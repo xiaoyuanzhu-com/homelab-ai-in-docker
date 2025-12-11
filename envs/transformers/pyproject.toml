@@ -36,10 +36,9 @@ dependencies = [
     "nvidia-cufft-cu12>=11.3,<11.4; platform_system=='Linux'",
     "nvidia-nvjitlink-cu12>=12.6,<12.7; platform_system=='Linux'",
     "nvidia-cudnn-cu12==9.10.2.21; platform_system=='Linux'",
+    # Flash-Attention for 12x memory reduction on PaddleOCR-VL (Linux only, requires GPU)
+    "flash-attn>=2.8.0; platform_system=='Linux'",
 ]
-
-# Note: flash-attn requires specific pre-built wheels for each Python/CUDA/torch combo
-# and will be installed separately if needed
 
 # PyTorch CUDA 12.6 index
 [[tool.uv.index]]
@@ -51,3 +50,6 @@ explicit = true
 torch = { index = "pytorch-cu126" }
 torchvision = { index = "pytorch-cu126" }
 torchaudio = { index = "pytorch-cu126" }
+# Flash-Attention pre-built wheel (Python 3.13 + PyTorch 2.8 + CUDA 12.6)
+# Source: https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/tag/v0.4.12
+flash-attn = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.4.12/flash_attn-2.8.3+cu126torch2.8-cp313-cp313-linux_x86_64.whl" }
