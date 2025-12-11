@@ -196,6 +196,7 @@ async def lifespan(app: FastAPI):
                             tasks=item.get("tasks", []),
                             architecture=item.get("architecture"),
                             default_prompt=item.get("default_prompt"),
+                            python_env=item.get("python_env"),
                             platform_requirements=item.get("platform_requirements"),
                             supports_markdown=item.get("supports_markdown", False),
                             requires_quantization=item.get("requires_quantization", False),

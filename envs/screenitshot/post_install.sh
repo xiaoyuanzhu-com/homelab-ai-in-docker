@@ -4,20 +4,12 @@
 
 set -e
 
-# Get the expected browser path from playwright
-# Playwright stores browsers in ~/.cache/ms-playwright/ by default
-# or in PLAYWRIGHT_BROWSERS_PATH if set
-BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
+# Use playwright's built-in check - it knows exactly which version it needs
+# This is more reliable than manually checking browser paths
+echo "Checking Playwright browser status..."
 
-# Check if chromium is already installed by looking for the executable
-# Playwright creates directories like chromium-1234/ with the browser inside
-if ls "$BROWSERS_PATH"/chromium*/chrome-linux/chrome 2>/dev/null || \
-   ls "$BROWSERS_PATH"/chromium_headless_shell*/chrome-headless-shell-linux64/chrome-headless-shell 2>/dev/null; then
-    echo "Playwright chromium already installed, skipping"
-    exit 0
-fi
-
-echo "Installing Playwright chromium..."
+# playwright install is idempotent - it skips if the correct version is already installed
+# Running it unconditionally is simpler and more reliable than version detection
 playwright install chromium
 
 echo "ScreenItShot post-install complete"

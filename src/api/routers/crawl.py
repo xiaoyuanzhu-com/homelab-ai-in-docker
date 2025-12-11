@@ -1,568 +1,21 @@
-"""Crawl API router for web scraping functionality."""
+"""Crawl API router for web scraping functionality using worker."""
 
-import asyncio
-import importlib
+from __future__ import annotations
+
 import logging
-import os
 import time
-import types
 import uuid
-from typing import Optional
-import base64
 
 from fastapi import APIRouter, HTTPException
- 
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 
 from ..models.crawl import CrawlRequest, CrawlResponse, ErrorResponse
 from ...storage.history import history_storage
+from ...db.catalog import get_lib_dict
+from ...worker import coordinator_infer
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["crawl"])
-
-# Get default remote Chrome URL from environment
-DEFAULT_CHROME_CDP_URL = os.environ.get("CHROME_CDP_URL")
-# If not provided, let the browser supply its native User-Agent.
-# No UA override: use browser's native User-Agent
-# No global header overrides: let the browser send its native headers.
-
-"""
-Minimal, general crawler: no site-specific selectors, scrolling, or clicking.
-"""
-
-DEFAULT_ENABLE_STEALTH = os.environ.get("CRAWLER_ENABLE_STEALTH", "true").lower() not in (
-    "false",
-    "0",
-    "no",
-)
-
-def _schedule_async_task(coro):
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(coro)
-        finally:
-            loop.close()
-    else:
-        loop.create_task(coro)
-
-
-async def _apply_stealth_to_context_async(context, stealth_async_fn, config):
-    if getattr(context, "_haid_stealth_async_installed", False):
-        return context
-
-    setattr(context, "_haid_stealth_async_installed", True)
-
-    original_new_page = context.new_page
-
-    async def new_page_with_stealth(*args, **kwargs):
-        page = await original_new_page(*args, **kwargs)
-        await stealth_async_fn(page, config=config)
-        return page
-
-    context.new_page = types.MethodType(new_page_with_stealth, context)
-
-    for page in list(context.pages):
-        try:
-            await stealth_async_fn(page, config=config)
-        except Exception:
-            continue
-
-    context.on("page", lambda page: _schedule_async_task(stealth_async_fn(page, config=config)))
-    return context
-
-
-async def _apply_stealth_to_browser_async(browser, stealth_async_fn, config):
-    if getattr(browser, "_haid_stealth_async_installed", False):
-        return browser
-
-    setattr(browser, "_haid_stealth_async_installed", True)
-
-    original_new_page = getattr(browser, "new_page", None)
-    if original_new_page is not None:
-
-        async def browser_new_page(*args, **kwargs):
-            page = await original_new_page(*args, **kwargs)
-            await stealth_async_fn(page, config=config)
-            return page
-
-        browser.new_page = types.MethodType(browser_new_page, browser)
-
-    original_new_context = getattr(browser, "new_context", None)
-    if original_new_context is not None:
-
-        async def browser_new_context(*args, **kwargs):
-            context = await original_new_context(*args, **kwargs)
-            await _apply_stealth_to_context_async(context, stealth_async_fn, config)
-            return context
-
-        browser.new_context = types.MethodType(browser_new_context, browser)
-
-    for context in list(getattr(browser, "contexts", [])):
-        await _apply_stealth_to_context_async(context, stealth_async_fn, config)
-
-    if hasattr(browser, "on"):
-        try:
-            browser.on(
-                "context",
-                lambda ctx: _schedule_async_task(
-                    _apply_stealth_to_context_async(ctx, stealth_async_fn, config)
-                ),
-            )
-        except Exception:
-            pass
-
-    return browser
-
-
-def _wrap_async_method(obj, attr_name, after_coroutine):
-    original = getattr(obj, attr_name, None)
-    if original is None or getattr(obj, f"_haid_wrapped_async_{attr_name}", False):
-        return
-
-    async def wrapped(*args, **kwargs):
-        result = await original(*args, **kwargs)
-        new_result = await after_coroutine(result)
-        return new_result or result
-
-    setattr(obj, attr_name, types.MethodType(wrapped, obj))
-    setattr(obj, f"_haid_wrapped_async_{attr_name}", True)
-
-
-def _wrap_sync_method(obj, attr_name, after_callable):
-    original = getattr(obj, attr_name, None)
-    if original is None or getattr(obj, f"_haid_wrapped_sync_{attr_name}", False):
-        return
-
-    def wrapped(*args, **kwargs):
-        result = original(*args, **kwargs)
-        new_result = after_callable(result)
-        return new_result or result
-
-    setattr(obj, attr_name, types.MethodType(wrapped, obj))
-    setattr(obj, f"_haid_wrapped_sync_{attr_name}", True)
-
-
-async def _apply_async_stealth_to_playwright(playwright, stealth_async_fn, config):
-    async def _after_browser(browser):
-        return await _apply_stealth_to_browser_async(browser, stealth_async_fn, config)
-
-    async def _after_context(context):
-        return await _apply_stealth_to_context_async(context, stealth_async_fn, config)
-
-    for browser_type_name in ("chromium", "firefox", "webkit"):
-        browser_type = getattr(playwright, browser_type_name, None)
-        if browser_type is None:
-            continue
-        _wrap_async_method(browser_type, "launch", _after_browser)
-        _wrap_async_method(browser_type, "connect_over_cdp", _after_browser)
-        _wrap_async_method(browser_type, "launch_persistent_context", _after_context)
-
-    return playwright
-
-
-def _apply_sync_stealth_to_context(context, stealth_sync_fn, config):
-    if getattr(context, "_haid_stealth_sync_installed", False):
-        return context
-
-    setattr(context, "_haid_stealth_sync_installed", True)
-
-    original_new_page = context.new_page
-
-    def new_page_with_stealth(*args, **kwargs):
-        page = original_new_page(*args, **kwargs)
-        stealth_sync_fn(page, config=config)
-        return page
-
-    context.new_page = types.MethodType(new_page_with_stealth, context)
-
-    for page in list(context.pages):
-        try:
-            stealth_sync_fn(page, config=config)
-        except Exception:
-            continue
-
-    if hasattr(context, "on"):
-        context.on("page", lambda page: stealth_sync_fn(page, config=config))
-    return context
-
-
-def _apply_sync_stealth_to_browser(browser, stealth_sync_fn, config):
-    if getattr(browser, "_haid_stealth_sync_installed", False):
-        return browser
-
-    setattr(browser, "_haid_stealth_sync_installed", True)
-
-    original_new_page = getattr(browser, "new_page", None)
-    if original_new_page is not None:
-
-        def browser_new_page(*args, **kwargs):
-            page = original_new_page(*args, **kwargs)
-            stealth_sync_fn(page, config=config)
-            return page
-
-        browser.new_page = types.MethodType(browser_new_page, browser)
-
-    original_new_context = getattr(browser, "new_context", None)
-    if original_new_context is not None:
-
-        def browser_new_context(*args, **kwargs):
-            context = original_new_context(*args, **kwargs)
-            _apply_sync_stealth_to_context(context, stealth_sync_fn, config)
-            return context
-
-        browser.new_context = types.MethodType(browser_new_context, browser)
-
-    for context in list(getattr(browser, "contexts", [])):
-        _apply_sync_stealth_to_context(context, stealth_sync_fn, config)
-
-    if hasattr(browser, "on"):
-        try:
-            browser.on(
-                "context",
-                lambda ctx: _apply_sync_stealth_to_context(ctx, stealth_sync_fn, config),
-            )
-        except Exception:
-            pass
-
-    return browser
-
-
-def _apply_sync_stealth_to_playwright(playwright, stealth_sync_fn, config):
-
-    def _after_browser(browser):
-        return _apply_sync_stealth_to_browser(browser, stealth_sync_fn, config)
-
-    def _after_context(context):
-        return _apply_sync_stealth_to_context(context, stealth_sync_fn, config)
-
-    for browser_type_name in ("chromium", "firefox", "webkit"):
-        browser_type = getattr(playwright, browser_type_name, None)
-        if browser_type is None:
-            continue
-        _wrap_sync_method(browser_type, "launch", _after_browser)
-        _wrap_sync_method(browser_type, "connect_over_cdp", _after_browser)
-        _wrap_sync_method(browser_type, "launch_persistent_context", _after_context)
-
-    return playwright
-
-
-def _install_playwright_stealth_compat(module) -> bool:
-    stealth_async_fn = getattr(module, "stealth_async", None)
-    stealth_sync_fn = getattr(module, "stealth_sync", None)
-    StealthConfig = getattr(module, "StealthConfig", None)
-
-    if stealth_async_fn is None or StealthConfig is None:
-        return False
-
-    class _CompatAsyncStealthContext:
-        def __init__(self, inner_cm, stealth_fn, cfg):
-            self._inner_cm = inner_cm
-            self._stealth_fn = stealth_fn
-            self._config = cfg
-
-        async def __aenter__(self):
-            self._cm = self._inner_cm
-            self._playwright = await self._cm.__aenter__()
-            await _apply_async_stealth_to_playwright(
-                self._playwright, self._stealth_fn, self._config
-            )
-            return self._playwright
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return await self._cm.__aexit__(exc_type, exc, tb)
-
-    _CompatSyncStealthContext = None
-    if stealth_sync_fn is not None:
-
-        class _CompatSyncStealthContext:
-            def __init__(self, inner_cm, stealth_fn, cfg):
-                self._inner_cm = inner_cm
-                self._stealth_fn = stealth_fn
-                self._config = cfg
-
-            def __enter__(self):
-                self._cm = self._inner_cm
-                self._playwright = self._cm.__enter__()
-                _apply_sync_stealth_to_playwright(
-                    self._playwright, self._stealth_fn, self._config
-                )
-                return self._playwright
-
-            def __exit__(self, exc_type, exc, tb):
-                return self._cm.__exit__(exc_type, exc, tb)
-
-    class _CompatStealth:
-        def __init__(self, config=None):
-            self.config = config or StealthConfig()
-
-        def use_async(self, playwright_cm):
-            return _CompatAsyncStealthContext(playwright_cm, stealth_async_fn, self.config)
-
-        def use(self, playwright_cm):
-            if stealth_sync_fn is None or _CompatSyncStealthContext is None:
-                raise RuntimeError(
-                    "playwright-stealth does not expose synchronous helpers in this version."
-                )
-            return _CompatSyncStealthContext(playwright_cm, stealth_sync_fn, self.config)
-
-    module.Stealth = _CompatStealth
-    module.StealthAsync = _CompatAsyncStealthContext
-    if stealth_sync_fn is not None:
-        module.StealthSync = _CompatSyncStealthContext
-    return True
-
-
-## Removed site-specific and generic selector/interaction helpers to keep the
-## crawler general. No auto-scroll or auto-click behavior.
-
-
-_stealth_module = None
-PLAYWRIGHT_STEALTH_SUPPORTED = False
-if DEFAULT_ENABLE_STEALTH:
-    try:
-        _stealth_module = importlib.import_module('playwright_stealth')
-    except ImportError:
-        PLAYWRIGHT_STEALTH_SUPPORTED = False
-    else:
-        if any(
-            hasattr(_stealth_module, attr_name)
-            for attr_name in ("Stealth", "StealthAsync", "StealthSync")
-        ):
-            PLAYWRIGHT_STEALTH_SUPPORTED = True
-        elif _install_playwright_stealth_compat(_stealth_module):
-            PLAYWRIGHT_STEALTH_SUPPORTED = True
-        else:
-            logger.warning(
-                'playwright_stealth does not provide the Stealth wrapper; stealth mode disabled.'
-            )
-if DEFAULT_ENABLE_STEALTH and not PLAYWRIGHT_STEALTH_SUPPORTED:
-    logger.warning(
-        'Stealth mode requested but playwright_stealth is unavailable or incompatible. ' +
-        'Crawler will run without stealth fingerprinting.'
-    )
-ENABLE_STEALTH = DEFAULT_ENABLE_STEALTH and PLAYWRIGHT_STEALTH_SUPPORTED
-
-
-async def _capture_viewport_screenshot(
-    url: str,
-    width: int,
-    height: int,
-    timeout_ms: int,
-    chrome_cdp_url: Optional[str] = None,
-) -> Optional[str]:
-    """
-    Capture a viewport (first screen) screenshot using Playwright directly.
-
-    Returns base64-encoded image or None on failure.
-    """
-    try:
-        # Import lazily to avoid overhead when unused
-        from playwright.async_api import async_playwright
-
-        # Wrap with stealth if available and enabled
-        if ENABLE_STEALTH and _stealth_module is not None:
-            stealth = _stealth_module.Stealth()
-            playwright_cm = stealth.use_async(async_playwright())
-        else:
-            playwright_cm = async_playwright()
-
-        async with playwright_cm as p:
-            browser = None
-            context = None
-            page = None
-            try:
-                if chrome_cdp_url:
-                    browser = await p.chromium.connect_over_cdp(chrome_cdp_url)
-                    # Try a fresh context first; fall back to existing when unsupported
-                    try:
-                        context = await browser.new_context(
-                            viewport={"width": width, "height": height}
-                        )
-                        page = await context.new_page()
-                    except Exception:
-                        contexts = getattr(browser, "contexts", []) or []
-                        if contexts:
-                            context = contexts[0]
-                            page = await context.new_page()
-                            try:
-                                await page.set_viewport_size({"width": width, "height": height})
-                            except Exception:
-                                pass
-                        else:
-                            # Some CDP connections may allow new_page directly
-                            page = await browser.new_page()
-                            try:
-                                await page.set_viewport_size({"width": width, "height": height})
-                            except Exception:
-                                pass
-                else:
-                    browser = await p.chromium.launch(headless=True)
-                    context = await browser.new_context(
-                        viewport={"width": width, "height": height}
-                    )
-                    page = await context.new_page()
-
-                try:
-                    page.set_default_navigation_timeout(timeout_ms)
-                    page.set_default_timeout(timeout_ms)
-                except Exception:
-                    pass
-
-                await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-                # Give SPAs a small settle time similar to crawl config
-                await asyncio.sleep(1.5)
-                img_bytes = await page.screenshot(full_page=False)
-                return base64.b64encode(img_bytes).decode("utf-8")
-            finally:
-                try:
-                    if page is not None:
-                        await page.close()
-                except Exception:
-                    pass
-                try:
-                    # Avoid closing remote browser; close local only
-                    if context is not None and not chrome_cdp_url:
-                        await context.close()
-                except Exception:
-                    pass
-                try:
-                    if browser is not None and not chrome_cdp_url:
-                        await browser.close()
-                except Exception:
-                    pass
-    except Exception as e:
-        logger.warning(f"Viewport screenshot failed: {e}")
-        return None
-
-
-async def crawl_url(
-    url: str,
-    screenshot: bool = False,
-    screenshot_width: int = 1920,
-    screenshot_height: int = 1080,
-    page_timeout: int = 120000,
-    chrome_cdp_url: Optional[str] = None,
-    screenshot_fullpage: bool = False,
-) -> dict:
-    """
-    Crawl a URL and extract content.
-
-    Args:
-        url: URL to crawl
-        screenshot: Whether to capture a screenshot
-        screenshot_width: Screenshot viewport width in pixels
-        screenshot_height: Screenshot viewport height in pixels
-        page_timeout: Page navigation timeout in milliseconds
-        chrome_cdp_url: Remote Chrome CDP URL for browser connection
-
-    Returns:
-        Dictionary containing crawl results
-    """
-    try:
-        # Use remote Chrome if URL provided, otherwise use default from env or local
-        cdp_url = chrome_cdp_url or DEFAULT_CHROME_CDP_URL
-
-        # Configure browser with CDP support if URL is provided
-        if cdp_url:
-            # Connect to remote Chrome via CDP
-            logger.info(f"Connecting to remote Chrome at: {cdp_url}")
-            _cdp_kwargs = dict(
-                browser_mode="cdp",
-                cdp_url=cdp_url,
-                headless=True,
-                verbose=False,
-                viewport_width=screenshot_width,
-                viewport_height=screenshot_height,
-                enable_stealth=ENABLE_STEALTH,
-            )
-            browser_config = BrowserConfig(**_cdp_kwargs)
-        else:
-            # Use local browser (default mode)
-            _local_kwargs = dict(
-                headless=True,
-                verbose=False,
-                viewport_width=screenshot_width,
-                viewport_height=screenshot_height,
-                enable_stealth=ENABLE_STEALTH,
-            )
-            browser_config = BrowserConfig(**_local_kwargs)
-
-        async with AsyncWebCrawler(config=browser_config, verbose=False) as crawler:
-            # Configure crawler run parameters
-            run_config_params = {
-                "screenshot": bool(screenshot_fullpage),
-                "page_timeout": page_timeout,
-                # Use defaults for scrolling; we don't force interactions
-            }
-
-            # For JavaScript-heavy SPAs:
-            # - wait_until="domcontentloaded" avoids networkidle hangs
-            # - simulate_user/override_navigator reduce bot detection
-            run_config_params["wait_until"] = "domcontentloaded"
-            # Give SPAs a brief, generic settle window for dynamic content
-            run_config_params["delay_before_return_html"] = 1.5
-            # Do not simulate random user interactions to avoid accidental clicks
-            run_config_params["simulate_user"] = False
-            # Enable full-page scanning to capture content beyond initial viewport
-            run_config_params["scan_full_page"] = True
-            run_config_params["override_navigator"] = True
-
-            # Create crawler run configuration
-            run_config = CrawlerRunConfig(**run_config_params)
-
-            # Run the crawler with the configuration
-            result = await crawler.arun(url=url, config=run_config)
-
-            # Determine screenshot outputs
-            viewport_b64: Optional[str] = None
-            fullpage_b64: Optional[str] = None
-            primary_b64: Optional[str] = None
-
-            # Full-page via crawl4ai if requested
-            if screenshot_fullpage:
-                fullpage_b64 = result.screenshot
-
-            # Viewport via Playwright helper if requested
-            if screenshot:
-                try:
-                    viewport_b64 = await _capture_viewport_screenshot(
-                        url=url,
-                        width=screenshot_width,
-                        height=screenshot_height,
-                        timeout_ms=page_timeout,
-                        chrome_cdp_url=cdp_url,
-                    )
-                except Exception:
-                    viewport_b64 = None
-
-            # Primary (back-compat): prefer viewport when available, else full page
-            primary_b64 = viewport_b64 or fullpage_b64
-
-            return {
-                "url": result.url,
-                "title": result.metadata.get("title") if result.metadata else None,
-                "markdown": result.markdown,
-                "html": result.html,
-                "screenshot": primary_b64,
-                "screenshot_viewport": viewport_b64,
-                "screenshot_fullpage": fullpage_b64,
-                "success": result.success,
-            }
-    except Exception as e:
-        error_msg = f"Failed to crawl URL {url}: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "CRAWL_FAILED",
-                "message": f"Failed to crawl URL: {str(e)}",
-                "url": url,
-            },
-        )
 
 
 @router.post("/crawl", response_model=CrawlResponse, responses={500: {"model": ErrorResponse}})
@@ -587,20 +40,44 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
     request_id = str(uuid.uuid4())
     start_time = time.time()
 
+    # Get lib config for python_env
+    lib_id = "crawl4ai/async-webcrawler"
+    lib_config = get_lib_dict(lib_id)
+
+    if not lib_config:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "ENGINE_NOT_FOUND",
+                "message": f"Library '{lib_id}' not found in catalog",
+                "request_id": request_id,
+            },
+        )
+
+    python_env = lib_config.get("python_env")
+
     try:
-        result = await crawl_url(
-            url=str(request.url),
-            screenshot=request.screenshot,
-            screenshot_width=request.screenshot_width,
-            screenshot_height=request.screenshot_height,
-            page_timeout=request.page_timeout,
-            chrome_cdp_url=request.chrome_cdp_url,
-            screenshot_fullpage=request.screenshot_fullpage,
+        # Delegate to worker
+        result = await coordinator_infer(
+            task="web-crawling",
+            model_id=lib_id,
+            payload={
+                "url": str(request.url),
+                "screenshot": request.screenshot,
+                "screenshot_fullpage": request.screenshot_fullpage,
+                "screenshot_width": request.screenshot_width,
+                "screenshot_height": request.screenshot_height,
+                "page_timeout": request.page_timeout,
+                "chrome_cdp_url": request.chrome_cdp_url,
+                "include_html": request.include_html,
+            },
+            request_id=request_id,
+            python_env=python_env,
         )
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
-        # Screenshot is already base64-encoded by crawl4ai
+        # Screenshot is already base64-encoded
         screenshot_base64 = result.get("screenshot") if request.screenshot else None
         screenshot_fullpage_base64 = (
             result.get("screenshot_fullpage") if request.screenshot else None
@@ -608,17 +85,17 @@ async def crawl(request: CrawlRequest) -> CrawlResponse:
 
         response = CrawlResponse(
             request_id=request_id,
-            url=result["url"],
+            url=result.get("url", str(request.url)),
             title=result.get("title"),
-            markdown=result["markdown"] or "",
+            markdown=result.get("markdown", ""),
             html=result.get("html") if request.include_html else None,
             screenshot_base64=screenshot_base64,
             screenshot_fullpage_base64=screenshot_fullpage_base64,
             processing_time_ms=processing_time_ms,
-            success=result["success"],
+            success=result.get("success", True),
         )
 
-        # Save to history (convert HttpUrl to string)
+        # Save to history
         history_storage.add_request(
             service="crawl",
             request_id=request_id,

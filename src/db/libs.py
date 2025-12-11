@@ -19,6 +19,7 @@ def _create_libs_schema(conn: sqlite3.Connection) -> None:
             tasks TEXT NOT NULL,
             architecture TEXT,
             default_prompt TEXT,
+            python_env TEXT,
             platform_requirements TEXT,
             supports_markdown INTEGER DEFAULT 0,
             requires_quantization INTEGER DEFAULT 0,
@@ -49,7 +50,7 @@ def init_libs_table() -> None:
             cols = {row[1] for row in cur.fetchall()}
         except Exception:
             cols = set()
-        required = {"id", "label", "provider", "tasks", "status"}
+        required = {"id", "label", "provider", "tasks", "status", "python_env"}
         if not required.issubset(cols):
             conn.execute("DROP TABLE IF EXISTS libs")
             _create_libs_schema(conn)
@@ -80,6 +81,7 @@ def upsert_lib(
     tasks: Sequence[str],
     architecture: Optional[str] = None,
     default_prompt: Optional[str] = None,
+    python_env: Optional[str] = None,
     platform_requirements: Optional[str] = None,
     supports_markdown: bool = False,
     requires_quantization: bool = False,
@@ -96,15 +98,16 @@ def upsert_lib(
             """
             INSERT INTO libs (
                 id, label, provider, tasks, architecture, default_prompt,
-                platform_requirements, supports_markdown, requires_quantization,
+                python_env, platform_requirements, supports_markdown, requires_quantization,
                 requires_download, reference_url, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 label = excluded.label,
                 provider = excluded.provider,
                 tasks = excluded.tasks,
                 architecture = excluded.architecture,
                 default_prompt = excluded.default_prompt,
+                python_env = excluded.python_env,
                 platform_requirements = excluded.platform_requirements,
                 supports_markdown = excluded.supports_markdown,
                 requires_quantization = excluded.requires_quantization,
@@ -120,6 +123,7 @@ def upsert_lib(
                 _tasks_to_json(tasks),
                 architecture,
                 default_prompt,
+                python_env,
                 platform_requirements,
                 1 if supports_markdown else 0,
                 1 if requires_quantization else 0,
@@ -155,6 +159,7 @@ def _row_to_lib(row: sqlite3.Row) -> Dict[str, Any]:
         "tasks": _deserialize_tasks(row["tasks"]),
         "architecture": row["architecture"],
         "default_prompt": row["default_prompt"],
+        "python_env": row["python_env"] if "python_env" in row.keys() else None,
         "platform_requirements": row["platform_requirements"],
         "supports_markdown": bool(row["supports_markdown"]),
         "requires_quantization": bool(row["requires_quantization"]),

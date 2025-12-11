@@ -38,6 +38,10 @@ WORKER_MODULES: Dict[str, str] = {
     "asr": "src.worker.workers.asr_worker",
     "ocr": "src.worker.workers.ocr_worker",
     "speaker-diarization": "src.worker.workers.diarization_worker",
+    # Lib-based workers (non-ML)
+    "doc-to-screenshot": "src.worker.workers.screenitshot_worker",
+    "web-crawling": "src.worker.workers.crawl_worker",
+    "doc-to-markdown": "src.worker.workers.markitdown_worker",
 }
 
 

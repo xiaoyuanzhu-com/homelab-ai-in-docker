@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -206,34 +206,37 @@ class EnvironmentManager:
         except Exception:
             return 0.0
 
+    def _get_installed_dir(self, env_id: str) -> Path:
+        """Get the directory where installed copies of template files are stored.
+
+        In Docker mode: data_envs_dir/env_id (separate from template)
+        In local dev mode: venv_dir (store copies alongside .venv)
+        """
+        if self.data_envs_dir:
+            return self.data_envs_dir / env_id
+        # Local dev: store installed copies in .venv to track what was installed
+        return self._get_venv_dir(env_id)
+
     def _is_template_changed(self, env_id: str) -> bool:
         """Check if template files differ from installed copies.
 
-        Compares pyproject.toml and post_install.sh (if exists) between
-        template and installed copies in the data dir.
+        Compares tracked files (pyproject.toml, post_install.sh) between
+        template and installed copies.
         Returns False if no installed copy exists (new install, not outdated).
         """
         template_dir = self._get_template_dir(env_id)
-
-        # Local dev mode - template IS the installed location
-        if not self.data_envs_dir:
-            return False
-
-        installed_dir = self.data_envs_dir / env_id
+        installed_dir = self._get_installed_dir(env_id)
 
         # Check each tracked file
         tracked_files = ["pyproject.toml", "post_install.sh"]
 
         for filename in tracked_files:
             template_file = template_dir / filename
-            installed_file = installed_dir / filename
+            installed_file = installed_dir / f".installed_{filename}"
 
-            # If template has the file but installed doesn't (or vice versa), outdated
-            if template_file.exists() != installed_file.exists():
-                if template_file.exists():
-                    return True  # New file added to template
-                # File removed from template - not necessarily outdated
-                continue
+            # If template has the file but installed doesn't, outdated
+            if template_file.exists() and not installed_file.exists():
+                return True
 
             # If both exist, compare contents
             if template_file.exists() and installed_file.exists():
@@ -241,6 +244,23 @@ class EnvironmentManager:
                     return True
 
         return False
+
+    def _mark_files_installed(self, env_id: str, template_dir: Path, files: list[str]) -> None:
+        """Copy template files to installed dir to track what version was installed.
+
+        Args:
+            env_id: Environment identifier
+            template_dir: Source template directory
+            files: List of filenames to mark as installed
+        """
+        installed_dir = self._get_installed_dir(env_id)
+        installed_dir.mkdir(parents=True, exist_ok=True)
+
+        for filename in files:
+            template_file = template_dir / filename
+            if template_file.exists():
+                installed_file = installed_dir / f".installed_{filename}"
+                shutil.copy(template_file, installed_file)
 
     def list_environments(self) -> Dict[str, EnvInfo]:
         """
@@ -263,9 +283,10 @@ class EnvironmentManager:
 
     async def ensure_installed(self, env_id: str) -> EnvInfo:
         """
-        Ensure an environment is installed, installing if necessary.
+        Ensure an environment is installed and ready.
 
         This is the main entry point called by the coordinator before spawning workers.
+        Handles installation, updates when templates change, and post-install scripts.
 
         Args:
             env_id: Environment identifier
@@ -279,11 +300,12 @@ class EnvironmentManager:
         """
         status = self.get_env_status(env_id)
 
-        if status.status == EnvStatus.READY:
-            return status
-
         if status.status == EnvStatus.NOT_FOUND:
             raise ValueError(f"Environment template '{env_id}' not found")
+
+        # If already READY, nothing to do (all tracked files match)
+        if status.status == EnvStatus.READY:
+            return status
 
         # OUTDATED means template changed - need to reinstall
         if status.status == EnvStatus.OUTDATED:
@@ -296,6 +318,7 @@ class EnvironmentManager:
             # Re-check status after acquiring lock
             status = self.get_env_status(env_id)
             if status.status == EnvStatus.READY:
+                # Another task installed it while we waited
                 return status
 
             # Install (or reinstall if outdated) the environment
@@ -342,6 +365,30 @@ class EnvironmentManager:
             else:
                 cwd = template_dir
 
+            # Build clean environment without VIRTUAL_ENV from main process
+            clean_env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+            clean_env["UV_NO_PROGRESS"] = "1"
+
+            # Generate lockfile if missing
+            lockfile = cwd / "uv.lock"
+            if not lockfile.exists():
+                logger.info(f"Generating lockfile for '{env_id}'")
+                lock_cmd = ["uv", "lock"]
+                lock_proc = await asyncio.create_subprocess_exec(
+                    *lock_cmd,
+                    cwd=cwd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    env=clean_env,
+                )
+                lock_output, _ = await lock_proc.communicate()
+                if lock_proc.returncode != 0:
+                    error = f"uv lock failed with code {lock_proc.returncode}"
+                    logger.error(f"Environment '{env_id}' lock failed: {error}")
+                    logger.error(f"Output: {lock_output.decode()}")
+                    raise RuntimeError(f"Failed to generate lockfile for '{env_id}': {error}")
+                logger.info(f"Lockfile generated for '{env_id}'")
+
             # Run uv sync --frozen
             cmd = ["uv", "sync", "--frozen"]
 
@@ -352,7 +399,7 @@ class EnvironmentManager:
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                env={**os.environ, "UV_NO_PROGRESS": "1"},
+                env=clean_env,
             )
 
             # Stream output
@@ -381,6 +428,9 @@ class EnvironmentManager:
             progress.success = True
             logger.info(f"Environment '{env_id}' installed in {duration:.1f}s")
 
+            # Mark pyproject.toml as installed
+            self._mark_files_installed(env_id, template_dir, ["pyproject.toml"])
+
             # Run post-install script if it exists
             await self._run_post_install(env_id, template_dir, cwd, progress)
 
@@ -400,7 +450,7 @@ class EnvironmentManager:
         self, env_id: str, template_dir: Path, cwd: Path, progress: InstallProgress
     ) -> None:
         """
-        Run post-install script if it exists.
+        Run post-install script if it exists (during installation with progress tracking).
 
         Looks for post_install.sh in the template directory and runs it
         with the environment's Python/venv activated.
@@ -456,6 +506,8 @@ class EnvironmentManager:
             logger.error(f"Output:\n" + "\n".join(output_lines[-20:]))
             raise RuntimeError(f"Post-install failed for '{env_id}': {error}")
 
+        # Mark post_install.sh as installed
+        self._mark_files_installed(env_id, template_dir, ["post_install.sh"])
         logger.info(f"Post-install completed for '{env_id}'")
 
     async def delete_env(self, env_id: str) -> bool:

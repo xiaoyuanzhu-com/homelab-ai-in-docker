@@ -201,12 +201,84 @@ When you update an environment template (e.g., add a dependency to `envs/transfo
 
 1. New Docker image deployed with updated template files
 2. Request arrives for model in that env
-3. Coordinator compares template files with installed copies
+3. Coordinator compares template files with installed marker copies
 4. If different → status is `OUTDATED` → triggers reinstall
 5. `uv sync --frozen` runs, then `post_install.sh` if present
 6. Worker spawns with new dependencies
 
-**No user interaction required.** The comparison is a simple byte comparison of tracked files (`pyproject.toml`, `post_install.sh`) - the installed copy in the data volume vs the template in the Docker image.
+**No user interaction required.**
+
+### How Template Tracking Works
+
+The environment manager uses a unified tracking mechanism for all template files:
+
+**Tracked files:**
+- `pyproject.toml` - Python dependencies
+- `post_install.sh` - Post-install script (optional)
+
+**Marker files:**
+After successful installation/execution, marker copies are stored:
+- `.installed_pyproject.toml` - Copy of pyproject.toml after `uv sync` succeeds
+- `.installed_post_install.sh` - Copy of post_install.sh after script succeeds
+
+**Location of markers:**
+- Docker mode: `$HAID_ENVS_DIR/{env_id}/.installed_*`
+- Local dev mode: `envs/{env_id}/.venv/.installed_*`
+
+**Status determination:**
+```
+Template file exists + No marker file     → OUTDATED (never installed)
+Template file exists + Marker differs     → OUTDATED (template changed)
+Template file exists + Marker matches     → READY (up to date)
+```
+
+**Flow:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     ensure_installed(env_id)                     │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │
+                                ▼
+                    ┌───────────────────────┐
+                    │   get_env_status()    │
+                    │                       │
+                    │ Compare each tracked  │
+                    │ file with its marker  │
+                    └───────────┬───────────┘
+                                │
+            ┌───────────────────┼───────────────────┐
+            ▼                   ▼                   ▼
+       NOT_INSTALLED         READY              OUTDATED
+            │                   │                   │
+            │                   │                   │
+            ▼                   ▼                   ▼
+       _install_env()      return early       _install_env()
+            │                                       │
+            ▼                                       ▼
+    ┌───────────────┐                      ┌───────────────┐
+    │   uv sync     │                      │   uv sync     │
+    └───────┬───────┘                      └───────┬───────┘
+            │                                       │
+            ▼                                       ▼
+    _mark_files_installed(                 _mark_files_installed(
+      ["pyproject.toml"])                    ["pyproject.toml"])
+            │                                       │
+            ▼                                       ▼
+    ┌───────────────┐                      ┌───────────────┐
+    │ post_install  │                      │ post_install  │
+    │ (if exists)   │                      │ (if exists)   │
+    └───────┬───────┘                      └───────┬───────┘
+            │                                       │
+            ▼                                       ▼
+    _mark_files_installed(                 _mark_files_installed(
+      ["post_install.sh"])                   ["post_install.sh"])
+            │                                       │
+            ▼                                       ▼
+         READY                                   READY
+```
+
+**Adding new tracked files:**
+To track additional files, add them to the `tracked_files` list in `_is_template_changed()` and ensure they're marked after their corresponding operation succeeds.
 
 ## Worker Protocol
 

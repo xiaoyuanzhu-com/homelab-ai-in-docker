@@ -16,17 +16,10 @@ dependencies = [
     "nvidia-ml-py>=12.0.0",
     # MCP server
     "mcp>=1.8.0",
-    # Document conversion (lightweight, runs in-process)
-    "markitdown[all]",
-    "screenitshot",
-    "pillow>=10.0.0",
-    "pillow-heif>=1.0.0",
-    # Web crawling (runs in-process with Playwright)
-    "crawl4ai>=0.7.0",
-    "playwright>=1.43.0",
-    "playwright-stealth>=1.8.0",
     # Documentation
     "mkdocs-material>=9.5.0",
+    # NOTE: All task libs (crawl4ai, markitdown, screenitshot) run in worker
+    # subprocesses with their own isolated environments. See envs/ directory.
 ]
 
 [tool.setuptools]
