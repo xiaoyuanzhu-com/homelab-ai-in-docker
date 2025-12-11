@@ -7,6 +7,7 @@
       "tasks": ["image-ocr"],
       "architecture": "paddleocr-legacy",
       "default_prompt": null,
+      "python_env": "paddle",
       "platform_requirements": "Included with container; downloads PaddleOCR assets on first use.",
       "supports_markdown": false,
       "requires_quantization": false,
