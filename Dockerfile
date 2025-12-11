@@ -92,12 +92,12 @@ COPY --from=ui-builder /ui/dist ./ui/dist
 RUN mkdir -p /haid/data/models /haid/data/paddlex
 
 # Environment configuration
-# Worker environments are installed to persistent volume if HAID_ENVS_DIR is set
-# Otherwise they're installed in-place in /haid/envs (ephemeral)
 ENV HAID_DATA_DIR=/haid/data
 ENV HF_HOME=/haid/data/models
 ENV PADDLE_PDX_CACHE_HOME=/haid/data/paddlex
-# Optional: Set HAID_ENVS_DIR=/haid/data/envs to persist worker envs across restarts
+# Worker environments installed to data volume for persistence across container restarts
+# When /haid/data is a mounted volume, envs persist and don't need reinstalling
+ENV HAID_ENVS_DIR=/haid/data/envs
 
 # Expose port
 EXPOSE 12310

@@ -116,9 +116,9 @@ class WorkerCoordinator:
 
             # Sub-environment: use 'uv run' from the env directory
             # uv will find .venv in that directory
-            # Use __file__ to get project root (more reliable than cwd)
+            # Get the directory containing .venv (may be in data dir if HAID_ENVS_DIR is set)
             project_root = Path(__file__).resolve().parent.parent.parent
-            env_dir = project_root / "envs" / config.python_env
+            env_dir = env_info.venv_path.parent  # Parent of .venv is the env dir
 
             cmd = [
                 "uv",
