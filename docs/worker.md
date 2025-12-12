@@ -436,6 +436,31 @@ src/
 | `worker_startup_timeout_seconds` | 120 | Max time to wait for worker `/healthz` |
 | `worker_request_timeout_seconds` | 300 | Max time for a single inference request |
 
+## Model Cache Environment Variables
+
+Workers download models on-demand from various sources (HuggingFace, PaddleHub, etc.). To ensure all downloaded models persist to the data volume, the coordinator sets these environment variables when spawning workers:
+
+| Variable | Value | Used By |
+|----------|-------|---------|
+| `HF_HOME` | `$DATA_DIR/models` | HuggingFace transformers, diffusers, datasets |
+| `SENTENCE_TRANSFORMERS_HOME` | `$DATA_DIR/models` | sentence-transformers (falls back to HF_HOME) |
+| `HUB_HOME` | `$DATA_DIR/models/paddlehub` | PaddleHub/PaddleOCR legacy models |
+
+**Why this matters:**
+- Without these, libraries default to `~/.cache/huggingface` or `~/.paddlehub`
+- In Docker, user home is ephemeral - models would re-download on container restart
+- Setting these ensures models persist to the mounted data volume
+
+**Library-specific notes:**
+- **HuggingFace**: Uses `HF_HOME` for all hub downloads. Structure: `$HF_HOME/hub/models--{org}--{model}`
+- **SentenceTransformers**: Checks `SENTENCE_TRANSFORMERS_HOME` first, falls back to `HF_HOME`
+- **PaddleHub/PaddleOCR**: Uses `HUB_HOME` for legacy PP-OCRv5 models (default: `~/.paddlehub`)
+- **PaddleOCR-VL**: Uses transformers backend, so respects `HF_HOME`
+
+**Additional PaddlePaddle variables** (not currently set, for reference):
+- `PADDLEX_HOME` - PaddleX model cache
+- `PADDLE_PDX_MODEL_SOURCE` - Model source (`BOS` or HuggingFace, default: HuggingFace since v3.0.2)
+
 ## API Endpoints
 
 ### Environment Management

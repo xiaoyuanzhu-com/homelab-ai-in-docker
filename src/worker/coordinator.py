@@ -172,10 +172,22 @@ class WorkerCoordinator:
         env.setdefault("PYTHONUNBUFFERED", "1")
         env.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
-        # Ensure HF_HOME is set for model caching (workers may not inherit from main.py)
+        # Ensure model cache directories are set for all libraries
+        # See docs/worker.md "Model Cache Environment Variables" for details
+        from ..config import get_data_dir
+        models_dir = get_data_dir() / "models"
+
+        # HuggingFace (transformers, diffusers, datasets)
         if "HF_HOME" not in env:
-            from ..config import get_data_dir
-            env["HF_HOME"] = str(get_data_dir() / "models")
+            env["HF_HOME"] = str(models_dir)
+
+        # SentenceTransformers (falls back to HF_HOME, but set explicitly for clarity)
+        if "SENTENCE_TRANSFORMERS_HOME" not in env:
+            env["SENTENCE_TRANSFORMERS_HOME"] = str(models_dir)
+
+        # PaddleHub/PaddleOCR legacy models (default: ~/.paddlehub)
+        if "HUB_HOME" not in env:
+            env["HUB_HOME"] = str(models_dir / "paddlehub")
 
         # For sub-environments, add PYTHONPATH so it can find src module
         # Also clear VIRTUAL_ENV/CONDA_PREFIX so uv finds the sub-env's .venv
