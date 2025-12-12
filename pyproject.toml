@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "sse-starlette>=2.0.0",
     "httpx>=0.27.0",
+    "websockets>=12.0",  # For WS proxy to workers
     # Hardware monitoring
     "psutil>=6.0.0",
     "nvidia-ml-py>=12.0.0",

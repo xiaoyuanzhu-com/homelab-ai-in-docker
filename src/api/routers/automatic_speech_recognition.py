@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 import time
 import uuid
 from typing import Dict, Any
@@ -17,15 +16,11 @@ from ..models.automatic_speech_recognition import (
 from ...storage.history import history_storage
 from ...db.catalog import get_model_dict, list_models
 from ...worker import coordinator_infer
+from ...worker.coordinator import get_coordinator
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["automatic-speech-recognition"])
-
-# Global WhisperLiveKit engine (shared across connections)
-_live_transcription_engine = None
-_live_engine_config = None  # Track current engine config (model, language, diarization)
-_live_engine_lock = asyncio.Lock()
 
 
 def get_model_config(model_id: str) -> Dict[str, Any]:
@@ -257,128 +252,17 @@ async def _process_diarization(
 
 
 # =============================================================================
-# Live Transcription WebSocket Endpoint (WhisperLiveKit)
-# Note: This remains in-process as WebSocket requires persistent connection
+# Live Transcription WebSocket Endpoint
+# Proxies to ASR streaming worker (keeps main process lean)
 # =============================================================================
-
-
-async def _get_live_engine(model: str = "large-v3", language: str = "en", diarization: bool = False):
-    """
-    Get or create the shared WhisperLiveKit transcription engine.
-
-    The engine is shared across all WebSocket connections for efficiency.
-    If parameters change, the engine is recreated with the new configuration.
-    """
-    global _live_transcription_engine, _live_engine_config
-
-    requested_config = (model, language, diarization)
-
-    async with _live_engine_lock:
-        # Check if we need to recreate the engine due to config change
-        if _live_transcription_engine is not None and _live_engine_config != requested_config:
-            logger.info(
-                f"Engine config changed from {_live_engine_config} to {requested_config}, recreating engine..."
-            )
-            # Clean up existing engine if possible
-            try:
-                if hasattr(_live_transcription_engine, "cleanup"):
-                    await asyncio.to_thread(_live_transcription_engine.cleanup)
-            except Exception as e:
-                logger.warning(f"Error cleaning up old engine: {e}")
-            _live_transcription_engine = None
-            _live_engine_config = None
-
-            # Force garbage collection to free GPU memory
-            import gc
-
-            gc.collect()
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except ImportError:
-                pass  # torch not in main env, workers handle GPU
-
-        if _live_transcription_engine is None:
-            try:
-                from whisperlivekit import TranscriptionEngine
-
-                # WhisperLiveKit expects "auto" string for auto-detection, not None
-                effective_language = language if language else "auto"
-
-                logger.info(
-                    f"Initializing WhisperLiveKit TranscriptionEngine "
-                    f"(model={model}, language={effective_language}, diarization={diarization})"
-                )
-
-                # Initialize engine in thread pool to avoid blocking
-                def _create_engine():
-                    return TranscriptionEngine(
-                        model=model,
-                        lan=effective_language,
-                        transcription=True,
-                        diarization=diarization,
-                        buffer_trimming="sentence",
-                    )
-
-                _live_transcription_engine = await asyncio.to_thread(_create_engine)
-                _live_engine_config = requested_config
-                logger.info("WhisperLiveKit TranscriptionEngine initialized successfully")
-
-            except ImportError as e:
-                logger.error(f"WhisperLiveKit not installed: {e}")
-                raise RuntimeError(
-                    "WhisperLiveKit is not installed. Install with: pip install whisperlivekit"
-                )
-            except Exception as e:
-                logger.error(f"Failed to initialize WhisperLiveKit engine: {e}", exc_info=True)
-                raise
-
-        return _live_transcription_engine
-
-
-async def _handle_websocket_results(websocket: WebSocket, results_generator):
-    """
-    Consume results from the audio processor and send them via WebSocket.
-    """
-    try:
-        async for response in results_generator:
-            try:
-                # FrontData from WhisperLiveKit has a to_dict() method
-                if hasattr(response, "to_dict") and callable(response.to_dict):
-                    data = response.to_dict()
-                elif hasattr(response, "model_dump") and callable(response.model_dump):
-                    data = response.model_dump()
-                elif isinstance(response, dict):
-                    data = response
-                else:
-                    # Try to convert dataclass or similar to dict
-                    import dataclasses
-
-                    if dataclasses.is_dataclass(response):
-                        data = dataclasses.asdict(response)
-                    else:
-                        # Last resort: use vars or repr
-                        data = {"raw": str(response)}
-
-                await websocket.send_json(data)
-            except Exception as e:
-                logger.warning(f"Failed to serialize response: {e}, type={type(response)}")
-                await websocket.send_json({"error": f"Serialization error: {str(e)}"})
-
-        logger.info("Results generator finished. Sending 'ready_to_stop' to client.")
-        await websocket.send_json({"type": "ready_to_stop"})
-
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected while handling results")
-    except Exception as e:
-        logger.exception(f"Error in WebSocket results handler: {e}")
 
 
 @router.websocket("/automatic-speech-recognition/live")
 async def live_transcription_websocket(websocket: WebSocket):
     """
-    WebSocket endpoint for real-time live transcription using WhisperLiveKit.
+    WebSocket endpoint for real-time live transcription.
+
+    This endpoint proxies to an ASR streaming worker subprocess.
 
     Protocol:
     1. Client connects to ws://host/api/automatic-speech-recognition/live
@@ -392,7 +276,7 @@ async def live_transcription_websocket(websocket: WebSocket):
     - language: Source language code (default: "en", use "auto" for detection)
     - diarization: Enable speaker diarization (default: "false")
     """
-    from whisperlivekit import AudioProcessor
+    import websockets
 
     # Extract query parameters
     model = websocket.query_params.get("model", "large-v3")
@@ -400,63 +284,73 @@ async def live_transcription_websocket(websocket: WebSocket):
     diarization = websocket.query_params.get("diarization", "false").lower() == "true"
 
     logger.info(
-        f"WebSocket connection request: model={model}, language={language}, diarization={diarization}"
+        f"Live transcription request: model={model}, language={language}, diarization={diarization}"
     )
 
-    # Get shared transcription engine
+    # Get or spawn the streaming worker
+    coordinator = get_coordinator()
     try:
-        transcription_engine = await _get_live_engine(
-            model=model, language=language, diarization=diarization
+        worker_url = await coordinator.get_or_spawn_worker(
+            task="asr-streaming",
+            model_id=model,
+            python_env="whisper",
+            extra_args={
+                "language": language,
+                "diarization": str(diarization).lower(),
+            },
         )
-        logger.info(f"Using engine with config: {_live_engine_config}")
+        logger.info(f"Using streaming worker at {worker_url}")
     except Exception as e:
-        logger.error(f"Failed to get transcription engine: {e}")
+        logger.error(f"Failed to spawn streaming worker: {e}")
         await websocket.close(code=1011, reason=str(e))
         return
 
-    # Create per-connection audio processor
-    audio_processor = AudioProcessor(transcription_engine=transcription_engine)
-
+    # Accept client connection
     await websocket.accept()
-    logger.info(f"Live transcription WebSocket connection opened (model={model}, language={language})")
 
-    # Send config to client (we use MediaRecorder, not AudioWorklet by default)
-    try:
-        await websocket.send_json({"type": "config", "useAudioWorklet": False})
-    except Exception as e:
-        logger.warning(f"Failed to send config to client: {e}")
-
-    # Start result generator
-    results_generator = await audio_processor.create_tasks()
-
-    # Start task to handle results
-    websocket_task = asyncio.create_task(_handle_websocket_results(websocket, results_generator))
+    # Connect to worker's WebSocket
+    worker_ws_url = worker_url.replace("http://", "ws://") + "/stream"
+    logger.info(f"Connecting to worker WebSocket at {worker_ws_url}")
 
     try:
-        while True:
-            # Receive audio bytes from client
-            message = await websocket.receive_bytes()
-            await audio_processor.process_audio(message)
+        async with websockets.connect(worker_ws_url) as worker_ws:
+            # Proxy messages bidirectionally
+            async def forward_client_to_worker():
+                """Forward messages from client to worker."""
+                try:
+                    while True:
+                        # Try to receive either bytes or text
+                        message = await websocket.receive()
+                        if "bytes" in message:
+                            await worker_ws.send(message["bytes"])
+                        elif "text" in message:
+                            await worker_ws.send(message["text"])
+                except WebSocketDisconnect:
+                    logger.info("Client disconnected")
+                except Exception as e:
+                    logger.debug(f"Client->worker forward ended: {e}")
 
-    except WebSocketDisconnect:
-        logger.info("Live transcription WebSocket disconnected by client")
+            async def forward_worker_to_client():
+                """Forward messages from worker to client."""
+                try:
+                    async for message in worker_ws:
+                        if isinstance(message, bytes):
+                            await websocket.send_bytes(message)
+                        else:
+                            await websocket.send_text(message)
+                except Exception as e:
+                    logger.debug(f"Worker->client forward ended: {e}")
+
+            # Run both forwarding tasks
+            await asyncio.gather(
+                forward_client_to_worker(),
+                forward_worker_to_client(),
+                return_exceptions=True,
+            )
+
+    except websockets.exceptions.ConnectionClosed as e:
+        logger.info(f"Worker WebSocket closed: {e}")
     except Exception as e:
-        logger.error(f"Unexpected error in live transcription: {e}", exc_info=True)
+        logger.error(f"WebSocket proxy error: {e}", exc_info=True)
     finally:
-        logger.info("Cleaning up live transcription WebSocket...")
-
-        # Cancel the results task if still running
-        if not websocket_task.done():
-            websocket_task.cancel()
-            try:
-                await websocket_task
-            except asyncio.CancelledError:
-                pass
-
-        # Cleanup audio processor
-        try:
-            await audio_processor.cleanup()
-        except Exception as e:
-            logger.warning(f"Error cleaning up audio processor: {e}")
-
-        logger.info("Live transcription WebSocket cleaned up")
+        logger.info("Live transcription WebSocket proxy closed")

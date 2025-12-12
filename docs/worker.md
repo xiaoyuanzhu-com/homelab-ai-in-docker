@@ -321,6 +321,29 @@ POST /shutdown    -> Graceful shutdown request
 GET  /info        -> {"model": "...", "memory_mb": ..., "load_time_ms": ...}
 ```
 
+### WebSocket Streaming Protocol
+
+Some workers support WebSocket streaming in addition to HTTP:
+
+```
+WS   /stream      -> Bidirectional streaming (e.g., audio in, transcripts out)
+```
+
+The main process acts as a **transparent WebSocket proxy** - it doesn't import any ML dependencies, just forwards messages between client and worker.
+
+```python
+# Main process proxy (no ML deps)
+async def live_asr_websocket(client_ws: WebSocket):
+    worker_url = await coordinator.get_or_spawn_worker("asr-streaming", model_id)
+    async with websockets.connect(f"{worker_url}/stream") as worker_ws:
+        await asyncio.gather(
+            forward(client_ws, worker_ws),
+            forward(worker_ws, client_ws),
+        )
+```
+
+Same GPU lock, same idle timeout, same eviction rules as HTTP workers.
+
 ## Worker Lifecycle
 
 ```
@@ -401,7 +424,7 @@ src/
       embedding_worker.py
       captioning_worker.py
       text_generation_worker.py
-      asr_worker.py
+      asr_worker.py            # HTTP + WS streaming
       ocr_worker.py
 ```
 

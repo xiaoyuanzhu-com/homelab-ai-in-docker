@@ -36,6 +36,7 @@ WORKER_MODULES: Dict[str, str] = {
     "captioning": "src.worker.workers.captioning_worker",
     "text-generation": "src.worker.workers.text_generation_worker",
     "asr": "src.worker.workers.asr_worker",
+    "asr-streaming": "src.worker.workers.asr_streaming_worker",
     "ocr": "src.worker.workers.ocr_worker",
     "speaker-diarization": "src.worker.workers.diarization_worker",
     # Lib-based workers (non-ML)
@@ -512,6 +513,39 @@ class WorkerCoordinator:
 
         # Extract result from response
         return response.get("result", response)
+
+    async def get_or_spawn_worker(
+        self,
+        task: str,
+        model_id: str,
+        python_env: Optional[str] = None,
+        extra_args: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """
+        Get existing worker or spawn a new one, return its base URL.
+
+        Used for WebSocket proxy - caller connects to worker directly.
+        Holds GPU lock during spawn only, not during the connection.
+
+        Args:
+            task: Task type (e.g., 'asr-streaming')
+            model_id: Model to use
+            python_env: Optional custom Python environment
+            extra_args: Optional extra args for worker
+
+        Returns:
+            Worker base URL (e.g., 'http://127.0.0.1:50001')
+        """
+        config = WorkerConfig(
+            task=task,
+            model_id=model_id,
+            python_env=python_env,
+            extra_args=extra_args or {},
+        )
+
+        async with self._gpu_lock:
+            worker = await self._ensure_worker(config)
+            return f"http://127.0.0.1:{worker.port}"
 
     async def get_worker_status(self) -> Dict[str, Any]:
         """
