@@ -130,7 +130,6 @@ class FunASRStreamingWorker:
         try:
             await websocket.send_json({
                 "type": "config",
-                "useAudioWorklet": False,
                 "sampleRate": self._sample_rate,
                 "chunkMs": self.CHUNK_SIZE[1] * 60,
             })
@@ -227,29 +226,21 @@ class FunASRStreamingWorker:
             logger.info(f"Stream ended (active_streams={self._active_streams})")
 
     async def _decode_audio_chunk(self, data: bytes) -> "np.ndarray":
-        """Decode audio chunk from WebM or raw PCM to float32 samples."""
+        """Decode audio chunk from raw PCM int16 to float32 samples.
+
+        The UI sends raw 16-bit PCM at 16kHz via AudioWorklet.
+        Each chunk is 1600 samples (100ms) = 3200 bytes.
+        """
         import numpy as np
-        import io
 
-        # Try to decode as WebM using pydub/ffmpeg
-        try:
-            from pydub import AudioSegment
+        # Validate buffer size (must be multiple of 2 for int16)
+        if len(data) % 2 != 0:
+            raise ValueError(f"Buffer size {len(data)} is not a multiple of 2 (int16)")
 
-            audio = AudioSegment.from_file(io.BytesIO(data), format="webm")
-            audio = audio.set_frame_rate(self._sample_rate).set_channels(1)
-            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
-            samples = samples / 32768.0  # Normalize to [-1, 1]
-            return samples
-        except Exception:
-            pass
-
-        # Fallback: assume raw int16 PCM
-        try:
-            samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-            samples = samples / 32768.0
-            return samples
-        except Exception as e:
-            raise ValueError(f"Could not decode audio: {e}")
+        # Convert int16 PCM to float32 [-1, 1]
+        samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+        samples = samples / 32768.0
+        return samples
 
     def _extract_text(self, result: Any) -> str:
         """Extract text from FunASR result."""

@@ -76,7 +76,7 @@ interface LiveTranscriptionMessage {
   remaining_time_transcription?: number;
   remaining_time_diarization?: number;
   error?: string;
-  useAudioWorklet?: boolean;
+  sampleRate?: number;
 }
 
 type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -120,14 +120,15 @@ function AutomaticSpeechRecognitionContent() {
   const [liveConnectionStatus, setLiveConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [isLiveStreaming, setIsLiveStreaming] = useState(false);
   const liveWsRef = useRef<WebSocket | null>(null);
-  const liveMediaRecorderRef = useRef<MediaRecorder | null>(null);
   const liveStreamRef = useRef<MediaStream | null>(null);
+  // AudioWorklet refs for PCM streaming
+  const liveAudioContextRef = useRef<AudioContext | null>(null);
+  const liveWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
   const [liveModel, setLiveModel] = useState<string>("large-v3");
   const [liveLines, setLiveLines] = useState<LiveTranscriptionSegment[]>([]);
   const [liveBuffer, setLiveBuffer] = useState<string>("");
   const [liveStatus, setLiveStatus] = useState<string>("");
   const [liveError, setLiveError] = useState<string | null>(null);
-  const liveChunkDuration = 100;
 
   // Get the selected choice info
   const selectedChoiceInfo = choices.find(c => `${c.type}:${c.id}` === selectedChoice);
@@ -450,25 +451,47 @@ function AutomaticSpeechRecognitionContent() {
       const ws = new WebSocket(wsUrl);
       liveWsRef.current = ws;
 
-      ws.onopen = () => {
+      ws.onopen = async () => {
         console.log("WebSocket connected");
         setLiveConnectionStatus("connected");
 
-        // Create and start MediaRecorder
-        const mediaRecorder = new MediaRecorder(stream, {
-          mimeType: "audio/webm;codecs=opus",
-        });
-        liveMediaRecorderRef.current = mediaRecorder;
+        try {
+          // Create AudioContext and load AudioWorklet for PCM streaming
+          const audioContext = new AudioContext();
+          liveAudioContextRef.current = audioContext;
 
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-            ws.send(e.data);
-          }
-        };
+          // Load the PCM processor worklet
+          await audioContext.audioWorklet.addModule("/pcm-processor.js");
 
-        mediaRecorder.start(liveChunkDuration);
-        setIsLiveStreaming(true);
-        toast.success("Live transcription started");
+          // Create worklet node with native sample rate info
+          const workletNode = new AudioWorkletNode(audioContext, "pcm-processor", {
+            processorOptions: {
+              sampleRate: audioContext.sampleRate,
+            },
+          });
+          liveWorkletNodeRef.current = workletNode;
+
+          // Handle PCM audio chunks from worklet
+          workletNode.port.onmessage = (event) => {
+            if (event.data.type === "audio" && ws.readyState === WebSocket.OPEN) {
+              // Send raw PCM int16 bytes
+              ws.send(event.data.samples);
+            }
+          };
+
+          // Connect microphone -> worklet
+          const source = audioContext.createMediaStreamSource(stream);
+          source.connect(workletNode);
+          // Don't connect to destination (we don't want to hear ourselves)
+
+          setIsLiveStreaming(true);
+          toast.success("Live transcription started");
+        } catch (workletError) {
+          console.error("AudioWorklet setup failed:", workletError);
+          setLiveError("Failed to initialize audio processor");
+          setLiveConnectionStatus("error");
+          ws.close();
+        }
       };
 
       ws.onmessage = (event: MessageEvent) => {
@@ -516,8 +539,14 @@ function AutomaticSpeechRecognitionContent() {
         setLiveConnectionStatus("disconnected");
         setIsLiveStreaming(false);
 
-        if (liveMediaRecorderRef.current && liveMediaRecorderRef.current.state !== "inactive") {
-          liveMediaRecorderRef.current.stop();
+        // Clean up AudioWorklet
+        if (liveWorkletNodeRef.current) {
+          liveWorkletNodeRef.current.disconnect();
+          liveWorkletNodeRef.current = null;
+        }
+        if (liveAudioContextRef.current) {
+          liveAudioContextRef.current.close();
+          liveAudioContextRef.current = null;
         }
       };
     } catch (err) {
@@ -530,9 +559,16 @@ function AutomaticSpeechRecognitionContent() {
   }, [isRecordingSupported, getLiveWebSocketUrl]);
 
   const stopLiveStreaming = useCallback(() => {
-    if (liveMediaRecorderRef.current && liveMediaRecorderRef.current.state !== "inactive") {
-      liveMediaRecorderRef.current.stop();
-      liveMediaRecorderRef.current = null;
+    // Clean up AudioWorklet
+    if (liveWorkletNodeRef.current) {
+      liveWorkletNodeRef.current.port.postMessage({ type: "stop" });
+      liveWorkletNodeRef.current.disconnect();
+      liveWorkletNodeRef.current = null;
+    }
+
+    if (liveAudioContextRef.current) {
+      liveAudioContextRef.current.close();
+      liveAudioContextRef.current = null;
     }
 
     if (liveStreamRef.current) {

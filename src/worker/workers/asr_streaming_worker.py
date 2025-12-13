@@ -127,7 +127,7 @@ class ASRStreamingWorker:
 
         # Send config to client
         try:
-            await websocket.send_json({"type": "config", "useAudioWorklet": False})
+            await websocket.send_json({"type": "config", "sampleRate": 16000})
         except Exception as e:
             logger.warning(f"Failed to send config: {e}")
 
@@ -253,6 +253,7 @@ class ASRStreamingWorker:
             transcription=True,
             diarization=self.diarization,
             buffer_trimming="sentence",
+            pcm_input=True,  # UI sends raw PCM int16 via AudioWorklet
         )
 
         return engine
