@@ -140,6 +140,18 @@ function AutomaticSpeechRecognitionContent() {
     }
   }, [selectedChoice, supportsLiveMode, mode]);
 
+  // Reset liveModel when switching between engine architectures
+  useEffect(() => {
+    const arch = selectedChoiceInfo?.architecture;
+    if (arch === "funasr") {
+      // Default to SenseVoice for FunASR
+      setLiveModel("FunAudioLLM/SenseVoiceSmall");
+    } else if (arch === "whisperlivekit" || arch === "whisperx") {
+      // Default to large-v3 for Whisper-based
+      setLiveModel("large-v3");
+    }
+  }, [selectedChoiceInfo?.architecture]);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const supported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
@@ -407,42 +419,15 @@ function AutomaticSpeechRecognitionContent() {
     if (enableDiarization) {
       params.set("diarization", "true");
     }
-    return `${protocol}//${host}/api/automatic-speech-recognition/live?${params.toString()}`;
-  }, [liveModel, language, enableDiarization]);
 
-  const handleLiveMessage = useCallback((event: MessageEvent) => {
-    try {
-      const data: LiveTranscriptionMessage = JSON.parse(event.data);
-
-      if (data.type === "config") {
-        console.log("Received config:", data);
-        return;
-      }
-
-      if (data.type === "ready_to_stop") {
-        console.log("Server ready to stop");
-        return;
-      }
-
-      if (data.status) {
-        setLiveStatus(data.status);
-      }
-
-      if (data.lines !== undefined && Array.isArray(data.lines)) {
-        setLiveLines(data.lines);
-      }
-
-      if (data.buffer_transcription !== undefined) {
-        setLiveBuffer(data.buffer_transcription);
-      }
-
-      if (data.error) {
-        setLiveError(data.error);
-      }
-    } catch (err) {
-      console.error("Failed to parse message:", err);
+    // Use different endpoint based on selected engine architecture
+    const arch = selectedChoiceInfo?.architecture;
+    if (arch === "funasr") {
+      return `${protocol}//${host}/api/funasr/live?${params.toString()}`;
     }
-  }, []);
+    // Default to WhisperLiveKit
+    return `${protocol}//${host}/api/automatic-speech-recognition/live?${params.toString()}`;
+  }, [liveModel, language, enableDiarization, selectedChoiceInfo]);
 
   const startLiveStreaming = useCallback(async () => {
     if (!isRecordingSupported) {
@@ -469,6 +454,7 @@ function AutomaticSpeechRecognitionContent() {
         console.log("WebSocket connected");
         setLiveConnectionStatus("connected");
 
+        // Create and start MediaRecorder
         const mediaRecorder = new MediaRecorder(stream, {
           mimeType: "audio/webm;codecs=opus",
         });
@@ -485,7 +471,39 @@ function AutomaticSpeechRecognitionContent() {
         toast.success("Live transcription started");
       };
 
-      ws.onmessage = handleLiveMessage;
+      ws.onmessage = (event: MessageEvent) => {
+        try {
+          const data: LiveTranscriptionMessage = JSON.parse(event.data);
+
+          if (data.type === "config") {
+            console.log("Received config:", data);
+            return;
+          }
+
+          if (data.type === "ready_to_stop") {
+            console.log("Server ready to stop");
+            return;
+          }
+
+          if (data.status) {
+            setLiveStatus(data.status);
+          }
+
+          if (data.lines !== undefined && Array.isArray(data.lines)) {
+            setLiveLines(data.lines);
+          }
+
+          if (data.buffer_transcription !== undefined) {
+            setLiveBuffer(data.buffer_transcription);
+          }
+
+          if (data.error) {
+            setLiveError(data.error);
+          }
+        } catch (err) {
+          console.error("Failed to parse message:", err);
+        }
+      };
 
       ws.onerror = (err) => {
         console.error("WebSocket error:", err);
@@ -509,7 +527,7 @@ function AutomaticSpeechRecognitionContent() {
       setLiveConnectionStatus("error");
       toast.error("Failed to start", { description: errorMsg });
     }
-  }, [isRecordingSupported, getLiveWebSocketUrl, handleLiveMessage]);
+  }, [isRecordingSupported, getLiveWebSocketUrl]);
 
   const stopLiveStreaming = useCallback(() => {
     if (liveMediaRecorderRef.current && liveMediaRecorderRef.current.state !== "inactive") {
@@ -762,7 +780,7 @@ function AutomaticSpeechRecognitionContent() {
         )}
 
         {/* Live mode model selection */}
-        {mode === "live" && (
+        {mode === "live" && selectedChoiceInfo?.architecture !== "funasr" && (
           <div className="space-y-2">
             <Label htmlFor="live-model">Whisper Model</Label>
             <Select
@@ -780,6 +798,24 @@ function AutomaticSpeechRecognitionContent() {
                 <SelectItem value="medium">medium</SelectItem>
                 <SelectItem value="large-v2">large-v2</SelectItem>
                 <SelectItem value="large-v3">large-v3 (best quality)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {mode === "live" && selectedChoiceInfo?.architecture === "funasr" && (
+          <div className="space-y-2">
+            <Label htmlFor="live-model">FunASR Model</Label>
+            <Select
+              value={liveModel}
+              onValueChange={setLiveModel}
+              disabled={isLiveStreaming}
+            >
+              <SelectTrigger id="live-model">
+                <SelectValue placeholder="Select model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FunAudioLLM/SenseVoiceSmall">SenseVoice (multi-language)</SelectItem>
+                <SelectItem value="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch">Paraformer-zh (Mandarin)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -847,7 +883,14 @@ function AutomaticSpeechRecognitionContent() {
               </Alert>
             )}
 
-            {isLiveStreaming && (
+            {liveConnectionStatus === "connecting" && (
+              <div className="flex items-center gap-2 p-4 bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200 rounded-lg">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm font-medium">Connecting to server...</span>
+              </div>
+            )}
+
+            {liveConnectionStatus === "connected" && (
               <div className="flex items-center gap-2 p-4 bg-destructive/10 text-destructive rounded-lg">
                 <div className="h-3 w-3 bg-destructive rounded-full animate-pulse" />
                 <span className="text-sm font-medium">Listening...</span>

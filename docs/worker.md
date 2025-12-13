@@ -451,6 +451,7 @@ Workers download models on-demand from various sources (HuggingFace, PaddleHub, 
 | `HF_HOME` | `$DATA_DIR/models` | HuggingFace transformers, diffusers, datasets |
 | `SENTENCE_TRANSFORMERS_HOME` | `$DATA_DIR/models` | sentence-transformers (falls back to HF_HOME) |
 | `HUB_HOME` | `$DATA_DIR/models/paddlehub` | PaddleHub/PaddleOCR legacy models |
+| `MODELSCOPE_CACHE` | `$DATA_DIR/models/modelscope` | ModelScope models (FunASR, etc.) |
 
 **Why this matters:**
 - Without these, libraries default to `~/.cache/huggingface` or `~/.paddlehub`
@@ -462,6 +463,7 @@ Workers download models on-demand from various sources (HuggingFace, PaddleHub, 
 - **SentenceTransformers**: Checks `SENTENCE_TRANSFORMERS_HOME` first, falls back to `HF_HOME`
 - **PaddleHub/PaddleOCR**: Uses `HUB_HOME` for legacy PP-OCRv5 models (default: `~/.paddlehub`)
 - **PaddleOCR-VL**: Uses transformers backend, so respects `HF_HOME`
+- **ModelScope/FunASR**: Uses `MODELSCOPE_CACHE` for model downloads (default: `~/.cache/modelscope`)
 
 **Additional PaddlePaddle variables** (not currently set, for reference):
 - `PADDLEX_HOME` - PaddleX model cache

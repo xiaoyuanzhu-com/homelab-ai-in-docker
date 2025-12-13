@@ -191,6 +191,10 @@ class WorkerCoordinator:
         if "HUB_HOME" not in env:
             env["HUB_HOME"] = str(models_dir / "paddlehub")
 
+        # ModelScope (FunASR, etc.) - default: ~/.cache/modelscope
+        if "MODELSCOPE_CACHE" not in env:
+            env["MODELSCOPE_CACHE"] = str(models_dir / "modelscope")
+
         # For sub-environments, add PYTHONPATH so it can find src module
         # Also clear VIRTUAL_ENV/CONDA_PREFIX so uv finds the sub-env's .venv
         if config.python_env:

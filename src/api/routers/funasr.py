@@ -174,7 +174,8 @@ async def live_transcription_websocket(websocket: WebSocket):
 
     logger.info(f"FunASR live transcription request: model={model}, language={language}")
 
-    # Get or spawn the streaming worker
+    # Get or spawn the streaming worker FIRST (may take a while for first load)
+    # This blocks until worker is ready, keeping the HTTP upgrade request waiting
     coordinator = get_coordinator()
     try:
         worker_url = await coordinator.get_or_spawn_worker(
@@ -189,7 +190,7 @@ async def live_transcription_websocket(websocket: WebSocket):
         await websocket.close(code=1011, reason=str(e))
         return
 
-    # Accept client connection
+    # Accept client connection only after worker is ready
     await websocket.accept()
 
     # Connect to worker's WebSocket
