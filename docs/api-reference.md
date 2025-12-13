@@ -1,6 +1,6 @@
 # API Reference
 
-Complete reference for all AI skill endpoints in Homelab AI Services API.
+Complete reference for all endpoints in Homelab AI Services API.
 
 ## Base URL
 
@@ -16,8 +16,7 @@ All responses include these base fields:
 ```json
 {
   "request_id": "uuid-string",
-  "processing_time_ms": 123,
-  ...
+  "processing_time_ms": 123
 }
 ```
 
@@ -27,17 +26,49 @@ Currently no authentication required. For production deployments, use reverse pr
 
 ---
 
+# AI Skills
+
+## Text Embedding
+
+Generate vector embeddings for semantic search and similarity.
+
+### `POST /api/text-to-embedding`
+
+**Request:**
+
+```json
+{
+  "texts": ["Hello world", "Good morning"],
+  "model": "sentence-transformers/all-MiniLM-L6-v2"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `texts` | array[string] | Yes | List of texts to embed |
+| `model` | string | Yes | Model ID from catalog |
+
+**Response:**
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 45,
+  "embeddings": [[0.1, 0.2, ...], [0.3, 0.4, ...]],
+  "dimensions": 384,
+  "model": "sentence-transformers/all-MiniLM-L6-v2"
+}
+```
+
+---
+
 ## Text Generation
 
 Generate text from prompts using language models.
 
-### Endpoint
+### `POST /api/text-generation`
 
-```
-POST /api/text-generation
-```
-
-### Request
+**Request:**
 
 ```json
 {
@@ -50,84 +81,24 @@ POST /api/text-generation
 }
 ```
 
-**Parameters:**
-
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `prompt` | string | Yes | Input prompt for text generation (min length: 1) |
-| `model` | string | Yes | Model ID to use (see available models below) |
-| `max_new_tokens` | integer | No | Maximum tokens to generate (default: 256, range: 1-4096) |
-| `temperature` | float | No | Sampling temperature (default: 0.7, range: 0.0-2.0) |
-| `top_p` | float | No | Nucleus sampling threshold (default: 0.9, range: 0.0-1.0) |
-| `do_sample` | boolean | No | Use sampling vs greedy decoding (default: true) |
+| `prompt` | string | Yes | Input prompt |
+| `model` | string | Yes | Model ID from catalog |
+| `max_new_tokens` | integer | No | Max tokens to generate (default: 256) |
+| `temperature` | float | No | Sampling temperature (default: 0.7) |
+| `top_p` | float | No | Nucleus sampling (default: 0.9) |
+| `do_sample` | boolean | No | Use sampling vs greedy (default: true) |
 
-**Available Models:**
-- `Qwen/Qwen2.5-0.5B-Instruct` - Lightweight model (0.5B parameters)
-- `Qwen/Qwen2.5-1.5B-Instruct` - Mid-size model (1.5B parameters)
-- `Qwen/Qwen2.5-3B-Instruct` - Larger model (3B parameters)
-
-### Response
+**Response:**
 
 ```json
 {
-  "request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "request_id": "uuid",
   "processing_time_ms": 1250,
-  "generated_text": "Code flows like water,\nBugs hide in silent shadows,\nDebug brings the light.",
+  "generated_text": "Code flows like water...",
   "model": "Qwen/Qwen2.5-0.5B-Instruct",
   "tokens_generated": 24
-}
-```
-
-**Response Fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `generated_text` | string | Generated text output |
-| `model` | string | Model that generated the text |
-| `tokens_generated` | integer | Number of tokens generated |
-
----
-
-## Text Embedding
-
-Generate vector embeddings for semantic search and similarity.
-
-### Endpoint
-
-```
-POST /api/text-to-embedding
-```
-
-### Request
-
-```json
-{
-  "texts": ["Hello world", "Good morning"],
-  "model": "sentence-transformers/all-MiniLM-L6-v2"
-}
-```
-
-**Parameters:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `texts` | array[string] | Yes | List of texts to embed |
-| `model` | string | No | Model ID (see available models below) |
-
-**Available Models:**
-- `sentence-transformers/all-MiniLM-L6-v2` - Fast, 384 dimensions
-- `BAAI/bge-large-en-v1.5` - High quality, 1024 dimensions
-- `Alibaba-NLP/gte-large-en-v1.5` - High quality, 1024 dimensions
-
-### Response
-
-```json
-{
-  "request_id": "550e8400-e29b-41d4-a716-446655440000",
-  "processing_time_ms": 45,
-  "embeddings": [[0.1, 0.2, ...], [0.3, 0.4, ...]],
-  "dimensions": 384,
-  "model": "sentence-transformers/all-MiniLM-L6-v2"
 }
 ```
 
@@ -137,37 +108,29 @@ POST /api/text-to-embedding
 
 Generate natural language descriptions of images.
 
-### Endpoint
+### `POST /api/image-captioning`
 
-```
-POST /api/image-captioning
-```
-
-### Request
+**Request:**
 
 ```json
 {
   "image": "base64-encoded-image-data",
-  "model": "Salesforce/blip-image-captioning-base"
+  "model": "Salesforce/blip-image-captioning-base",
+  "prompt": "a photo of"
 }
 ```
 
-**Parameters:**
-
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `image` | string | Yes | Base64-encoded image data |
-| `model` | string | No | Model ID (default: blip-image-captioning-base) |
+| `image` | string | Yes | Base64-encoded image |
+| `model` | string | Yes | Model ID from catalog |
+| `prompt` | string | No | Optional prompt prefix |
 
-**Available Models:**
-- `Salesforce/blip-image-captioning-base` - Fast and accurate
-- `Salesforce/blip-image-captioning-large` - Higher quality
-
-### Response
+**Response:**
 
 ```json
 {
-  "request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "request_id": "uuid",
   "processing_time_ms": 320,
   "caption": "a cat sitting on a wooden table",
   "model": "Salesforce/blip-image-captioning-base"
@@ -180,56 +143,49 @@ POST /api/image-captioning
 
 Extract text from images using optical character recognition.
 
-### Endpoint
+### `POST /api/image-ocr`
 
-```
-POST /api/image-ocr
-```
-
-### Request
+**Request:**
 
 ```json
 {
   "image": "base64-encoded-image-data",
   "model": "deepseek-ai/DeepSeek-OCR",
-  "output_format": "markdown"
+  "output_format": "markdown",
+  "language": "en"
 }
 ```
 
-or using a library engine:
+Or using a library engine:
 
 ```json
 {
   "image": "base64-encoded-image-data",
   "lib": "paddleocr/pp-ocrv5",
-  "language": "en",
-  "output_format": "text"
+  "output_format": "text",
+  "language": "en"
 }
 ```
 
-**Parameters:**
-
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `image` | string | Yes | Base64-encoded image data |
-| `model` | string | No | Model ID (use `/api/models?task=image-ocr`) |
-| `lib` | string | No | Lib ID (use `/api/libs?task=image-ocr`) |
-| `language` | string | No | Language hint ('en', 'zh', 'auto', etc.) |
-| `output_format` | string | No | 'text' or 'markdown' (default: 'text') |
+| `image` | string | Yes | Base64-encoded image |
+| `model` | string | No* | Model ID from catalog |
+| `lib` | string | No* | Library ID from catalog |
+| `output_format` | string | No | `text` or `markdown` (default: `text`) |
+| `language` | string | No | Language hint (`en`, `zh`, etc.) |
 
-Exactly one of `model` or `lib` must be provided.
-- `PaddlePaddle/PaddleOCR-VL` - Vision-language OCR with markdown support
-- `deepseek-ai/DeepSeek-VL2-Tiny` - Advanced OCR with markdown support
+*Exactly one of `model` or `lib` must be provided.
 
-### Response
+**Response:**
 
 ```json
 {
-  "request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "request_id": "uuid",
   "processing_time_ms": 890,
   "text": "Extracted text from the image",
-  "model": "PaddlePaddle/PaddleOCR",
-  "output_format": "text"
+  "model": "deepseek-ai/DeepSeek-OCR",
+  "output_format": "markdown"
 }
 ```
 
@@ -237,15 +193,13 @@ Exactly one of `model` or `lib` must be provided.
 
 ## Automatic Speech Recognition
 
-Transcribe audio files to text or perform speaker diarization.
+Transcribe audio files to text. Supports multiple engines.
 
-### Endpoint
+### `POST /api/automatic-speech-recognition`
 
-```
-POST /api/automatic-speech-recognition
-```
+For Whisper/pyannote models registered in the catalog.
 
-### Request (Transcription)
+**Request (Transcription):**
 
 ```json
 {
@@ -257,7 +211,7 @@ POST /api/automatic-speech-recognition
 }
 ```
 
-### Request (Speaker Diarization)
+**Request (Diarization):**
 
 ```json
 {
@@ -269,78 +223,73 @@ POST /api/automatic-speech-recognition
 }
 ```
 
-**Parameters:**
-
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `audio` | string | Yes | Base64-encoded audio (mp3, mp4, mpeg, mpga, m4a, wav, webm) |
-| `model` | string | No | Model ID (default: whisper-large-v3-turbo) |
-| `output_format` | string | No | 'transcription' or 'diarization' (default: 'transcription') |
-| `language` | string | No | Language code for transcription ('en', 'zh', 'es', etc.) |
-| `return_timestamps` | boolean | No | Return word-level timestamps (transcription only) |
-| `min_speakers` | integer | No | Minimum speakers (diarization only, ≥1) |
-| `max_speakers` | integer | No | Maximum speakers (diarization only, ≥1) |
-| `num_speakers` | integer | No | Exact speaker count if known (diarization only, ≥1) |
+| `audio` | string | Yes | Base64-encoded audio |
+| `model` | string | Yes | Model ID from catalog |
+| `output_format` | string | No | `transcription` or `diarization` |
+| `language` | string | No | Language code for transcription |
+| `return_timestamps` | boolean | No | Return word timestamps |
+| `min_speakers` | integer | No | Min speakers (diarization only) |
+| `max_speakers` | integer | No | Max speakers (diarization only) |
 
-**Available Models:**
-- **Transcription:**
-  - `openai/whisper-large-v3-turbo` - Fast and accurate
-  - `openai/whisper-large-v3` - Highest quality
-  - `openai/whisper-medium` - Balanced speed/quality
-  - `openai/whisper-small` - Lightweight
-- **Diarization:**
-  - `pyannote/speaker-diarization-3.1` - Speaker segmentation
-
-### Response (Transcription)
+**Response (Transcription):**
 
 ```json
 {
-  "request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "request_id": "uuid",
   "processing_time_ms": 3200,
-  "text": "This is the transcribed text from the audio file.",
+  "text": "Transcribed text from the audio.",
   "model": "openai/whisper-large-v3-turbo",
   "language": "en",
   "chunks": null
 }
 ```
 
-### Response (Diarization)
+**Response (Diarization):**
 
 ```json
 {
-  "request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "request_id": "uuid",
   "processing_time_ms": 5400,
-  "text": null,
   "model": "pyannote/speaker-diarization-3.1",
   "segments": [
-    {
-      "start": 0.5,
-      "end": 3.2,
-      "speaker": "SPEAKER_00"
-    },
-    {
-      "start": 3.5,
-      "end": 7.8,
-      "speaker": "SPEAKER_01"
-    }
+    {"start": 0.5, "end": 3.2, "speaker": "SPEAKER_00"},
+    {"start": 3.5, "end": 7.8, "speaker": "SPEAKER_01"}
   ],
   "num_speakers": 2
 }
 ```
 
+### `WebSocket /api/automatic-speech-recognition/live`
+
+Real-time live transcription via WebSocket.
+
+**Query Parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `model` | `large-v3` | Whisper model size |
+| `language` | `en` | Language code (or `auto`) |
+| `diarization` | `false` | Enable speaker diarization |
+
+**Protocol:**
+
+1. Client connects
+2. Server sends config: `{"type": "config", "sampleRate": 16000, ...}`
+3. Client streams raw PCM int16 audio bytes
+4. Server sends transcription: `{"type": "partial", "lines": [...], "buffer_transcription": "..."}`
+5. On disconnect, server sends: `{"type": "ready_to_stop"}`
+
 ---
 
-## WhisperX (Aligned ASR + Diarization)
+## WhisperX (Advanced ASR)
 
-High-quality Whisper transcription with word-level alignment and optional diarization.
+High-quality transcription with word-level alignment and speaker diarization.
 
-### Endpoint
+### `POST /api/whisperx/transcribe`
 
-```
-POST /api/whisperx/transcribe
-```
-
-### Request
+**Request:**
 
 ```json
 {
@@ -353,18 +302,18 @@ POST /api/whisperx/transcribe
 }
 ```
 
-**Parameters:**
-
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `audio` | string | Yes | Base64-encoded audio (mp3, mp4, mpeg, mpga, m4a, wav, webm) |
-| `asr_model` | string | No | WhisperX model id (e.g., `large-v3`, `small.en`); default `large-v3` |
-| `language` | string | No | Language code; if omitted, WhisperX will detect |
-| `diarize` | boolean | No | If true, assigns speakers using pyannote integration |
+| `audio` | string | Yes | Base64-encoded audio |
+| `asr_model` | string | No | Whisper model (default: `large-v3`) |
+| `language` | string | No | Language code (auto-detect if omitted) |
+| `diarize` | boolean | No | Enable speaker diarization |
 | `batch_size` | integer | No | Inference batch size (default: 16) |
-| `compute_type` | string | No | Compute type hint (`float16`, `float32`); auto-selected if omitted |
+| `compute_type` | string | No | `float16` or `float32` |
+| `min_speakers` | integer | No | Min speakers for diarization |
+| `max_speakers` | integer | No | Max speakers for diarization |
 
-### Response
+**Response:**
 
 ```json
 {
@@ -380,39 +329,100 @@ POST /api/whisperx/transcribe
       "text": "Hello everyone",
       "speaker": "SPEAKER_00",
       "words": [
-        { "word": "Hello", "start": 0.12, "end": 0.52, "speaker": "SPEAKER_00" },
-        { "word": "everyone", "start": 0.60, "end": 1.20, "speaker": "SPEAKER_00" }
+        {"word": "Hello", "start": 0.12, "end": 0.52, "speaker": "SPEAKER_00"}
       ]
+    }
+  ],
+  "speakers": [
+    {
+      "speaker_id": "SPEAKER_00",
+      "embedding": [0.1, 0.2, ...],
+      "total_duration": 15.3,
+      "segment_count": 5
     }
   ]
 }
 ```
 
-Notes
-- Diarization uses your configured HuggingFace token (Settings → `hf_token`).
-- This endpoint is independent of the legacy `/automatic-speech-recognition` route and can replace it.
+**Note:** Requires `hf_token` in settings for diarization (pyannote models).
 
 ---
 
-## Speaker Embedding and Matching (Stateless)
+## FunASR
 
-Compute speaker embeddings and perform stateless matching against an app‑managed registry.
+Alibaba's FunASR for multi-language ASR with emotion/event detection.
 
-### Extract Single Embedding
+### `POST /api/funasr/transcribe`
 
-```
-POST /api/speaker-embedding/extract
-```
+**Request:**
 
 ```json
 {
-  "audio": "base64-audio",
+  "audio": "base64-encoded-audio-data",
+  "model": "FunAudioLLM/SenseVoiceSmall",
+  "language": "zh"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `audio` | string | Yes | Base64-encoded audio |
+| `model` | string | Yes | FunASR model ID |
+| `language` | string | No | Language hint |
+
+**Response:**
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 1500,
+  "text": "<|zh|><|HAPPY|><|BGM|>你好世界",
+  "text_clean": "你好世界",
+  "language": "zh",
+  "model": "FunAudioLLM/SenseVoiceSmall",
+  "emotion": "HAPPY",
+  "event": "BGM"
+}
+```
+
+### `WebSocket /api/funasr/live`
+
+Real-time streaming transcription with FunASR.
+
+**Query Parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `model` | paraformer-zh | FunASR streaming model |
+| `language` | `zh` | Language code |
+
+---
+
+## Speaker Embedding
+
+Extract and compare speaker voice embeddings.
+
+### `POST /api/speaker-embedding/extract`
+
+**Request:**
+
+```json
+{
+  "audio": "base64-encoded-audio",
   "model": "pyannote/embedding",
   "mode": "whole"
 }
 ```
 
-Response
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `audio` | string | Yes | Base64-encoded audio |
+| `model` | string | No | Model ID (default: `pyannote/embedding`) |
+| `mode` | string | No | `whole` or `segment` |
+| `start_time` | float | No | Start time (segment mode) |
+| `end_time` | float | No | End time (segment mode) |
+
+**Response:**
 
 ```json
 {
@@ -424,24 +434,24 @@ Response
 }
 ```
 
-### Extract Batch Embeddings (Segments)
+### `POST /api/speaker-embedding/batch-extract`
 
-```
-POST /api/speaker-embedding/batch-extract
-```
+Extract embeddings for multiple time segments from one audio file.
+
+**Request:**
 
 ```json
 {
-  "audio": "base64-audio",
+  "audio": "base64-encoded-audio",
   "model": "pyannote/embedding",
   "segments": [
-    { "start": 1.2, "end": 5.8 },
-    { "start": 7.0, "end": 12.3 }
+    {"start": 1.2, "end": 5.8},
+    {"start": 7.0, "end": 12.3}
   ]
 }
 ```
 
-Response
+**Response:**
 
 ```json
 {
@@ -454,11 +464,11 @@ Response
 }
 ```
 
-### Compare Two Audio Files
+### `POST /api/speaker-embedding/compare`
 
-```
-POST /api/speaker-embedding/compare
-```
+Compare two audio files for speaker similarity.
+
+**Request:**
 
 ```json
 {
@@ -469,7 +479,7 @@ POST /api/speaker-embedding/compare
 }
 ```
 
-Response
+**Response:**
 
 ```json
 {
@@ -482,18 +492,18 @@ Response
 }
 ```
 
-### Match Against Registry (Stateless)
+### `POST /api/speaker-embedding/match`
 
-```
-POST /api/speaker-embedding/match
-```
+Match query embeddings against a speaker registry (stateless).
+
+**Request:**
 
 ```json
 {
   "query_embeddings": [[...], [...]],
   "registry": [
-    { "name": "Alice", "embeddings": [[...], [...]] },
-    { "name": "Bob",   "embeddings": [[...]] }
+    {"name": "Alice", "embeddings": [[...], [...]]},
+    {"name": "Bob", "embeddings": [[...]]}
   ],
   "metric": "cosine",
   "threshold": 0.78,
@@ -502,7 +512,7 @@ POST /api/speaker-embedding/match
 }
 ```
 
-Response
+**Response:**
 
 ```json
 {
@@ -510,134 +520,92 @@ Response
   "processing_time_ms": 35,
   "results": [
     {
-      "best": { "name": "Alice", "similarity": 0.86 },
+      "best": {"name": "Alice", "similarity": 0.86},
       "candidates": [
-        { "name": "Alice", "similarity": 0.86 },
-        { "name": "Bob",   "similarity": 0.73 },
-        { "name": "Carol", "similarity": 0.55 }
+        {"name": "Alice", "similarity": 0.86},
+        {"name": "Bob", "similarity": 0.73}
       ]
     }
   ]
 }
 ```
 
-Notes
-- The registry is provided by your app at call time; the API does not persist speaker data.
-- Use ≥ 5–10s of clean speech per enrolled speaker for best results.
-- `strategy: centroid` is robust; `best` compares against each sample and uses the maximum.
-
 ---
+
+# Document Processing
 
 ## Web Crawling
 
-Scrape web pages with JavaScript rendering support.
+Scrape web pages with JavaScript rendering.
 
-### Endpoint
+### `POST /api/crawl`
 
-```
-POST /api/crawl
-```
-
-### Request
+**Request:**
 
 ```json
 {
   "url": "https://example.com",
   "screenshot": true,
-  "screenshot_fullpage": false
+  "screenshot_fullpage": false,
+  "screenshot_width": 1920,
+  "screenshot_height": 1080,
+  "page_timeout": 120000,
+  "include_html": false
 }
 ```
-
-**Parameters:**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `url` | string | Yes | URL to crawl |
 | `screenshot` | boolean | No | Capture viewport screenshot (default: true) |
-| `screenshot_width` | integer | No | Screenshot viewport width (default: 1920, range: 320-7680) |
-| `screenshot_height` | integer | No | Screenshot viewport height (default: 1080, range: 240-4320) |
-| `page_timeout` | integer | No | Total navigation timeout in ms (default: 120000) |
-| `chrome_cdp_url` | string | No | Remote Chrome CDP endpoint (attach to an existing browser) |
-| `screenshot_fullpage` | boolean | No | Also capture a full-page screenshot (stitched). Shares width/height (default: false) |
+| `screenshot_fullpage` | boolean | No | Also capture full-page screenshot |
+| `screenshot_width` | integer | No | Viewport width (default: 1920) |
+| `screenshot_height` | integer | No | Viewport height (default: 1080) |
+| `page_timeout` | integer | No | Timeout in ms (default: 120000) |
+| `chrome_cdp_url` | string | No | Remote Chrome CDP endpoint |
+| `include_html` | boolean | No | Include raw HTML in response |
 
-Behavior
-- General by default: no site-specific selectors, no auto scroll, no auto click.
-- Uses headless browser rendering; returns after `domcontentloaded` + a brief settle window (~1.5s).
-- Full-page scan is enabled to capture content beyond the initial viewport.
-- Stealth is enabled; navigator is lightly overridden to reduce bot detection.
-- No global header overrides; native browser User-Agent is used by default (no forced UA).
-- If a site hides content behind interactions (e.g., “load more”), content may not appear by default; perform interactions downstream if needed.
-
-Implementation notes
-- `wait_until: "domcontentloaded"`
-- `delay_before_return_html: 1.5`
-- `scan_full_page: true`
-- `simulate_user: false` (to avoid accidental clicks/navigation)
-- `override_navigator: true`
-
-### Response
+**Response:**
 
 ```json
 {
-  "request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "request_id": "uuid",
   "processing_time_ms": 2150,
   "url": "https://example.com",
   "title": "Example Domain",
-  "markdown": "# Example Domain\n\nThis domain is for use in illustrative examples...",
-  "html": "<!DOCTYPE html>...",
-  "screenshot_base64": null,
-  "screenshot_viewport_base64": null,
+  "markdown": "# Example Domain\n\nThis domain is...",
+  "html": null,
+  "screenshot_base64": "base64-image...",
   "screenshot_fullpage_base64": null,
   "success": true
 }
 ```
 
-**Response Fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `url` | string | Final URL after redirects |
-| `title` | string | Page title |
-| `markdown` | string | Page content in Markdown format |
-| `html` | string | Raw HTML content |
-| `screenshot_base64` | string | Base64-encoded screenshot (if requested) |
-| `screenshot_viewport_base64` | string | Base64-encoded viewport screenshot when `screenshot` is true |
-| `screenshot_fullpage_base64` | string | Base64-encoded full-page screenshot when `screenshot_fullpage` is true |
-| `success` | boolean | Whether crawl succeeded |
-
 ---
 
 ## Doc to Markdown
 
-Convert documents (PDF, DOCX, PPTX, XLSX, HTML, TXT, and more) to Markdown using Microsoft MarkItDown.
+Convert documents (PDF, DOCX, PPTX, XLSX, HTML) to Markdown.
 
-### Endpoint
+### `POST /api/doc-to-markdown`
 
-```
-POST /api/doc-to-markdown
-```
-
-### Request
+**Request:**
 
 ```json
 {
-  "file": "base64-encoded-file-or-data-url",
-  "filename": "sample.pdf",
+  "file": "base64-encoded-file",
+  "filename": "report.pdf",
   "lib": "microsoft/markitdown"
 }
 ```
 
-You can provide `file` either as a raw base64 string or as a data URL, e.g. `data:application/pdf;base64,<...>`. Supplying `filename` helps infer the file type/extension for accurate conversion.
-
-**Parameters:**
-
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `file` | string | Yes | Base64-encoded content or data URL of the document |
-| `filename` | string | No | Optional filename (e.g., `report.pdf`) used to detect format |
-| `lib` | string | No | Conversion engine; must be `microsoft/markitdown` (default) |
+| `file` | string | Yes | Base64-encoded document (or data URL) |
+| `filename` | string | No | Filename to detect format |
+| `lib` | string | No | Engine (default: `microsoft/markitdown`) |
 
-### Response
+**Response:**
 
 ```json
 {
@@ -648,120 +616,416 @@ You can provide `file` either as a raw base64 string or as a data URL, e.g. `dat
 }
 ```
 
-Notes
-- Supported formats include PDF, DOCX, PPTX, XLSX, HTML, TXT, and more (handled by MarkItDown).
-- Available engines/libs for this task: `GET /api/task-options?task=doc-to-markdown`.
-- The container includes the MarkItDown dependency; no browser is required.
-
 ---
 
-## Management Endpoints
+## Doc to Screenshot
 
-### List Available Models
+Convert documents to PNG screenshots.
 
-```
-GET /api/models
-```
+### `POST /api/doc-to-screenshot`
 
-Returns all downloadable AI models with their configurations, download status, and capabilities. Supports `?task=image-ocr` filter.
-
-### List Available Libs
-
-```
-GET /api/libs
-```
-
-Returns built-in libraries/tools available by task. Supports `?task=image-ocr` filter.
-
-
-### Task Options (Unified)
-
-```
-GET /api/task-options?task={task}
-```
-
-Returns a unified list of choices for a task, combining models and libs. Each option has a `type` field (`model` or `lib`).
-
-Response
+**Request:**
 
 ```json
 {
-  "task": "image-ocr",
+  "file": "base64-encoded-file",
+  "filename": "presentation.pptx",
+  "lib": "screenitshot/screenitshot"
+}
+```
+
+**Response:**
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 1200,
+  "screenshot": "base64-png-image...",
+  "model": "screenitshot/screenitshot"
+}
+```
+
+---
+
+# Catalog & Management
+
+## Models
+
+### `GET /api/models`
+
+List all downloadable AI models.
+
+**Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `task` | Filter by task (e.g., `image-ocr`, `text-generation`) |
+
+**Response:**
+
+```json
+{
+  "models": [
+    {
+      "id": "openai/whisper-large-v3-turbo",
+      "label": "Whisper Large V3 Turbo",
+      "provider": "openai",
+      "tasks": ["automatic-speech-recognition"],
+      "architecture": "whisper",
+      "status": "ready",
+      "size_mb": 3000,
+      "gpu_memory_mb": 4000,
+      "requires_download": true
+    }
+  ]
+}
+```
+
+### `GET /api/models/download?model={model_id}`
+
+Download a model. Returns SSE stream with progress events.
+
+**SSE Events:**
+
+```json
+{"type": "progress", "current_mb": 500, "total_mb": 3000}
+{"type": "complete", "percent": 100, "size_mb": 3000}
+{"type": "error", "message": "Download failed"}
+```
+
+### `GET /api/models/{model_id}/logs`
+
+Get download logs for a model.
+
+### `DELETE /api/models/{model_id}`
+
+Delete downloaded model assets.
+
+---
+
+## Libraries
+
+### `GET /api/libs`
+
+List all library/tool engines (non-HuggingFace).
+
+**Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `task` | Filter by task |
+
+**Response:**
+
+```json
+{
+  "libs": [
+    {
+      "id": "whisperx/whisperx",
+      "label": "WhisperX",
+      "provider": "whisperx",
+      "tasks": ["automatic-speech-recognition"],
+      "architecture": "whisperlivekit",
+      "status": "ready",
+      "supports_live_streaming": true
+    }
+  ]
+}
+```
+
+---
+
+## Task Options (Unified)
+
+### `GET /api/task-options`
+
+Get combined model and library options for a task.
+
+**Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `task` | Filter by task |
+
+**Response:**
+
+```json
+{
+  "task": "automatic-speech-recognition",
   "options": [
     {
-      "id": "deepseek-ai/DeepSeek-OCR",
-      "label": "DeepSeek-OCR",
-      "provider": "deepseek-ai",
+      "id": "openai/whisper-large-v3-turbo",
+      "label": "Whisper Large V3 Turbo",
+      "provider": "openai",
       "type": "model",
-      "supports_markdown": true,
-      "requires_download": true,
+      "architecture": "whisper",
+      "supports_live_streaming": false,
       "status": "ready"
     },
     {
-      "id": "paddleocr/pp-ocrv5",
-      "label": "PP-OCRv5",
-      "provider": "PaddlePaddle",
+      "id": "whisperx/whisperx",
+      "label": "WhisperX",
+      "provider": "whisperx",
       "type": "lib",
-      "supports_markdown": false,
-      "requires_download": false,
+      "architecture": "whisperlivekit",
+      "supports_live_streaming": true,
       "status": "ready"
     }
   ]
 }
 ```
 
-### Hardware Information
+---
 
+## Environments
+
+Worker Python environments that are installed on-demand.
+
+### `GET /api/environments`
+
+List all worker environments.
+
+**Response:**
+
+```json
+{
+  "environments": {
+    "transformers": {
+      "env_id": "transformers",
+      "status": "ready",
+      "size_mb": 2500.0,
+      "python_version": "3.11"
+    },
+    "whisper": {
+      "env_id": "whisper",
+      "status": "not_installed",
+      "size_mb": null
+    }
+  }
+}
 ```
-GET /api/hardware
-```
 
-Returns GPU and system information including memory usage and availability.
+### `GET /api/environments/{env_id}`
 
-### Request History
+Get status of a specific environment.
 
-```
-GET /api/history/{service}
-```
+### `POST /api/environments/{env_id}/install`
 
-Get request history for a specific service (e.g., `text-generation`, `image-ocr`).
+Install an environment.
 
-### Health Checks
+**Query Parameters:**
 
-```
-GET /api/health
-```
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `wait` | `false` | Wait for installation to complete |
 
-Health check endpoint (returns `{"status": "healthy"}`).
+### `DELETE /api/environments/{env_id}`
 
-```
-GET /api/ready
-```
-
-Readiness check with service availability status.
+Delete an installed environment to free disk space.
 
 ---
 
-## Error Responses
+## Settings
+
+### `GET /api/settings`
+
+Get all application settings.
+
+**Response:**
+
+```json
+{
+  "settings": {
+    "hf_token": "hf_xxx...",
+    "hf_endpoint": "https://huggingface.co",
+    "worker_idle_timeout_seconds": "60"
+  }
+}
+```
+
+### `GET /api/settings/{key}`
+
+Get a specific setting value.
+
+### `PUT /api/settings/{key}`
+
+Update a setting.
+
+**Request:**
+
+```json
+{
+  "value": "new-value",
+  "description": "Optional description"
+}
+```
+
+---
+
+## History
+
+### `GET /api/history/stats`
+
+Get task statistics.
+
+**Response:**
+
+```json
+{
+  "running": 0,
+  "today": 15,
+  "total": 1234
+}
+```
+
+### `GET /api/history/all`
+
+Get unified history across all services.
+
+**Query Parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `limit` | 50 | Max entries (max 100) |
+| `offset` | 0 | Entries to skip |
+
+### `GET /api/history/{service}`
+
+Get history for a specific service.
+
+**Services:** `crawl`, `text-generation`, `text-to-embedding`, `image-captioning`, `image-ocr`, `automatic-speech-recognition`, `whisperx`, `funasr`
+
+### `GET /api/history/{service}/{request_id}`
+
+Get a specific request by ID.
+
+### `DELETE /api/history/{service}`
+
+Clear all history for a service.
+
+---
+
+## Hardware
+
+### `GET /api/hardware`
+
+Get system hardware statistics.
+
+**Response:**
+
+```json
+{
+  "cpu": {
+    "usage_percent": 15.2,
+    "cores": 16,
+    "frequency_mhz": 3600,
+    "model": "AMD Ryzen 9 5950X",
+    "temperature_c": 45.0
+  },
+  "memory": {
+    "total_gb": 64.0,
+    "available_gb": 48.5,
+    "used_gb": 15.5,
+    "usage_percent": 24.2
+  },
+  "gpu": {
+    "available": true,
+    "count": 1,
+    "devices": [
+      {
+        "id": 0,
+        "name": "NVIDIA GeForce RTX 4090",
+        "driver_version": "550.54.14",
+        "cuda_version": "12.4",
+        "total_memory_gb": 24.0,
+        "used_memory_gb": 2.5,
+        "free_memory_gb": 21.5,
+        "temperature_c": 42
+      }
+    ]
+  },
+  "inference": {
+    "device": "cuda",
+    "description": "AI models will use CUDA for inference"
+  }
+}
+```
+
+### `GET /api/hardware/gpu/memory`
+
+Get detailed GPU memory breakdown (PyTorch-specific).
+
+---
+
+# System Endpoints
+
+### `GET /api`
+
+Root endpoint with service information and available endpoints.
+
+### `GET /api/health`
+
+Health check with worker and environment status.
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "workers": {},
+  "gpu_lock_held": false,
+  "environments": {
+    "transformers": {"status": "ready", "size_mb": 2500}
+  }
+}
+```
+
+### `GET /api/ready`
+
+Readiness check.
+
+### `GET /api/docs`
+
+Interactive Swagger UI documentation.
+
+### `GET /api/redoc`
+
+ReDoc API documentation.
+
+---
+
+# MCP Server
+
+Model Context Protocol server for Claude Code integration.
+
+**Endpoint:** `/mcp` (Streamable HTTP transport)
+
+See [README.md](../README.md#mcp-integration) for setup instructions.
+
+---
+
+# Error Responses
 
 All endpoints return standard error responses:
 
 ```json
 {
-  "detail": "Error message describing what went wrong"
+  "detail": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable error message",
+    "request_id": "uuid"
+  }
 }
 ```
 
 **Common HTTP Status Codes:**
 
-- `200` - Success
-- `400` - Bad Request (invalid parameters)
-- `404` - Not Found (invalid endpoint or model)
-- `422` - Unprocessable Entity (validation error)
-- `500` - Internal Server Error
-
----
-
-## Interactive Documentation
-
-Visit `/api/docs` for interactive Swagger UI documentation where you can test all endpoints directly in your browser.
+| Code | Description |
+|------|-------------|
+| 200 | Success |
+| 400 | Bad Request (invalid parameters) |
+| 404 | Not Found (invalid endpoint or model) |
+| 409 | Conflict (e.g., download already in progress) |
+| 422 | Unprocessable Entity (validation error) |
+| 500 | Internal Server Error |
+| 504 | Gateway Timeout (e.g., OCR timeout) |
