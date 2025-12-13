@@ -84,6 +84,21 @@
       "requires_download": false,
       "supports_live_streaming": true,
       "reference_url": "https://github.com/QuentinFuxa/WhisperLiveKit"
+    },
+    {
+      "id": "funasr/funasr",
+      "label": "FunASR",
+      "provider": "Alibaba",
+      "tasks": ["automatic-speech-recognition"],
+      "architecture": "funasr",
+      "default_prompt": null,
+      "python_env": "funasr",
+      "platform_requirements": "Downloads models on first use from ModelScope/HuggingFace. SenseVoice: multi-language with emotion detection. Paraformer: high-accuracy Mandarin/English with streaming. 5x faster than Whisper.",
+      "supports_markdown": false,
+      "requires_quantization": false,
+      "requires_download": false,
+      "supports_live_streaming": true,
+      "reference_url": "https://github.com/modelscope/FunASR"
     }
   ]
 }

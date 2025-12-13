@@ -62,6 +62,7 @@ Each environment has an ID that models reference in their manifest:
 | `deepseek` | DeepSeek-OCR (+ future DeepSeek models) | torch, transformers==4.47.1, flash-attn, bitsandbytes | Pinned old transformers |
 | `paddle` | PaddleOCR-VL, PP-OCRv5 | paddlepaddle-gpu, paddleocr, paddlex, custom safetensors | PaddlePaddle framework |
 | `whisper` | Whisper-v3, Whisper-turbo, WhisperX, pyannote/* | torch, whisperx, pyannote.audio, librosa, torchaudio | Audio processing stack |
+| `funasr` | SenseVoice, Paraformer, FunASR models | torch, funasr, modelscope | FunASR toolkit (Python 3.10) |
 | `hunyuan` | HunyuanOCR | torch, transformers@git-commit | Unreleased transformers feature |
 | `crawl4ai` | Crawl4AI | crawl4ai, playwright, playwright-stealth | Web crawling |
 | `markitdown` | MarkItDown | markitdown[all] | Document to markdown |
@@ -106,6 +107,11 @@ homelab-ai-in-docker/
     ├── whisper/                # Audio/ASR models
     │   ├── pyproject.toml
     │   ├── .python-version
+    │   └── uv.lock
+    │
+    ├── funasr/                 # FunASR models
+    │   ├── pyproject.toml
+    │   ├── .python-version     # 3.10 (FunASR compat)
     │   └── uv.lock
     │
     ├── hunyuan/                # HunyuanOCR

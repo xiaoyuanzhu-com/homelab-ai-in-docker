@@ -37,6 +37,8 @@ WORKER_MODULES: Dict[str, str] = {
     "text-generation": "src.worker.workers.text_generation_worker",
     "asr": "src.worker.workers.asr_worker",
     "asr-streaming": "src.worker.workers.asr_streaming_worker",
+    "funasr": "src.worker.workers.funasr_worker",
+    "funasr-streaming": "src.worker.workers.funasr_streaming_worker",
     "ocr": "src.worker.workers.ocr_worker",
     "speaker-diarization": "src.worker.workers.diarization_worker",
     # Lib-based workers (non-ML)

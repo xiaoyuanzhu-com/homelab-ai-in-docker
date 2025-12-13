@@ -1,0 +1,41 @@
+[project]
+name = "funasr-worker"
+version = "0.1.0"
+description = "FunASR speech recognition worker environment"
+requires-python = ">=3.10"
+dependencies = [
+    # Core ML stack
+    "torch==2.5.1",
+    "torchaudio==2.5.1",
+    # FunASR and model hub
+    "funasr>=1.2.0",
+    "modelscope>=1.9.0",
+    "huggingface_hub>=0.20.0",
+    # Audio processing for streaming
+    "pydub>=0.25.0",
+    "websockets>=12.0",
+    # Worker HTTP server
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    # CUDA runtime libs (Linux only)
+    "nvidia-cuda-runtime-cu12>=12.4,<12.5; platform_system=='Linux'",
+    "nvidia-cuda-nvrtc-cu12>=12.4,<12.5; platform_system=='Linux'",
+    "nvidia-cuda-cupti-cu12>=12.4,<12.5; platform_system=='Linux'",
+    "nvidia-cublas-cu12>=12.4,<12.5; platform_system=='Linux'",
+    "nvidia-cufft-cu12>=11.2,<11.3; platform_system=='Linux'",
+    "nvidia-nvjitlink-cu12>=12.4,<12.5; platform_system=='Linux'",
+    "nvidia-cudnn-cu12>=9.1,<9.2; platform_system=='Linux'",
+]
+
+[tool.uv]
+package = false
+
+# PyTorch CUDA 12.4 index (compatible with Python 3.10)
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchaudio = { index = "pytorch-cu124" }
