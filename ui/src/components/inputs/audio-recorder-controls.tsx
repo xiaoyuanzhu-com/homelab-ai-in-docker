@@ -33,8 +33,14 @@ export function AudioRecorderControls({
           <Button
             type="button"
             variant={isRecording ? "destructive" : "default"}
-            onClick={isRecording ? onStop : onStart}
-            disabled={disabled}
+            onClick={() => {
+              if (isRecording) {
+                onStop?.();
+              } else {
+                onStart?.();
+              }
+            }}
+            disabled={disabled || (!isRecording && !onStart) || (isRecording && !onStop)}
           >
             {isRecording ? (
               <>
@@ -46,9 +52,11 @@ export function AudioRecorderControls({
               </>
             )}
           </Button>
-          <Button type="button" variant="outline" onClick={onClear} disabled={disabled}>
-            <Trash2 className="mr-2 h-4 w-4" /> Clear
-          </Button>
+          {onClear && (
+            <Button type="button" variant="outline" onClick={onClear} disabled={disabled}>
+              <Trash2 className="mr-2 h-4 w-4" /> Clear
+            </Button>
+          )}
         </div>
       )}
     </div>
