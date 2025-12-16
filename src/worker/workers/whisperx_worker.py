@@ -28,6 +28,30 @@ def _decode_audio(audio_data: str) -> Path:
     return Path(temp_file.name)
 
 
+# Mapping from short model names to full HuggingFace repo IDs
+# Must match faster_whisper.utils._MODELS
+WHISPER_MODEL_MAPPING = {
+    "tiny.en": "Systran/faster-whisper-tiny.en",
+    "tiny": "Systran/faster-whisper-tiny",
+    "base.en": "Systran/faster-whisper-base.en",
+    "base": "Systran/faster-whisper-base",
+    "small.en": "Systran/faster-whisper-small.en",
+    "small": "Systran/faster-whisper-small",
+    "medium.en": "Systran/faster-whisper-medium.en",
+    "medium": "Systran/faster-whisper-medium",
+    "large-v1": "Systran/faster-whisper-large-v1",
+    "large-v2": "Systran/faster-whisper-large-v2",
+    "large-v3": "Systran/faster-whisper-large-v3",
+    "large": "Systran/faster-whisper-large-v3",
+    "distil-large-v2": "Systran/faster-distil-whisper-large-v2",
+    "distil-medium.en": "Systran/faster-distil-whisper-medium.en",
+    "distil-small.en": "Systran/faster-distil-whisper-small.en",
+    "distil-large-v3": "Systran/faster-distil-whisper-large-v3",
+    "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+}
+
+
 class WhisperXWorker(BaseWorker):
     """WhisperX transcription worker with alignment and diarization."""
 
@@ -69,8 +93,11 @@ class WhisperXWorker(BaseWorker):
             torch.backends.cudnn.allow_tf32 = True
             logger.info("TF32 enabled for WhisperX inference")
 
-        # Check for local model
-        local_dir = get_hf_model_cache_path(self.model_id)
+        # Expand short model name to full HF repo ID for cache lookup
+        hf_repo_id = WHISPER_MODEL_MAPPING.get(self.model_id, self.model_id)
+
+        # Check for local model using full HF repo ID
+        local_dir = get_hf_model_cache_path(hf_repo_id)
         model_source = str(local_dir) if local_dir.exists() else self.model_id
 
         logger.info(f"Loading WhisperX model '{model_source}' on {device} with {compute_type}")
