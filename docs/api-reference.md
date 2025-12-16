@@ -193,47 +193,45 @@ Or using a library engine:
 
 ## Automatic Speech Recognition
 
-Transcribe audio files to text. Supports multiple engines.
+Unified endpoint for transcribing audio files. Supports multiple backends via the `lib` parameter.
 
 ### `POST /api/automatic-speech-recognition`
 
-For Whisper/pyannote models registered in the catalog.
-
-**Request (Transcription):**
+**Request:**
 
 ```json
 {
   "audio": "base64-encoded-audio-data",
   "model": "openai/whisper-large-v3-turbo",
-  "output_format": "transcription",
+  "lib": "whisper",
   "language": "en",
-  "return_timestamps": false
-}
-```
-
-**Request (Diarization):**
-
-```json
-{
-  "audio": "base64-encoded-audio-data",
-  "model": "pyannote/speaker-diarization-3.1",
-  "output_format": "diarization",
-  "min_speakers": 2,
-  "max_speakers": 4
+  "diarization": false
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `audio` | string | Yes | Base64-encoded audio |
-| `model` | string | Yes | Model ID from catalog |
-| `output_format` | string | No | `transcription` or `diarization` |
-| `language` | string | No | Language code for transcription |
-| `return_timestamps` | boolean | No | Return word timestamps |
-| `min_speakers` | integer | No | Min speakers (diarization only) |
-| `max_speakers` | integer | No | Max speakers (diarization only) |
+| `audio` | string | Yes | Base64-encoded audio (mp3, mp4, wav, webm, etc.) |
+| `model` | string | No | Model ID (default varies by lib) |
+| `lib` | string | No | ASR library: `whisper`, `whisperx`, `funasr` (auto-detected if omitted) |
+| `language` | string | No | Language code (e.g., `en`, `zh`). Auto-detect if omitted |
+| `diarization` | boolean | No | Enable speaker diarization (default: false) |
+| `min_speakers` | integer | No | Minimum speakers for diarization |
+| `max_speakers` | integer | No | Maximum speakers for diarization |
+| `num_speakers` | integer | No | Exact speaker count (whisper diarization only) |
+| `return_timestamps` | boolean | No | Return word timestamps (whisper only) |
+| `batch_size` | integer | No | Inference batch size (whisperx only, default: 4) |
+| `compute_type` | string | No | Compute type (whisperx only, e.g., `float16`) |
 
-**Response (Transcription):**
+**Library Options:**
+
+| Library | Best For | Features |
+|---------|----------|----------|
+| `whisper` | Basic transcription | Fast, uses transformers pipeline |
+| `whisperx` | High-quality with alignment | Word-level timestamps, speaker diarization with embeddings |
+| `funasr` | Chinese/multilingual | Emotion detection, audio event detection |
+
+**Response:**
 
 ```json
 {
@@ -241,79 +239,46 @@ For Whisper/pyannote models registered in the catalog.
   "processing_time_ms": 3200,
   "text": "Transcribed text from the audio.",
   "model": "openai/whisper-large-v3-turbo",
+  "lib": "whisper",
   "language": "en",
-  "chunks": null
+  "segments": null,
+  "speakers": null,
+  "num_speakers": null,
+  "chunks": null,
+  "text_clean": null,
+  "emotion": null,
+  "event": null
 }
 ```
 
-**Response (Diarization):**
+**Response Fields by Library:**
+
+| Field | whisper | whisperx | funasr |
+|-------|---------|----------|--------|
+| `text` | ✓ | ✓ | ✓ |
+| `language` | ✓ | ✓ | ✓ |
+| `segments` | diarization only | ✓ (with words) | - |
+| `speakers` | - | ✓ (with embeddings) | - |
+| `num_speakers` | ✓ | ✓ | - |
+| `chunks` | with timestamps | - | - |
+| `text_clean` | - | - | ✓ |
+| `emotion` | - | - | ✓ |
+| `event` | - | - | ✓ |
+
+**Example: WhisperX with Diarization**
 
 ```json
 {
-  "request_id": "uuid",
-  "processing_time_ms": 5400,
-  "model": "pyannote/speaker-diarization-3.1",
-  "segments": [
-    {"start": 0.5, "end": 3.2, "speaker": "SPEAKER_00"},
-    {"start": 3.5, "end": 7.8, "speaker": "SPEAKER_01"}
-  ],
-  "num_speakers": 2
+  "audio": "base64-encoded-audio",
+  "model": "large-v3",
+  "lib": "whisperx",
+  "diarization": true,
+  "min_speakers": 2,
+  "max_speakers": 4
 }
 ```
 
-### `WebSocket /api/automatic-speech-recognition/live`
-
-Real-time live transcription via WebSocket.
-
-**Query Parameters:**
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `model` | `large-v3` | Whisper model size |
-| `language` | `en` | Language code (or `auto`) |
-| `diarization` | `false` | Enable speaker diarization |
-
-**Protocol:**
-
-1. Client connects
-2. Server sends config: `{"type": "config", "sampleRate": 16000, ...}`
-3. Client streams raw PCM int16 audio bytes
-4. Server sends transcription: `{"type": "partial", "lines": [...], "buffer_transcription": "..."}`
-5. On disconnect, server sends: `{"type": "ready_to_stop"}`
-
----
-
-## WhisperX (Advanced ASR)
-
-High-quality transcription with word-level alignment and speaker diarization.
-
-### `POST /api/whisperx/transcribe`
-
-**Request:**
-
-```json
-{
-  "audio": "base64-encoded-audio-data",
-  "asr_model": "large-v3",
-  "language": "en",
-  "diarize": true,
-  "batch_size": 16,
-  "compute_type": "float16"
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `audio` | string | Yes | Base64-encoded audio |
-| `asr_model` | string | No | Whisper model (default: `large-v3`) |
-| `language` | string | No | Language code (auto-detect if omitted) |
-| `diarize` | boolean | No | Enable speaker diarization |
-| `batch_size` | integer | No | Inference batch size (default: 16) |
-| `compute_type` | string | No | `float16` or `float32` |
-| `min_speakers` | integer | No | Min speakers for diarization |
-| `max_speakers` | integer | No | Max speakers for diarization |
-
-**Response:**
+Response includes word-aligned segments with speaker labels and speaker embeddings for voice fingerprinting:
 
 ```json
 {
@@ -321,6 +286,7 @@ High-quality transcription with word-level alignment and speaker diarization.
   "processing_time_ms": 4120,
   "text": "Hello everyone, welcome...",
   "language": "en",
+  "lib": "whisperx",
   "model": "large-v3",
   "segments": [
     {
@@ -340,37 +306,23 @@ High-quality transcription with word-level alignment and speaker diarization.
       "total_duration": 15.3,
       "segment_count": 5
     }
-  ]
+  ],
+  "num_speakers": 2
 }
 ```
 
-**Note:** Requires `hf_token` in settings for diarization (pyannote models).
-
----
-
-## FunASR
-
-Alibaba's FunASR for multi-language ASR with emotion/event detection.
-
-### `POST /api/funasr/transcribe`
-
-**Request:**
+**Example: FunASR with Emotion Detection**
 
 ```json
 {
-  "audio": "base64-encoded-audio-data",
+  "audio": "base64-encoded-audio",
   "model": "FunAudioLLM/SenseVoiceSmall",
+  "lib": "funasr",
   "language": "zh"
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `audio` | string | Yes | Base64-encoded audio |
-| `model` | string | Yes | FunASR model ID |
-| `language` | string | No | Language hint |
-
-**Response:**
+Response includes emotion and audio event detection:
 
 ```json
 {
@@ -379,22 +331,48 @@ Alibaba's FunASR for multi-language ASR with emotion/event detection.
   "text": "<|zh|><|HAPPY|><|BGM|>你好世界",
   "text_clean": "你好世界",
   "language": "zh",
+  "lib": "funasr",
   "model": "FunAudioLLM/SenseVoiceSmall",
   "emotion": "HAPPY",
   "event": "BGM"
 }
 ```
 
-### `WebSocket /api/funasr/live`
+---
 
-Real-time streaming transcription with FunASR.
+### `WebSocket /api/automatic-speech-recognition/live`
+
+Real-time live transcription via WebSocket.
 
 **Query Parameters:**
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `model` | paraformer-zh | FunASR streaming model |
-| `language` | `zh` | Language code |
+| `lib` | `whisperlivekit` | Streaming backend: `whisperlivekit` or `funasr` |
+| `model` | varies | Model identifier |
+| `language` | `en` / `zh` | Language code (or `auto`) |
+| `diarization` | `false` | Enable speaker diarization (whisperlivekit only) |
+
+**Protocol:**
+
+1. Client connects with query params
+2. Server sends config: `{"type": "config", "sampleRate": 16000, ...}`
+3. Client streams raw PCM int16 audio bytes
+4. Server sends partial results: `{"type": "partial", "lines": [...], "buffer_transcription": "..."}`
+5. On disconnect, server sends: `{"type": "ready_to_stop"}`
+
+**Example Connection URLs:**
+
+```
+# WhisperLiveKit (default)
+ws://localhost:12310/api/automatic-speech-recognition/live?model=large-v3&language=en
+
+# With diarization
+ws://localhost:12310/api/automatic-speech-recognition/live?lib=whisperlivekit&model=large-v3&diarization=true
+
+# FunASR for Chinese
+ws://localhost:12310/api/automatic-speech-recognition/live?lib=funasr&language=zh
+```
 
 ---
 
@@ -893,7 +871,7 @@ Get unified history across all services.
 
 Get history for a specific service.
 
-**Services:** `crawl`, `text-generation`, `text-to-embedding`, `image-captioning`, `image-ocr`, `automatic-speech-recognition`, `whisperx`, `funasr`
+**Services:** `crawl`, `text-generation`, `text-to-embedding`, `image-captioning`, `image-ocr`, `automatic-speech-recognition`
 
 ### `GET /api/history/{service}/{request_id}`
 

@@ -49,11 +49,13 @@ interface ChoiceInfo {
 interface ASRRequestBody {
   audio: string;
   model: string;
-  output_format: "transcription" | "diarization";
+  lib?: string;
   language?: string;
+  diarization?: boolean;
   return_timestamps?: boolean;
   min_speakers?: number;
   max_speakers?: number;
+  batch_size?: number;
 }
 
 // Live transcription types
@@ -324,49 +326,37 @@ function AutomaticSpeechRecognitionContent() {
         const base64Data = (reader.result as string).split(",")[1];
 
         try {
-          const isModel = selectedChoice.startsWith("model:");
           const isLib = selectedChoice.startsWith("lib:");
           const id = selectedChoice.split(":", 2)[1];
 
-          let response: Response;
-          let actualRequestBody: any;
+          // Build unified request body
+          const requestBody: ASRRequestBody = {
+            audio: base64Data,
+            model: isLib && id === "whisperx/whisperx" ? whisperxAsrModel : id,
+            language: language || undefined,
+            diarization: enableDiarization,
+          };
 
-          if (isModel) {
-            const requestBody: ASRRequestBody = {
-              audio: base64Data,
-              model: id,
-              output_format: enableDiarization ? "diarization" : "transcription",
-            };
-            if (!enableDiarization) {
-              requestBody.language = language || undefined;
-              requestBody.return_timestamps = false;
+          // Add lib parameter for library-based engines
+          if (isLib) {
+            if (id === "whisperx/whisperx") {
+              requestBody.lib = "whisperx";
+            } else if (id.includes("funasr") || id.includes("sensevoice") || id.includes("paraformer")) {
+              requestBody.lib = "funasr";
             }
-            if (enableDiarization) {
-              if (minSpeakers) requestBody.min_speakers = parseInt(minSpeakers);
-              if (maxSpeakers) requestBody.max_speakers = parseInt(maxSpeakers);
-            }
-            actualRequestBody = requestBody;
-            response = await fetch("/api/automatic-speech-recognition", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(requestBody),
-            });
-          } else if (isLib && id === "whisperx/whisperx") {
-            const requestBody = {
-              audio: base64Data,
-              asr_model: whisperxAsrModel,
-              language: language || undefined,
-              diarize: enableDiarization,
-            };
-            actualRequestBody = requestBody;
-            response = await fetch("/api/whisperx/transcribe", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(requestBody),
-            });
-          } else {
-            throw new Error("Unsupported ASR engine selected");
           }
+
+          // Add diarization options
+          if (enableDiarization) {
+            if (minSpeakers) requestBody.min_speakers = parseInt(minSpeakers);
+            if (maxSpeakers) requestBody.max_speakers = parseInt(maxSpeakers);
+          }
+
+          const response = await fetch("/api/automatic-speech-recognition", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+          });
 
           if (!response.ok) {
             const errorData = await response.json();
@@ -374,19 +364,12 @@ function AutomaticSpeechRecognitionContent() {
           }
 
           const data = await response.json();
-          if (selectedChoice.startsWith("lib:") && id === "whisperx/whisperx") {
-            const speakers = new Set<string>();
-            if (Array.isArray(data.segments)) {
-              data.segments.forEach((s: SpeakerSegment) => { if (s.speaker) speakers.add(s.speaker); });
-            }
-            setResult({ ...data, num_speakers: speakers.size || undefined });
-          } else {
-            setResult(data);
-          }
+          // Response is now unified - num_speakers is included when available
+          setResult(data);
 
           setRawRequest({
-            ...actualRequestBody,
-            audio: actualRequestBody.audio.substring(0, 100) + "...",
+            ...requestBody,
+            audio: requestBody.audio.substring(0, 100) + "...",
           });
 
           const successMsg = enableDiarization ? "Speaker analysis completed!" : "Transcription completed!";
@@ -421,12 +404,15 @@ function AutomaticSpeechRecognitionContent() {
       params.set("diarization", "true");
     }
 
-    // Use different endpoint based on selected engine architecture
+    // Use lib parameter for the unified endpoint
     const arch = selectedChoiceInfo?.architecture;
     if (arch === "funasr") {
-      return `${protocol}//${host}/api/funasr/live?${params.toString()}`;
+      params.set("lib", "funasr");
+    } else {
+      params.set("lib", "whisperlivekit");
     }
-    // Default to WhisperLiveKit
+
+    // All live streaming uses the unified endpoint
     return `${protocol}//${host}/api/automatic-speech-recognition/live?${params.toString()}`;
   }, [liveModel, language, enableDiarization, selectedChoiceInfo]);
 
@@ -605,34 +591,33 @@ function AutomaticSpeechRecognitionContent() {
       return;
     }
 
-    const isModel = selectedChoice.startsWith("model:");
     const isLib = selectedChoice.startsWith("lib:");
     const id = selectedChoice.split(":", 2)[1];
 
-    if (isModel) {
-      const requestBody: any = {
-        audio: "<base64 audio data>",
-        model: id,
-        output_format: enableDiarization ? "diarization" : "transcription",
-      };
-      if (!enableDiarization) {
-        requestBody.language = language || undefined;
-        requestBody.return_timestamps = false;
+    // Build unified request preview
+    const requestBody: any = {
+      audio: "<base64 audio data>",
+      model: isLib && id === "whisperx/whisperx" ? whisperxAsrModel : id,
+      language: language || undefined,
+      diarization: enableDiarization,
+    };
+
+    // Add lib parameter for library-based engines
+    if (isLib) {
+      if (id === "whisperx/whisperx") {
+        requestBody.lib = "whisperx";
+      } else if (id.includes("funasr") || id.includes("sensevoice") || id.includes("paraformer")) {
+        requestBody.lib = "funasr";
       }
-      if (enableDiarization) {
-        if (minSpeakers) requestBody.min_speakers = parseInt(minSpeakers);
-        if (maxSpeakers) requestBody.max_speakers = parseInt(maxSpeakers);
-      }
-      setRawRequest(requestBody);
-    } else if (isLib && id === "whisperx/whisperx") {
-      const requestBody = {
-        audio: "<base64 audio data>",
-        asr_model: whisperxAsrModel,
-        language: language || undefined,
-        diarize: enableDiarization,
-      };
-      setRawRequest(requestBody);
     }
+
+    // Add diarization options
+    if (enableDiarization) {
+      if (minSpeakers) requestBody.min_speakers = parseInt(minSpeakers);
+      if (maxSpeakers) requestBody.max_speakers = parseInt(maxSpeakers);
+    }
+
+    setRawRequest(requestBody);
   }, [mode, selectedChoice, enableDiarization, language, minSpeakers, maxSpeakers, whisperxAsrModel]);
 
   const getLiveStatusBadge = () => {
