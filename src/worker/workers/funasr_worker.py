@@ -49,32 +49,31 @@ class FunASRWorker(BaseWorker):
         from src.config import get_hf_endpoint
         from src.db.catalog import get_model_dict
 
-        # Get model config
-        self._model_cfg = get_model_dict(self.model_id)
-        if self._model_cfg is None:
-            raise ValueError(f"Model '{self.model_id}' not found in catalog")
-
         # Set HuggingFace endpoint for models from HF
         os.environ["HF_ENDPOINT"] = get_hf_endpoint()
 
+        # Get model config from catalog (optional - allows custom config)
+        self._model_cfg = get_model_dict(self.model_id) or {}
+
         # Determine model source
         # FunASR AutoModel can load from:
-        # - HuggingFace hub (hf_model)
-        # - ModelScope (modelscope_model)
-        # - Local path
+        # - HuggingFace hub (hf_model from catalog)
+        # - ModelScope (modelscope_model from catalog)
+        # - Direct model ID (HuggingFace or ModelScope format)
         hf_model = self._model_cfg.get("hf_model")
         ms_model = self._model_cfg.get("modelscope_model")
 
         if hf_model:
-            # Load from HuggingFace
+            # Load from HuggingFace (catalog entry)
             model_path = hf_model
             logger.info(f"Loading FunASR model from HuggingFace: {model_path}")
         elif ms_model:
-            # Load from ModelScope
+            # Load from ModelScope (catalog entry)
             model_path = ms_model
             logger.info(f"Loading FunASR model from ModelScope: {model_path}")
         else:
-            # Use model_id directly
+            # Use model_id directly - FunASR can auto-detect source
+            # Supports: HuggingFace (org/model), ModelScope (org/model), local paths
             model_path = self.model_id
             logger.info(f"Loading FunASR model: {model_path}")
 

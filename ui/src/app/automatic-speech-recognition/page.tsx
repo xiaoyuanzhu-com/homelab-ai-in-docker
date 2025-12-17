@@ -108,6 +108,7 @@ function AutomaticSpeechRecognitionContent() {
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [whisperxAsrModel, setWhisperxAsrModel] = useState<string>("large-v3");
+  const [funasrModel, setFunasrModel] = useState<string>("iic/SenseVoiceSmall");
 
   // File recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -147,8 +148,8 @@ function AutomaticSpeechRecognitionContent() {
   useEffect(() => {
     const arch = selectedChoiceInfo?.architecture;
     if (arch === "funasr") {
-      // Default to SenseVoice for FunASR
-      setLiveModel("FunAudioLLM/SenseVoiceSmall");
+      // Default to SenseVoice for FunASR (ModelScope ID)
+      setLiveModel("iic/SenseVoiceSmall");
     } else if (arch === "whisperlivekit" || arch === "whisperx") {
       // Default to large-v3 for Whisper-based
       setLiveModel("large-v3");
@@ -329,22 +330,27 @@ function AutomaticSpeechRecognitionContent() {
           const isLib = selectedChoice.startsWith("lib:");
           const id = selectedChoice.split(":", 2)[1];
 
+          // Determine the actual model to use
+          let model = id;
+          let lib: string | undefined;
+          if (isLib) {
+            if (id === "whisperx/whisperx") {
+              model = whisperxAsrModel;
+              lib = "whisperx";
+            } else if (id === "funasr/funasr") {
+              model = funasrModel;
+              lib = "funasr";
+            }
+          }
+
           // Build unified request body
           const requestBody: ASRRequestBody = {
             audio: base64Data,
-            model: isLib && id === "whisperx/whisperx" ? whisperxAsrModel : id,
+            model,
             language: language || undefined,
             diarization: enableDiarization,
+            lib,
           };
-
-          // Add lib parameter for library-based engines
-          if (isLib) {
-            if (id === "whisperx/whisperx") {
-              requestBody.lib = "whisperx";
-            } else if (id.includes("funasr") || id.includes("sensevoice") || id.includes("paraformer")) {
-              requestBody.lib = "funasr";
-            }
-          }
 
           // Add diarization options
           if (enableDiarization) {
@@ -594,22 +600,27 @@ function AutomaticSpeechRecognitionContent() {
     const isLib = selectedChoice.startsWith("lib:");
     const id = selectedChoice.split(":", 2)[1];
 
+    // Determine the actual model to use
+    let model = id;
+    let lib: string | undefined;
+    if (isLib) {
+      if (id === "whisperx/whisperx") {
+        model = whisperxAsrModel;
+        lib = "whisperx";
+      } else if (id === "funasr/funasr") {
+        model = funasrModel;
+        lib = "funasr";
+      }
+    }
+
     // Build unified request preview
     const requestBody: any = {
       audio: "<base64 audio data>",
-      model: isLib && id === "whisperx/whisperx" ? whisperxAsrModel : id,
+      model,
       language: language || undefined,
       diarization: enableDiarization,
+      lib,
     };
-
-    // Add lib parameter for library-based engines
-    if (isLib) {
-      if (id === "whisperx/whisperx") {
-        requestBody.lib = "whisperx";
-      } else if (id.includes("funasr") || id.includes("sensevoice") || id.includes("paraformer")) {
-        requestBody.lib = "funasr";
-      }
-    }
 
     // Add diarization options
     if (enableDiarization) {
@@ -618,7 +629,7 @@ function AutomaticSpeechRecognitionContent() {
     }
 
     setRawRequest(requestBody);
-  }, [mode, selectedChoice, enableDiarization, language, minSpeakers, maxSpeakers, whisperxAsrModel]);
+  }, [mode, selectedChoice, enableDiarization, language, minSpeakers, maxSpeakers, whisperxAsrModel, funasrModel]);
 
   const getLiveStatusBadge = () => {
     switch (liveConnectionStatus) {
@@ -799,6 +810,20 @@ function AutomaticSpeechRecognitionContent() {
             </Select>
           </div>
         )}
+        {mode === "transcription" && selectedChoice.startsWith("lib:") && selectedChoice.endsWith("funasr/funasr") && (
+          <div className="space-y-2">
+            <Label htmlFor="funasr-model">FunASR Model</Label>
+            <Select value={funasrModel} onValueChange={(val) => setFunasrModel(val)} disabled={loading}>
+              <SelectTrigger id="funasr-model">
+                <SelectValue placeholder="Select model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="iic/SenseVoiceSmall">SenseVoice Small (multi-language, emotion)</SelectItem>
+                <SelectItem value="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch">Paraformer-zh (Mandarin)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* Live mode model selection */}
         {mode === "live" && selectedChoiceInfo?.architecture !== "funasr" && (
@@ -835,7 +860,7 @@ function AutomaticSpeechRecognitionContent() {
                 <SelectValue placeholder="Select model" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="FunAudioLLM/SenseVoiceSmall">SenseVoice (multi-language)</SelectItem>
+                <SelectItem value="iic/SenseVoiceSmall">SenseVoice (multi-language)</SelectItem>
                 <SelectItem value="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch">Paraformer-zh (Mandarin)</SelectItem>
               </SelectContent>
             </Select>
