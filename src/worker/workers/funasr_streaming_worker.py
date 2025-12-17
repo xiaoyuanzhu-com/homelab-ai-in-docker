@@ -7,12 +7,19 @@ import logging
 import os
 import sys
 import time
+import urllib.request
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("funasr_streaming_worker")
+
+# URL for Fun-ASR-Nano model.py (required for FunASRNano class registration)
+FUN_ASR_NANO_MODEL_PY_URL = (
+    "https://raw.githubusercontent.com/FunAudioLLM/Fun-ASR/main/model.py"
+)
 
 
 class WorkerHealthResponse(BaseModel):
@@ -287,6 +294,41 @@ class FunASRStreamingWorker:
         finally:
             os._exit(0)
 
+    def _needs_remote_code(self, model_path: str) -> bool:
+        """Check if model requires trust_remote_code."""
+        remote_code_models = [
+            "Fun-ASR-Nano",
+            "FunAudioLLM/Fun-ASR",
+        ]
+        return any(pattern in model_path for pattern in remote_code_models)
+
+    def _ensure_fun_asr_nano_model_code(self, model_dir: str) -> str:
+        """
+        Ensure Fun-ASR-Nano model.py exists in the model directory.
+
+        Fun-ASR-Nano requires a model.py file that defines the FunASRNano class,
+        but this file is not included in the ModelScope download. We need to
+        download it from the Fun-ASR GitHub repo.
+
+        Returns the path to the model.py file.
+        """
+        model_py_path = Path(model_dir) / "model.py"
+
+        if model_py_path.exists():
+            logger.info(f"Fun-ASR-Nano model.py already exists: {model_py_path}")
+            return str(model_py_path)
+
+        logger.info("Downloading Fun-ASR-Nano model.py from GitHub...")
+        try:
+            urllib.request.urlretrieve(FUN_ASR_NANO_MODEL_PY_URL, model_py_path)
+            logger.info(f"Downloaded model.py to: {model_py_path}")
+            return str(model_py_path)
+        except Exception as e:
+            logger.error(f"Failed to download model.py: {e}")
+            raise RuntimeError(
+                f"Failed to download Fun-ASR-Nano model.py from {FUN_ASR_NANO_MODEL_PY_URL}: {e}"
+            )
+
     def load_model(self) -> Any:
         """Load FunASR streaming model."""
         from funasr import AutoModel
@@ -297,11 +339,30 @@ class FunASRStreamingWorker:
 
         logger.info(f"Loading FunASR streaming model: {self.model_id}")
 
-        model = AutoModel(
-            model=self.model_id,
-            device="cuda:0",
-            disable_update=True,
-        )
+        # Build AutoModel kwargs
+        model_kwargs: Dict[str, Any] = {
+            "model": self.model_id,
+            "device": "cuda:0",
+            "disable_update": True,
+        }
+
+        # Fun-ASR-Nano and similar models require trust_remote_code
+        if self._needs_remote_code(self.model_id):
+            model_kwargs["trust_remote_code"] = True
+            logger.info(f"Enabling trust_remote_code for model: {self.model_id}")
+
+            # Fun-ASR-Nano needs model.py downloaded from GitHub
+            if "Fun-ASR-Nano" in self.model_id:
+                from funasr.download.download_model_from_hub import download_model
+
+                download_kwargs = download_model(model=self.model_id, hub="ms")
+                model_dir = download_kwargs.get("model_path", "")
+                if model_dir and os.path.isdir(model_dir):
+                    model_py_path = self._ensure_fun_asr_nano_model_code(model_dir)
+                    model_kwargs["remote_code"] = model_py_path
+                    logger.info(f"Using remote_code: {model_py_path}")
+
+        model = AutoModel(**model_kwargs)
 
         return model
 

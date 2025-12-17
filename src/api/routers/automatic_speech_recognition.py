@@ -482,6 +482,17 @@ async def live_transcription_websocket(websocket: WebSocket):
     if lib == "funasr":
         model = model or "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
         language = language or "zh"
+
+        # Fun-ASR-Nano is an LLM-based model that doesn't support streaming
+        # It requires complete audio input, not chunk-based processing
+        if "Fun-ASR-Nano" in (model or ""):
+            logger.warning(f"Fun-ASR-Nano does not support live streaming: {model}")
+            await websocket.close(
+                code=1008,
+                reason="Fun-ASR-Nano does not support live streaming. Use paraformer-zh-streaming or use the batch API instead."
+            )
+            return
+
         task = "funasr-streaming"
         python_env = "funasr"
         extra_args = {"language": language}

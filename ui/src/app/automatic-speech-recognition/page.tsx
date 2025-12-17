@@ -148,8 +148,9 @@ function AutomaticSpeechRecognitionContent() {
   useEffect(() => {
     const arch = selectedChoiceInfo?.architecture;
     if (arch === "funasr") {
-      // Default to SenseVoice for FunASR (ModelScope ID)
-      setLiveModel("iic/SenseVoiceSmall");
+      // Default to Paraformer-zh-streaming for FunASR live mode
+      // (Fun-ASR-Nano and SenseVoice don't support streaming)
+      setLiveModel("iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch");
     } else if (arch === "whisperlivekit" || arch === "whisperx") {
       // Default to large-v3 for Whisper-based
       setLiveModel("large-v3");
@@ -861,11 +862,15 @@ function AutomaticSpeechRecognitionContent() {
                 <SelectValue placeholder="Select model" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="iic/SenseVoiceSmall">SenseVoice (multi-language)</SelectItem>
-                <SelectItem value="FunAudioLLM/Fun-ASR-Nano-2512">Fun-ASR-Nano (31 languages)</SelectItem>
-                <SelectItem value="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch">Paraformer-zh (Mandarin)</SelectItem>
+                {/* Note: Fun-ASR-Nano is excluded because it's an LLM-based model
+                    that doesn't support real-time streaming */}
+                <SelectItem value="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch">Paraformer-zh-streaming (Mandarin, recommended)</SelectItem>
+                <SelectItem value="iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch">SeACo-Paraformer (Mandarin, context-aware)</SelectItem>
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">
+              Only streaming-compatible models are shown. Fun-ASR-Nano and SenseVoice require batch processing.
+            </p>
           </div>
         )}
       </div>
