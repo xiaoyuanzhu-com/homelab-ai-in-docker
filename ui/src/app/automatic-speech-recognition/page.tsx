@@ -819,6 +819,7 @@ function AutomaticSpeechRecognitionContent() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="iic/SenseVoiceSmall">SenseVoice Small (multi-language, emotion)</SelectItem>
+                <SelectItem value="FunAudioLLM/Fun-ASR-Nano-2512">Fun-ASR-Nano (31 languages, 800M params)</SelectItem>
                 <SelectItem value="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch">Paraformer-zh (Mandarin)</SelectItem>
               </SelectContent>
             </Select>
@@ -861,6 +862,7 @@ function AutomaticSpeechRecognitionContent() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="iic/SenseVoiceSmall">SenseVoice (multi-language)</SelectItem>
+                <SelectItem value="FunAudioLLM/Fun-ASR-Nano-2512">Fun-ASR-Nano (31 languages)</SelectItem>
                 <SelectItem value="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch">Paraformer-zh (Mandarin)</SelectItem>
               </SelectContent>
             </Select>
