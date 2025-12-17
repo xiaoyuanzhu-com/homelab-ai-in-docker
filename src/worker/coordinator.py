@@ -204,6 +204,21 @@ class WorkerCoordinator:
             env.pop("VIRTUAL_ENV", None)
             env.pop("CONDA_PREFIX", None)
 
+            # Add nvidia package library paths to LD_LIBRARY_PATH for cuDNN
+            # This is needed for pyannote-audio to find cuDNN at runtime
+            # See: https://github.com/pyannote/pyannote-audio/issues/1823
+            nvidia_lib_path = env_info.venv_path / "lib" / f"python{env_info.venv_path.name}" / "site-packages" / "nvidia"
+            if not nvidia_lib_path.exists():
+                # Try with actual Python version from venv
+                for site_pkg in env_info.venv_path.glob("lib/python*/site-packages/nvidia"):
+                    nvidia_lib_path = site_pkg
+                    break
+            if nvidia_lib_path.exists():
+                nvidia_libs = [str(p / "lib") for p in nvidia_lib_path.iterdir() if (p / "lib").is_dir()]
+                if nvidia_libs:
+                    existing = env.get("LD_LIBRARY_PATH", "")
+                    env["LD_LIBRARY_PATH"] = ":".join(nvidia_libs + ([existing] if existing else []))
+
         logger.info(f"Spawning worker: {config.task}:{config.model_id} on port {port}")
         proc = subprocess.Popen(cmd, env=env, cwd=cwd)
 

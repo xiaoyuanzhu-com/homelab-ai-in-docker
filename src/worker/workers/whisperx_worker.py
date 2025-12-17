@@ -73,6 +73,22 @@ class WhisperXWorker(BaseWorker):
         import torch
         import whisperx
 
+        # Workaround for PyTorch 2.6+ torch.load weights_only=True default
+        # pyannote-audio checkpoints contain omegaconf objects that aren't safe-loadable
+        # See: https://github.com/pyannote/pyannote-audio/issues/1908
+        # Solution: Monkey-patch torch.load to default to weights_only=False
+        import functools
+
+        _original_torch_load = torch.load
+
+        @functools.wraps(_original_torch_load)
+        def _patched_torch_load(*args, **kwargs):
+            # Force weights_only=False for pyannote model compatibility
+            kwargs["weights_only"] = False
+            return _original_torch_load(*args, **kwargs)
+
+        torch.load = _patched_torch_load
+
         from src.config import get_hf_endpoint, get_hf_model_cache_path
         from src.db.settings import get_setting
 
@@ -97,8 +113,23 @@ class WhisperXWorker(BaseWorker):
         hf_repo_id = WHISPER_MODEL_MAPPING.get(self.model_id, self.model_id)
 
         # Check for local model using full HF repo ID
+        # HuggingFace cache structure: models--{repo}/snapshots/{commit_hash}/
+        # faster-whisper expects a directory containing model.bin directly
         local_dir = get_hf_model_cache_path(hf_repo_id)
-        model_source = str(local_dir) if local_dir.exists() else self.model_id
+        model_source = self.model_id  # Default: let whisperx download
+
+        if local_dir.exists():
+            snapshots_dir = local_dir / "snapshots"
+            if snapshots_dir.exists():
+                # Find the latest snapshot (there's usually only one)
+                snapshot_dirs = list(snapshots_dir.iterdir())
+                if snapshot_dirs:
+                    # Use the first snapshot directory
+                    snapshot_path = snapshot_dirs[0]
+                    # Verify model.bin exists (as symlink or file)
+                    if (snapshot_path / "model.bin").exists():
+                        model_source = str(snapshot_path)
+                        logger.info(f"Using cached model from {model_source}")
 
         logger.info(f"Loading WhisperX model '{model_source}' on {device} with {compute_type}")
 
