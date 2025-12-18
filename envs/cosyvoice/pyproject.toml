@@ -2,11 +2,11 @@
 name = "cosyvoice-worker"
 version = "0.1.0"
 description = "CosyVoice text-to-speech worker environment"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.11"
 dependencies = [
-    # Core ML stack - matching CosyVoice requirements
-    "torch==2.3.1",
-    "torchaudio==2.3.1",
+    # NOTE: torch/torchaudio CUDA 12.4 versions are installed via post_install.sh
+    # We let PyPI torch be pulled in by dependencies (openai-whisper, etc.),
+    # then post_install.sh upgrades to cu124 version with cuDNN 9.x
     # CosyVoice core dependencies (CosyVoice repo is cloned separately and added to PYTHONPATH)
     "conformer==0.3.2",
     "diffusers==0.29.0",
@@ -40,25 +40,16 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
     # Linux-only dependencies
-    "onnxruntime-gpu==1.18.0; platform_system=='Linux'",
-    "onnxruntime==1.18.0; platform_system!='Linux'",
-    # CUDA runtime libs (Linux only)
-    "nvidia-cuda-runtime-cu12>=12.1,<12.2; platform_system=='Linux'",
-    "nvidia-cuda-nvrtc-cu12>=12.1,<12.2; platform_system=='Linux'",
-    "nvidia-cublas-cu12>=12.1,<12.2; platform_system=='Linux'",
-    "nvidia-cufft-cu12>=11.0,<11.1; platform_system=='Linux'",
-    "nvidia-cudnn-cu12>=8.9,<9.0; platform_system=='Linux'",
+    # onnxruntime-gpu 1.19+ requires CUDA 12.x and cuDNN 9.x
+    "onnxruntime-gpu>=1.19.0; platform_system=='Linux'",
+    "onnxruntime>=1.19.0; platform_system!='Linux'",
+    # CUDA runtime libs (Linux only) - aligned with PyTorch cu121
+    "nvidia-cuda-runtime-cu12>=12.1,<13; platform_system=='Linux'",
+    "nvidia-cuda-nvrtc-cu12>=12.1,<13; platform_system=='Linux'",
+    "nvidia-cublas-cu12>=12.1,<13; platform_system=='Linux'",
+    "nvidia-cufft-cu12>=11.0,<12; platform_system=='Linux'",
+    "nvidia-cudnn-cu12>=9.0,<10; platform_system=='Linux'",
 ]
 
 [tool.uv]
 package = false
-
-# PyTorch CUDA 12.1 index (required by CosyVoice)
-[[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
-explicit = true
-
-[tool.uv.sources]
-torch = { index = "pytorch-cu121" }
-torchaudio = { index = "pytorch-cu121" }

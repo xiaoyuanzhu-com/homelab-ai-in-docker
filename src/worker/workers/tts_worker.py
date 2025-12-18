@@ -137,6 +137,12 @@ class TTSWorker(BaseWorker):
 
         # Ensure CosyVoice repo is cloned and in path
         data_dir = get_data_dir()
+
+        # Configure ModelScope for offline mode (avoid network requests after initial download)
+        modelscope_cache = data_dir / "models" / "modelscope"
+        modelscope_cache.mkdir(parents=True, exist_ok=True)
+        os.environ["MODELSCOPE_CACHE"] = str(modelscope_cache)
+        os.environ["MODELSCOPE_OFFLINE"] = "1"
         _ensure_cosyvoice_repo(data_dir)
 
         # Get model config from catalog (optional)

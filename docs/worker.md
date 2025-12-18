@@ -63,7 +63,7 @@ Each environment has an ID that models reference in their manifest:
 | `paddle` | PaddleOCR-VL, PP-OCRv5 | paddlepaddle-gpu, paddleocr, paddlex, custom safetensors | PaddlePaddle framework |
 | `whisper` | Whisper-v3, Whisper-turbo, WhisperX, pyannote/* | torch, whisperx, pyannote.audio, librosa, torchaudio | Audio processing stack |
 | `funasr` | SenseVoice, Paraformer, FunASR models | torch, funasr, modelscope | FunASR toolkit (Python 3.10) |
-| `cosyvoice` | CosyVoice2, Fun-CosyVoice3, CosyVoice-300M* | torch==2.3.1, torchaudio, conformer, HyperPyYAML, modelscope | CosyVoice TTS (Python 3.10, clones GitHub repo) |
+| `cosyvoice` | CosyVoice2, Fun-CosyVoice3, CosyVoice-300M* | torch 2.5+cu124, torchaudio, onnxruntime-gpu 1.19+, conformer, HyperPyYAML, modelscope | CosyVoice TTS (Python 3.10, uses post_install.sh for PyTorch CUDA) |
 | `hunyuan` | HunyuanOCR | torch, transformers@git-commit | Unreleased transformers feature |
 | `crawl4ai` | Crawl4AI | crawl4ai, playwright, playwright-stealth | Web crawling |
 | `markitdown` | MarkItDown | markitdown[all] | Document to markdown |
@@ -234,6 +234,7 @@ The script runs with:
 - Must exit 0 on success
 
 Environments with post-install scripts:
+- `cosyvoice` - Installs PyTorch+CUDA from cu124 index (uv sync can't handle PyTorch's non-standard wheel tags)
 - `crawl4ai` - Ensures Playwright browsers installed
 - `screenitshot` - Ensures Playwright browsers installed
 
@@ -458,7 +459,8 @@ Workers download models on-demand from various sources (HuggingFace, PaddleHub, 
 | `HF_HOME` | `$DATA_DIR/models` | HuggingFace transformers, diffusers, datasets |
 | `SENTENCE_TRANSFORMERS_HOME` | `$DATA_DIR/models` | sentence-transformers (falls back to HF_HOME) |
 | `HUB_HOME` | `$DATA_DIR/models/paddlehub` | PaddleHub/PaddleOCR legacy models |
-| `MODELSCOPE_CACHE` | `$DATA_DIR/models/modelscope` | ModelScope models (FunASR, etc.) |
+| `MODELSCOPE_CACHE` | `$DATA_DIR/models/modelscope` | ModelScope models (FunASR, CosyVoice, etc.) |
+| `MODELSCOPE_OFFLINE` | `1` (set by CosyVoice worker) | Prevents ModelScope from checking for updates after initial download |
 
 **Why this matters:**
 - Without these, libraries default to `~/.cache/huggingface` or `~/.paddlehub`
@@ -470,7 +472,7 @@ Workers download models on-demand from various sources (HuggingFace, PaddleHub, 
 - **SentenceTransformers**: Checks `SENTENCE_TRANSFORMERS_HOME` first, falls back to `HF_HOME`
 - **PaddleHub/PaddleOCR**: Uses `HUB_HOME` for legacy PP-OCRv5 models (default: `~/.paddlehub`)
 - **PaddleOCR-VL**: Uses transformers backend, so respects `HF_HOME`
-- **ModelScope/FunASR**: Uses `MODELSCOPE_CACHE` for model downloads (default: `~/.cache/modelscope`)
+- **ModelScope/FunASR/CosyVoice**: Uses `MODELSCOPE_CACHE` for model downloads (default: `~/.cache/modelscope`). CosyVoice worker also sets `MODELSCOPE_OFFLINE=1` to prevent network requests after initial download.
 
 **Additional PaddlePaddle variables** (not currently set, for reference):
 - `PADDLEX_HOME` - PaddleX model cache
