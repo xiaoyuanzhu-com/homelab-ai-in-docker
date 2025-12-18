@@ -272,19 +272,44 @@ function TextToSpeechContent() {
 
       {/* Mode-specific options */}
       {mode === "instruct" && (
-        <div className="space-y-2">
-          <Label htmlFor="instruction">Instruction</Label>
-          <Textarea
-            id="instruction"
-            value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
-            placeholder="e.g., Speak happily, Use a Sichuan dialect, Speak slowly and clearly"
-            className="min-h-[60px]"
-            disabled={loading}
-          />
-          <p className="text-xs text-muted-foreground">
-            Control emotions, speed, accent, dialect, etc.
-          </p>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="instruction">Instruction</Label>
+            <Textarea
+              id="instruction"
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              placeholder="e.g., Speak happily, Use a Sichuan dialect, Speak slowly and clearly"
+              className="min-h-[60px]"
+              disabled={loading}
+            />
+            <p className="text-xs text-muted-foreground">
+              Control emotions, speed, accent, dialect, etc.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Reference Audio (Required for CosyVoice2/3)</Label>
+            <AudioUpload
+              id="instruct-prompt-audio"
+              label="Upload Voice Sample"
+              onChange={handlePromptAudioChange}
+              disabled={loading}
+              fileName={promptAudioFile?.name}
+              accept="audio/*,.mp3,.wav,.webm,.m4a,.ogg"
+            />
+            {promptAudio && (
+              <div className="flex items-center gap-2">
+                <AudioPlayer src={promptAudio} label="Reference Audio" />
+                <Button variant="outline" size="sm" onClick={clearPromptAudio}>
+                  Clear
+                </Button>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              CosyVoice2/3 instruct mode requires a reference audio for voice cloning.
+            </p>
+          </div>
         </div>
       )}
 

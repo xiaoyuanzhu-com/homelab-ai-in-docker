@@ -219,13 +219,68 @@ class TTSWorker(BaseWorker):
         # Decode prompt audio if provided
         prompt_audio_path = None
         if prompt_audio:
+            # Extract MIME type and base64 data
+            mime_type = "audio/wav"
             if prompt_audio.startswith("data:audio"):
-                prompt_audio = prompt_audio.split(",", 1)[1]
+                # Parse data URL: data:audio/m4a;base64,XXXX
+                header, prompt_audio = prompt_audio.split(",", 1)
+                if "/" in header and ";" in header:
+                    mime_type = header.split(":")[1].split(";")[0]
+
             audio_bytes = base64.b64decode(prompt_audio)
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-            temp_file.write(audio_bytes)
-            temp_file.close()
-            prompt_audio_path = temp_file.name
+
+            # Determine file extension from MIME type
+            ext_map = {
+                "audio/mp4": ".m4a",
+                "audio/x-m4a": ".m4a",
+                "audio/m4a": ".m4a",
+                "audio/mpeg": ".mp3",
+                "audio/mp3": ".mp3",
+                "audio/webm": ".webm",
+                "audio/ogg": ".ogg",
+                "audio/wav": ".wav",
+                "audio/x-wav": ".wav",
+            }
+            input_ext = ext_map.get(mime_type, ".wav")
+
+            # Save original audio to temp file
+            temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=input_ext)
+            temp_input.write(audio_bytes)
+            temp_input.close()
+
+            # Convert non-WAV formats to WAV using ffmpeg
+            if input_ext != ".wav":
+                logger.info(f"Converting {input_ext} audio to WAV format using ffmpeg")
+                try:
+                    temp_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                    temp_wav.close()
+                    # Use ffmpeg to convert to 16-bit PCM WAV
+                    result = subprocess.run(
+                        [
+                            "ffmpeg", "-y", "-i", temp_input.name,
+                            "-acodec", "pcm_s16le", "-ar", "24000", "-ac", "1",
+                            temp_wav.name
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.returncode == 0:
+                        # Clean up original temp file
+                        os.unlink(temp_input.name)
+                        prompt_audio_path = temp_wav.name
+                        logger.info("Audio converted successfully to 24kHz mono WAV")
+                    else:
+                        logger.warning(f"ffmpeg conversion failed: {result.stderr}")
+                        os.unlink(temp_wav.name)
+                        raise RuntimeError(f"ffmpeg failed: {result.stderr}")
+                except FileNotFoundError:
+                    logger.error("ffmpeg not found - cannot convert audio format")
+                    raise ValueError(
+                        f"Cannot convert {input_ext} audio. Please upload a WAV file, "
+                        "or ensure ffmpeg is installed on the server."
+                    )
+            else:
+                prompt_audio_path = temp_input.name
 
         try:
             # Generate speech based on mode
@@ -261,13 +316,30 @@ class TTSWorker(BaseWorker):
                 if not instruction:
                     raise ValueError("instruction is required for instruct mode")
 
-                for result in self._cosyvoice.inference_instruct2(
-                    text,
-                    instruction,
-                    prompt_audio_path or "",
-                    speed=speed,
-                ):
-                    audio_segments.append(result["tts_speech"])
+                # CosyVoice2/3 use inference_instruct2 which requires prompt audio
+                # CosyVoice1 uses inference_instruct with speaker_id
+                if self._model_version >= 2:
+                    if not prompt_audio_path:
+                        raise ValueError(
+                            "prompt_audio is required for instruct mode with CosyVoice2/3. "
+                            "Please provide a reference audio sample for voice cloning."
+                        )
+                    for result in self._cosyvoice.inference_instruct2(
+                        text,
+                        instruction,
+                        prompt_audio_path,
+                        speed=speed,
+                    ):
+                        audio_segments.append(result["tts_speech"])
+                else:
+                    # CosyVoice1 inference_instruct uses pre-trained speakers
+                    for result in self._cosyvoice.inference_instruct(
+                        text,
+                        speaker_id or "中文女",
+                        instruction,
+                        speed=speed,
+                    ):
+                        audio_segments.append(result["tts_speech"])
 
             elif mode == "sft":
                 # SFT mode with pre-trained speaker

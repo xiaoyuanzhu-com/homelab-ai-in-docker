@@ -33,6 +33,7 @@ dependencies = [
     "wetext==0.0.4",
     "wget==3.2",
     "gdown==5.1.0",
+    "pyarrow>=14.0.0",
     # HuggingFace for model downloads
     "huggingface_hub>=0.20.0",
     # Worker HTTP server
