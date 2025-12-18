@@ -42,6 +42,7 @@ WORKER_MODULES: Dict[str, str] = {
     "funasr-streaming": "src.worker.workers.funasr_streaming_worker",
     "ocr": "src.worker.workers.ocr_worker",
     "speaker-diarization": "src.worker.workers.diarization_worker",
+    "tts": "src.worker.workers.tts_worker",
     # Lib-based workers (non-ML)
     "doc-to-screenshot": "src.worker.workers.screenitshot_worker",
     "web-crawling": "src.worker.workers.crawl_worker",

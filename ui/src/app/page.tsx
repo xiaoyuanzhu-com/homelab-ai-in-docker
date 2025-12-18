@@ -154,9 +154,10 @@ const TASK_CATEGORIES: TaskCategory[] = [
       {
         id: "text-to-speech",
         title: "Text to Speech",
-        description: "Synthesize speech from text",
+        description: "Synthesize speech from text with voice cloning",
         icon: <Volume2 className="h-5 w-5" />,
-        available: false
+        href: "/text-to-speech",
+        available: true
       }
     ]
   },

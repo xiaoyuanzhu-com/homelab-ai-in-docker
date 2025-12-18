@@ -63,6 +63,7 @@ Each environment has an ID that models reference in their manifest:
 | `paddle` | PaddleOCR-VL, PP-OCRv5 | paddlepaddle-gpu, paddleocr, paddlex, custom safetensors | PaddlePaddle framework |
 | `whisper` | Whisper-v3, Whisper-turbo, WhisperX, pyannote/* | torch, whisperx, pyannote.audio, librosa, torchaudio | Audio processing stack |
 | `funasr` | SenseVoice, Paraformer, FunASR models | torch, funasr, modelscope | FunASR toolkit (Python 3.10) |
+| `cosyvoice` | CosyVoice2, Fun-CosyVoice3, CosyVoice-300M* | torch==2.3.1, torchaudio, conformer, HyperPyYAML, modelscope | CosyVoice TTS (Python 3.10, clones GitHub repo) |
 | `hunyuan` | HunyuanOCR | torch, transformers@git-commit | Unreleased transformers feature |
 | `crawl4ai` | Crawl4AI | crawl4ai, playwright, playwright-stealth | Web crawling |
 | `markitdown` | MarkItDown | markitdown[all] | Document to markdown |
@@ -112,6 +113,11 @@ homelab-ai-in-docker/
     ├── funasr/                 # FunASR models
     │   ├── pyproject.toml
     │   ├── .python-version     # 3.10 (FunASR compat)
+    │   └── uv.lock
+    │
+    ├── cosyvoice/              # CosyVoice TTS models
+    │   ├── pyproject.toml
+    │   ├── .python-version     # 3.10 (CosyVoice compat)
     │   └── uv.lock
     │
     ├── hunyuan/                # HunyuanOCR
@@ -432,6 +438,7 @@ src/
       text_generation_worker.py
       asr_worker.py            # HTTP + WS streaming
       ocr_worker.py
+      tts_worker.py            # Text-to-speech (CosyVoice)
 ```
 
 ## Configuration

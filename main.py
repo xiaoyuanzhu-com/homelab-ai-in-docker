@@ -19,6 +19,7 @@ from src.api.routers import (
     crawl,
     text_to_embedding,
     text_generation,
+    text_to_speech,
     image_captioning,
     image_ocr,
     automatic_speech_recognition,
@@ -307,6 +308,7 @@ app = FastAPI(
 app.include_router(crawl.router)
 app.include_router(text_to_embedding.router)
 app.include_router(text_generation.router)
+app.include_router(text_to_speech.router)
 app.include_router(image_captioning.router)
 app.include_router(image_ocr.router)
 app.include_router(automatic_speech_recognition.router)
@@ -383,6 +385,7 @@ async def root():
             "crawl": "/api/crawl",
             "embed": "/api/text-to-embedding",
             "text_generation": "/api/text-generation",
+            "text_to_speech": "/api/text-to-speech",
             "image_captioning": "/api/image-captioning",
             "image_ocr": "/api/image-ocr",
             "automatic_speech_recognition": "/api/automatic-speech-recognition",
@@ -437,6 +440,7 @@ async def ready():
             "crawl": "available",
             "embedding": "available",
             "text_generation": "available",
+            "text_to_speech": "available",
             "image_captioning": "available",
             "image_ocr": "available",
             "automatic_speech_recognition": "available",
