@@ -264,6 +264,11 @@ class CrawlWorker(BaseWorker):
         chrome_cdp_url = payload.get("chrome_cdp_url") or DEFAULT_CHROME_CDP_URL
         include_html = payload.get("include_html", False)
 
+        # Normalize CDP URL: strip trailing slashes to avoid double-slash in path
+        # e.g., "http://host:9223/" + "/json/version" -> "http://host:9223//json/version" (fails)
+        if chrome_cdp_url:
+            chrome_cdp_url = chrome_cdp_url.rstrip("/")
+
         AsyncWebCrawler = self._model["AsyncWebCrawler"]
         BrowserConfig = self._model["BrowserConfig"]
         CrawlerRunConfig = self._model["CrawlerRunConfig"]
@@ -318,10 +323,15 @@ class CrawlWorker(BaseWorker):
                     chrome_cdp_url=chrome_cdp_url,
                 )
 
+            # Note: result.markdown may be a StringCompatibleMarkdown object (crawl4ai 0.7+)
+            # which inherits from str but has extra attributes that confuse Pydantic.
+            # Convert to plain string explicitly.
+            markdown_content = str(result.markdown) if result.markdown else ""
+
             return {
                 "url": result.url,
                 "title": result.metadata.get("title") if result.metadata else None,
-                "markdown": result.markdown or "",
+                "markdown": markdown_content,
                 "html": result.html if include_html else None,
                 "screenshot": viewport_b64 or fullpage_b64,
                 "screenshot_fullpage": fullpage_b64,
