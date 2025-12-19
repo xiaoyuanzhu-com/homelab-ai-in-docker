@@ -21,9 +21,13 @@ MODEL_NAME_MAPPING = {
     # CosyVoice 2.0 models
     "cosyvoice2-0.5b": "FunAudioLLM/CosyVoice2-0.5B",
     "cosyvoice2": "FunAudioLLM/CosyVoice2-0.5B",
-    # Fun-CosyVoice 3.0 models
-    "fun-cosyvoice3-0.5b": "FunAudioLLM/Fun-CosyVoice3-0.5B",
-    "cosyvoice3": "FunAudioLLM/Fun-CosyVoice3-0.5B",
+    # Fun-CosyVoice 3.0 models (Dec 2025 release)
+    # Note: Fun-CosyVoice3-0.5B-2512 is the latest stable version
+    "fun-cosyvoice3-0.5b": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+    "fun-cosyvoice3-0.5b-2512": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+    "cosyvoice3": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+    # Legacy CosyVoice3 (deprecated, use -2512 version)
+    "fun-cosyvoice3-0.5b-old": "FunAudioLLM/Fun-CosyVoice3-0.5B",
     # CosyVoice 1.0 models (300M)
     "cosyvoice-300m": "FunAudioLLM/CosyVoice-300M",
     "cosyvoice-300m-sft": "FunAudioLLM/CosyVoice-300M-SFT",
@@ -38,6 +42,7 @@ COSYVOICE2_MODELS = {
 # Models that use CosyVoice3 API (latest)
 COSYVOICE3_MODELS = {
     "FunAudioLLM/Fun-CosyVoice3-0.5B",
+    "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
 }
 
 # GitHub repo URL for CosyVoice
@@ -137,12 +142,6 @@ class TTSWorker(BaseWorker):
 
         # Ensure CosyVoice repo is cloned and in path
         data_dir = get_data_dir()
-
-        # Configure ModelScope for offline mode (avoid network requests after initial download)
-        modelscope_cache = data_dir / "models" / "modelscope"
-        modelscope_cache.mkdir(parents=True, exist_ok=True)
-        os.environ["MODELSCOPE_CACHE"] = str(modelscope_cache)
-        os.environ["MODELSCOPE_OFFLINE"] = "1"
         _ensure_cosyvoice_repo(data_dir)
 
         # Get model config from catalog (optional)
@@ -297,9 +296,25 @@ class TTSWorker(BaseWorker):
                 if not prompt_audio_path:
                     raise ValueError("prompt_audio is required for zero_shot mode")
 
+                # CosyVoice3 requires prompt_text with the exact transcript of reference audio
+                # Format: "You are a helpful assistant.<|endofprompt|>transcript_of_reference_audio"
+                # Without proper transcript, output will be garbled/unintelligible
+                effective_prompt_text = prompt_text or ""
+                if self._model_version == 3:
+                    if not effective_prompt_text:
+                        logger.warning(
+                            "CosyVoice3 zero_shot mode requires prompt_text with the exact "
+                            "transcript of the reference audio. Without it, output quality "
+                            "will be poor. Consider using 'cross_lingual' mode instead if "
+                            "you don't have the transcript."
+                        )
+                    elif "<|endofprompt|>" not in effective_prompt_text:
+                        # Add required prefix for CosyVoice3
+                        effective_prompt_text = f"You are a helpful assistant.<|endofprompt|>{effective_prompt_text}"
+
                 for result in self._cosyvoice.inference_zero_shot(
                     text,
-                    prompt_text or "",
+                    effective_prompt_text,
                     prompt_audio_path,
                     speed=speed,
                 ):
@@ -307,11 +322,18 @@ class TTSWorker(BaseWorker):
 
             elif mode == "cross_lingual":
                 # Cross-lingual synthesis (use reference audio for voice)
+                # Does NOT require transcript of reference audio
                 if not prompt_audio_path:
                     raise ValueError("prompt_audio is required for cross_lingual mode")
 
+                # CosyVoice3 requires prefix in the tts_text itself
+                effective_text = text
+                if self._model_version == 3:
+                    if "<|endofprompt|>" not in effective_text:
+                        effective_text = f"You are a helpful assistant.<|endofprompt|>{text}"
+
                 for result in self._cosyvoice.inference_cross_lingual(
-                    text,
+                    effective_text,
                     prompt_audio_path,
                     speed=speed,
                 ):
@@ -330,9 +352,14 @@ class TTSWorker(BaseWorker):
                             "prompt_audio is required for instruct mode with CosyVoice2/3. "
                             "Please provide a reference audio sample for voice cloning."
                         )
+                    # CosyVoice3 requires instruction format with prefix
+                    effective_instruction = instruction
+                    if self._model_version == 3:
+                        if "<|endofprompt|>" not in effective_instruction:
+                            effective_instruction = f"You are a helpful assistant.<|endofprompt|>{instruction}"
                     for result in self._cosyvoice.inference_instruct2(
                         text,
-                        instruction,
+                        effective_instruction,
                         prompt_audio_path,
                         speed=speed,
                     ):
@@ -370,7 +397,9 @@ class TTSWorker(BaseWorker):
                 raise RuntimeError("No audio generated")
 
             # Get sample rate from model
-            sample_rate = getattr(self._cosyvoice, "sample_rate", 22050)
+            # CosyVoice2/3 uses 24000 Hz, CosyVoice1 uses 22050 Hz
+            default_sample_rate = 24000 if self._model_version >= 2 else 22050
+            sample_rate = getattr(self._cosyvoice, "sample_rate", default_sample_rate)
 
             # Convert to WAV bytes
             buffer = io.BytesIO()

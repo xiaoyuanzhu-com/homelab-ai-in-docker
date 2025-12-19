@@ -300,12 +300,12 @@
       "supports_markdown": false,
       "requires_quantization": false,
       "requires_download": true,
-      "hf_model": "FunAudioLLM/Fun-CosyVoice3-0.5B",
-      "reference_url": "https://huggingface.co/FunAudioLLM/Fun-CosyVoice3-0.5B",
+      "hf_model": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+      "reference_url": "https://huggingface.co/FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
       "size_mb": 2000,
       "parameters_m": 500,
       "gpu_memory_mb": 8192,
-      "platform_requirements": "Requires Python 3.10. Latest CosyVoice 3.0 model (Dec 2024). Supports 9 languages + 18 Chinese dialects. Best-in-class zero-shot voice cloning with ~150ms streaming latency.",
+      "platform_requirements": "Requires Python 3.10. Latest CosyVoice 3.0 model (Dec 2025). Supports 9 languages + 18 Chinese dialects. Best-in-class zero-shot voice cloning with ~150ms streaming latency.",
       "python_env": "cosyvoice"
     },
     {

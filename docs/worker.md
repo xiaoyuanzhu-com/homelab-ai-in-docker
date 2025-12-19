@@ -460,7 +460,7 @@ Workers download models on-demand from various sources (HuggingFace, PaddleHub, 
 | `SENTENCE_TRANSFORMERS_HOME` | `$DATA_DIR/models` | sentence-transformers (falls back to HF_HOME) |
 | `HUB_HOME` | `$DATA_DIR/models/paddlehub` | PaddleHub/PaddleOCR legacy models |
 | `MODELSCOPE_CACHE` | `$DATA_DIR/models/modelscope` | ModelScope models (FunASR, CosyVoice, etc.) |
-| `MODELSCOPE_OFFLINE` | `1` (set by CosyVoice worker) | Prevents ModelScope from checking for updates after initial download |
+| `MODELSCOPE_OFFLINE` | `1` | Prevents ModelScope from checking for updates after initial download |
 
 **Why this matters:**
 - Without these, libraries default to `~/.cache/huggingface` or `~/.paddlehub`
@@ -472,7 +472,7 @@ Workers download models on-demand from various sources (HuggingFace, PaddleHub, 
 - **SentenceTransformers**: Checks `SENTENCE_TRANSFORMERS_HOME` first, falls back to `HF_HOME`
 - **PaddleHub/PaddleOCR**: Uses `HUB_HOME` for legacy PP-OCRv5 models (default: `~/.paddlehub`)
 - **PaddleOCR-VL**: Uses transformers backend, so respects `HF_HOME`
-- **ModelScope/FunASR/CosyVoice**: Uses `MODELSCOPE_CACHE` for model downloads (default: `~/.cache/modelscope`). CosyVoice worker also sets `MODELSCOPE_OFFLINE=1` to prevent network requests after initial download.
+- **ModelScope/FunASR/CosyVoice**: Uses `MODELSCOPE_CACHE` for model downloads (default: `~/.cache/modelscope`). `MODELSCOPE_OFFLINE=1` prevents network requests after initial download.
 
 **Additional PaddlePaddle variables** (not currently set, for reference):
 - `PADDLEX_HOME` - PaddleX model cache

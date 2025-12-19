@@ -337,15 +337,27 @@ function TextToSpeechContent() {
 
           {mode === "zero_shot" && (
             <div className="space-y-2">
-              <Label htmlFor="prompt-text">Reference Transcript (Optional)</Label>
+              <Label htmlFor="prompt-text">
+                Reference Transcript {selectedModel?.includes("CosyVoice3") ? "(Required for CosyVoice3)" : "(Optional)"}
+              </Label>
               <Textarea
                 id="prompt-text"
                 value={promptText}
                 onChange={(e) => setPromptText(e.target.value)}
-                placeholder="Transcript of the reference audio (helps improve quality)"
+                placeholder={
+                  selectedModel?.includes("CosyVoice3")
+                    ? "REQUIRED: Type the exact words spoken in your reference audio"
+                    : "Transcript of the reference audio (helps improve quality)"
+                }
                 className="min-h-[60px]"
                 disabled={loading}
               />
+              {selectedModel?.includes("CosyVoice3") && (
+                <p className="text-xs text-muted-foreground">
+                  CosyVoice3 requires the exact transcript of your reference audio. Without it, the output will be garbled.
+                  If you don&apos;t have the transcript, use &quot;Cross-lingual&quot; mode instead.
+                </p>
+              )}
             </div>
           )}
         </div>
