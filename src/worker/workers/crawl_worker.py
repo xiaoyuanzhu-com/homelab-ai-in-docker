@@ -56,7 +56,7 @@ async def _apply_stealth_to_context_async(context, stealth_async_fn, config):
         await stealth_async_fn(page, config=config)
         return page
 
-    context.new_page = types.MethodType(new_page_with_stealth, context)
+    context.new_page = new_page_with_stealth
 
     for page in list(context.pages):
         try:
@@ -82,7 +82,7 @@ async def _apply_stealth_to_browser_async(browser, stealth_async_fn, config):
             await stealth_async_fn(page, config=config)
             return page
 
-        browser.new_page = types.MethodType(browser_new_page, browser)
+        browser.new_page = browser_new_page
 
     original_new_context = getattr(browser, "new_context", None)
     if original_new_context is not None:
@@ -92,7 +92,7 @@ async def _apply_stealth_to_browser_async(browser, stealth_async_fn, config):
             await _apply_stealth_to_context_async(context, stealth_async_fn, config)
             return context
 
-        browser.new_context = types.MethodType(browser_new_context, browser)
+        browser.new_context = browser_new_context
 
     for context in list(getattr(browser, "contexts", [])):
         await _apply_stealth_to_context_async(context, stealth_async_fn, config)
@@ -121,7 +121,9 @@ def _wrap_async_method(obj, attr_name, after_coroutine):
         new_result = await after_coroutine(result)
         return new_result or result
 
-    setattr(obj, attr_name, types.MethodType(wrapped, obj))
+    # Don't use types.MethodType - original is already a bound method,
+    # and wrapping with MethodType would pass 'obj' as first arg to wrapped()
+    setattr(obj, attr_name, wrapped)
     setattr(obj, f"_haid_wrapped_async_{attr_name}", True)
 
 
@@ -418,7 +420,7 @@ class CrawlWorker(BaseWorker):
                     except Exception:
                         pass
         except Exception as e:
-            logger.warning(f"Viewport screenshot failed: {e}")
+            logger.warning(f"Viewport screenshot failed: {e}", exc_info=True)
             return None
 
     def cleanup(self) -> None:
