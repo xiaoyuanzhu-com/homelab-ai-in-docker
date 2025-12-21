@@ -129,6 +129,10 @@ function TextToSpeechContent() {
       toast.error(`Reference audio is required for ${mode} mode`);
       return;
     }
+    if (mode === "zero_shot" && selectedModel?.includes("CosyVoice3") && !promptText.trim()) {
+      toast.error("Reference transcript is required for CosyVoice3 zero-shot. Use Cross-lingual if you don't have it.");
+      return;
+    }
     if (mode === "instruct" && !instruction.trim()) {
       toast.error("Instruction is required for instruct mode");
       return;

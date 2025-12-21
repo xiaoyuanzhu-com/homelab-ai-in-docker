@@ -172,28 +172,16 @@ class TTSWorker(BaseWorker):
 
         # Now import and load the model (after repo is in path)
         try:
-            if self._model_version == 3:
-                # CosyVoice3 API (Fun-CosyVoice3 models)
-                from cosyvoice.cli.cosyvoice import CosyVoice3
-                self._cosyvoice = CosyVoice3(
-                    str(model_local_dir),
-                    load_trt=False,
-                )
-                logger.info(f"CosyVoice3 model loaded: {self.model_id}")
-            elif self._model_version == 2:
-                # CosyVoice2 API (CosyVoice2 models)
-                from cosyvoice.cli.cosyvoice import CosyVoice2
-                self._cosyvoice = CosyVoice2(
-                    str(model_local_dir),
-                    load_jit=False,
-                    load_trt=False,
-                )
-                logger.info(f"CosyVoice2 model loaded: {self.model_id}")
-            else:
-                # CosyVoice 1.0 API (300M models)
-                from cosyvoice.cli.cosyvoice import CosyVoice
-                self._cosyvoice = CosyVoice(str(model_local_dir))
-                logger.info(f"CosyVoice model loaded: {self.model_id}")
+            disable_ttsfrd = os.getenv("COSYVOICE_DISABLE_TTSFRD", "1") == "1"
+            if disable_ttsfrd:
+                # Force wetext fallback to match upstream demo default.
+                sys.modules["ttsfrd"] = None
+                logger.info("CosyVoice ttsfrd disabled; using wetext for text normalization")
+
+            # Use AutoModel to auto-detect model type from config files
+            from cosyvoice.cli.cosyvoice import AutoModel
+            self._cosyvoice = AutoModel(model_dir=str(model_local_dir))
+            logger.info(f"CosyVoice model loaded via AutoModel: {self.model_id}")
 
             return self._cosyvoice
 
@@ -220,6 +208,19 @@ class TTSWorker(BaseWorker):
         instruction = payload.get("instruction", "")
         speaker_id = payload.get("speaker_id")  # For SFT mode
         speed = payload.get("speed", 1.0)
+
+        logger.info(
+            "TTS infer inputs: mode=%s model_version=%s text_len=%d prompt_text_len=%d "
+            "prompt_audio=%s instruction_len=%d speaker_id=%s speed=%.2f",
+            mode,
+            self._model_version,
+            len(text),
+            len(prompt_text or ""),
+            "yes" if prompt_audio else "no",
+            len(instruction or ""),
+            speaker_id or "",
+            speed,
+        )
 
         # Decode prompt audio if provided
         prompt_audio_path = None
@@ -252,6 +253,12 @@ class TTSWorker(BaseWorker):
             temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=input_ext)
             temp_input.write(audio_bytes)
             temp_input.close()
+            logger.info(
+                "Prompt audio received: mime=%s ext=%s bytes=%d",
+                mime_type,
+                input_ext,
+                len(audio_bytes),
+            )
 
             # Convert non-WAV formats to WAV using ffmpeg
             if input_ext != ".wav":
@@ -286,6 +293,23 @@ class TTSWorker(BaseWorker):
                     )
             else:
                 prompt_audio_path = temp_input.name
+            if prompt_audio_path:
+                try:
+                    audio_info = torchaudio.info(prompt_audio_path)
+                    duration_seconds = (
+                        audio_info.num_frames / audio_info.sample_rate
+                        if audio_info.sample_rate
+                        else 0.0
+                    )
+                    logger.info(
+                        "Prompt audio info: sr=%s frames=%s channels=%s duration=%.2fs",
+                        audio_info.sample_rate,
+                        audio_info.num_frames,
+                        audio_info.num_channels,
+                        duration_seconds,
+                    )
+                except Exception as exc:
+                    logger.warning("Prompt audio info failed: %s", exc)
 
         try:
             # Generate speech based on mode
@@ -301,14 +325,13 @@ class TTSWorker(BaseWorker):
                 # Without proper transcript, output will be garbled/unintelligible
                 effective_prompt_text = prompt_text or ""
                 if self._model_version == 3:
-                    if not effective_prompt_text:
-                        logger.warning(
-                            "CosyVoice3 zero_shot mode requires prompt_text with the exact "
-                            "transcript of the reference audio. Without it, output quality "
-                            "will be poor. Consider using 'cross_lingual' mode instead if "
-                            "you don't have the transcript."
+                    if not effective_prompt_text.strip():
+                        raise ValueError(
+                            "prompt_text is required for CosyVoice3 zero_shot mode. "
+                            "Provide the exact transcript of the reference audio, or use "
+                            "cross_lingual mode if you don't have the transcript."
                         )
-                    elif "<|endofprompt|>" not in effective_prompt_text:
+                    if "<|endofprompt|>" not in effective_prompt_text:
                         # Add required prefix for CosyVoice3
                         effective_prompt_text = f"You are a helpful assistant.<|endofprompt|>{effective_prompt_text}"
 
@@ -352,11 +375,15 @@ class TTSWorker(BaseWorker):
                             "prompt_audio is required for instruct mode with CosyVoice2/3. "
                             "Please provide a reference audio sample for voice cloning."
                         )
-                    # CosyVoice3 requires instruction format with prefix
-                    effective_instruction = instruction
-                    if self._model_version == 3:
-                        if "<|endofprompt|>" not in effective_instruction:
-                            effective_instruction = f"You are a helpful assistant.<|endofprompt|>{instruction}"
+                    # CosyVoice2/3 expect <|endofprompt|> suffix; CosyVoice3 also uses a system prompt prefix.
+                    effective_instruction = instruction.strip()
+                    if "<|endofprompt|>" not in effective_instruction:
+                        if self._model_version == 3:
+                            if "you are a helpful assistant" not in effective_instruction.lower():
+                                effective_instruction = (
+                                    f"You are a helpful assistant. {effective_instruction}"
+                                )
+                        effective_instruction = f"{effective_instruction}<|endofprompt|>"
                     for result in self._cosyvoice.inference_instruct2(
                         text,
                         effective_instruction,

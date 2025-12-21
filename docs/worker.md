@@ -63,7 +63,7 @@ Each environment has an ID that models reference in their manifest:
 | `paddle` | PaddleOCR-VL, PP-OCRv5 | paddlepaddle-gpu, paddleocr, paddlex, custom safetensors | PaddlePaddle framework |
 | `whisper` | Whisper-v3, Whisper-turbo, WhisperX, pyannote/* | torch, whisperx, pyannote.audio, librosa, torchaudio | Audio processing stack |
 | `funasr` | SenseVoice, Paraformer, FunASR models | torch, funasr, modelscope | FunASR toolkit (Python 3.10) |
-| `cosyvoice` | CosyVoice2, Fun-CosyVoice3, CosyVoice-300M* | torch 2.5+cu124, torchaudio, onnxruntime-gpu 1.19+, conformer, HyperPyYAML, modelscope | CosyVoice TTS (Python 3.10, uses post_install.sh for PyTorch CUDA) |
+| `cosyvoice` | CosyVoice2, Fun-CosyVoice3, CosyVoice-300M* | torch 2.3.1+cu121, torchaudio, onnxruntime-gpu 1.18.0, conformer, HyperPyYAML, modelscope 1.20.0 | CosyVoice TTS (Python 3.10, uses post_install.sh for PyTorch CUDA) |
 | `hunyuan` | HunyuanOCR | torch, transformers@git-commit | Unreleased transformers feature |
 | `crawl4ai` | Crawl4AI | crawl4ai, playwright, playwright-stealth | Web crawling |
 | `markitdown` | MarkItDown | markitdown[all] | Document to markdown |
@@ -234,7 +234,7 @@ The script runs with:
 - Must exit 0 on success
 
 Environments with post-install scripts:
-- `cosyvoice` - Installs PyTorch+CUDA from cu124 index (uv sync can't handle PyTorch's non-standard wheel tags)
+- `cosyvoice` - Installs PyTorch+CUDA from cu121 index (uv sync can't handle PyTorch's non-standard wheel tags)
 - `crawl4ai` - Ensures Playwright browsers installed
 - `screenitshot` - Ensures Playwright browsers installed
 

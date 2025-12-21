@@ -1,6 +1,6 @@
 #!/bin/bash
 # Post-install script for cosyvoice environment
-# Installs PyTorch with CUDA 12.4 support (cuDNN 9.x bundled)
+# Installs PyTorch with CUDA 12.1 support (cuDNN bundled)
 #
 # Why this is needed:
 # - PyTorch cu124 wheels use non-standard platform tags (linux_x86_64 vs manylinux_2_28_x86_64)
@@ -10,17 +10,17 @@
 
 set -e
 
-echo "Installing PyTorch with CUDA 12.4 support..."
+echo "Installing PyTorch with CUDA 12.1 support..."
 
 # Check if torch is already installed with correct version
 TORCH_VERSION=$(python -c "import torch; print(torch.__version__)" 2>/dev/null || echo "not installed")
 
-if [[ "$TORCH_VERSION" == "2.5"*"+cu124" ]]; then
+if [[ "$TORCH_VERSION" == "2.3.1"*"+cu121" ]]; then
     echo "PyTorch $TORCH_VERSION already installed, skipping"
 else
-    echo "Installing torch and torchaudio from PyTorch cu124 index..."
-    uv pip install "torch>=2.5.0,<2.6" "torchaudio>=2.5.0,<2.6" \
-        --index-url https://download.pytorch.org/whl/cu124
+    echo "Installing torch and torchaudio from PyTorch cu121 index..."
+    uv pip install "torch==2.3.1" "torchaudio==2.3.1" \
+        --index-url https://download.pytorch.org/whl/cu121
 fi
 
 # Verify CUDA is working
