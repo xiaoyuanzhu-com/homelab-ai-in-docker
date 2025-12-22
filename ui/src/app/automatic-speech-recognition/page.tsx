@@ -117,7 +117,7 @@ function AutomaticSpeechRecognitionContent() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
-  const [rawRequest, setRawRequest] = useState<any>(null);
+  const [rawRequest, setRawRequest] = useState<Record<string, unknown> | null>(null);
 
   // Live transcription state
   const [liveConnectionStatus, setLiveConnectionStatus] = useState<ConnectionStatus>("disconnected");
@@ -615,7 +615,7 @@ function AutomaticSpeechRecognitionContent() {
     }
 
     // Build unified request preview
-    const requestBody: any = {
+    const requestBody: Record<string, unknown> = {
       audio: "<base64 audio data>",
       model,
       language: language || undefined,

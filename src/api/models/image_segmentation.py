@@ -13,10 +13,9 @@ class SegmentationRequest(BaseModel):
     """Request model for promptable image segmentation."""
 
     image: str = Field(..., description="Base64-encoded image or data URL")
-    prompt: str = Field(
-        ...,
-        min_length=1,
-        description="Text prompt describing the target region",
+    prompt: Optional[str] = Field(
+        default=None,
+        description="Text prompt describing the target region; omit or set to 'auto' to segment everything",
     )
     lib: Optional[str] = Field(
         default="facebookresearch/sam3",
@@ -33,12 +32,41 @@ class SegmentationRequest(BaseModel):
         ge=1,
         description="Optional cap on number of masks returned",
     )
+    points_per_side: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Auto mode: number of point prompts per side of the image grid",
+    )
+    points_per_batch: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Auto mode: number of point prompts per batch",
+    )
+    auto_iou_threshold: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Auto mode: IoU threshold to de-duplicate masks",
+    )
+    auto_min_area_ratio: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Auto mode: minimum mask area ratio to keep a mask",
+    )
+
+
+class SegmentationRLE(BaseModel):
+    """COCO RLE mask encoding."""
+
+    size: List[int] = Field(..., description="Mask size as [height, width]")
+    counts: List[int] = Field(..., description="Run-length encoding counts in column-major order")
 
 
 class SegmentationMask(BaseModel):
     """One segmentation mask output."""
 
-    mask: str = Field(..., description="Base64-encoded PNG mask")
+    rle: SegmentationRLE = Field(..., description="COCO RLE-encoded mask")
     score: Optional[float] = Field(None, description="Mask confidence score")
     box: Optional[List[float]] = Field(None, description="Bounding box [x0, y0, x1, y1]")
 

@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["image-segmentation"])
 
+DEFAULT_AUTO_PROMPT = "auto"
+
 
 def _available_segmentation_libs() -> list[str]:
     try:
@@ -32,16 +34,7 @@ async def segment_image(request: SegmentationRequest) -> SegmentationResponse:
     start_time = time.time()
 
     lib_id = request.lib or "facebookresearch/sam3"
-    prompt = request.prompt.strip()
-    if not prompt:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "INVALID_PROMPT",
-                "message": "Prompt must not be empty",
-                "request_id": request_id,
-            },
-        )
+    prompt = (request.prompt or "").strip() or DEFAULT_AUTO_PROMPT
     supported = _available_segmentation_libs()
 
     if lib_id not in supported:
@@ -79,6 +72,10 @@ async def segment_image(request: SegmentationRequest) -> SegmentationResponse:
                 "prompt": prompt,
                 "confidence_threshold": request.confidence_threshold,
                 "max_masks": request.max_masks,
+                "points_per_side": request.points_per_side,
+                "points_per_batch": request.points_per_batch,
+                "auto_iou_threshold": request.auto_iou_threshold,
+                "auto_min_area_ratio": request.auto_min_area_ratio,
             },
             request_id=request_id,
             python_env=python_env,

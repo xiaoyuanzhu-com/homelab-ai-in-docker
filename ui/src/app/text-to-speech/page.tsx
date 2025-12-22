@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Volume2, Loader2, Play, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -57,7 +56,7 @@ function TextToSpeechContent() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TTSResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [rawRequest, setRawRequest] = useState<any>(null);
+  const [rawRequest, setRawRequest] = useState<Record<string, unknown> | null>(null);
 
   // Audio playback
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -143,7 +142,7 @@ function TextToSpeechContent() {
     setResult(null);
 
     try {
-      const requestBody: any = {
+      const requestBody: Record<string, unknown> = {
         text,
         model: selectedModel,
         mode,

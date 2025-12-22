@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import io
 import os
 from importlib import resources
 from pathlib import Path
@@ -12,8 +10,8 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
+import numpy as np
 import torch
-from PIL import Image
 
 from ..base import BaseWorker, create_worker_main
 from ..image_utils import decode_image
@@ -21,15 +19,34 @@ import logging
 
 logger = logging.getLogger("segmentation_worker")
 
+DEFAULT_AUTO_PROMPT = "auto"
+AUTO_PROMPT_ALIASES = {
+    "auto",
+    "all",
+    "everything",
+    "all objects",
+    "all object",
+    "segment everything",
+}
+DEFAULT_POINTS_PER_SIDE = 16
+DEFAULT_POINTS_PER_BATCH = 16
+DEFAULT_AUTO_IOU_THRESHOLD = 0.6
+DEFAULT_AUTO_MIN_AREA_RATIO = 0.001
+DEFAULT_AUTO_MAX_MASKS = 64
 
-def _encode_mask_png(mask: torch.Tensor, size: Optional[tuple[int, int]] = None) -> str:
-    """Encode a single mask tensor as base64 PNG."""
-    mask = mask.detach().cpu()
-    if mask.is_floating_point():
-        mask = mask > 0.5
-    mask = mask.to(torch.uint8)
 
-    while mask.dim() > 2:
+def _normalize_mask(
+    mask: np.ndarray | torch.Tensor, size: Optional[tuple[int, int]] = None
+) -> np.ndarray:
+    if isinstance(mask, torch.Tensor):
+        mask = mask.detach().cpu()
+        if mask.is_floating_point():
+            mask = mask > 0.5
+        mask = mask.to(torch.uint8).numpy()
+    else:
+        mask = mask.astype(np.uint8)
+
+    while mask.ndim > 2:
         if mask.shape[0] == 1:
             mask = mask.squeeze(0)
         elif mask.shape[-1] == 1:
@@ -37,17 +54,68 @@ def _encode_mask_png(mask: torch.Tensor, size: Optional[tuple[int, int]] = None)
         else:
             mask = mask[0]
 
-    if mask.dim() == 1 and size and mask.numel() == size[0] * size[1]:
+    if mask.ndim == 1 and size and mask.size == size[0] * size[1]:
         height, width = size
-        mask = mask.view(height, width)
+        mask = mask.reshape(height, width)
 
-    if mask.dim() != 2:
+    if mask.ndim != 2:
         raise ValueError(f"Unexpected mask shape: {tuple(mask.shape)}")
 
-    mask_img = Image.fromarray((mask.numpy() * 255), mode="L")
-    buffer = io.BytesIO()
-    mask_img.save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return mask.astype(bool)
+
+
+def _mask_to_rle(
+    mask: np.ndarray | torch.Tensor, size: Optional[tuple[int, int]] = None
+) -> Dict[str, Any]:
+    """Encode a mask as COCO RLE (counts list, column-major order)."""
+    mask_np = _normalize_mask(mask, size=size)
+    height, width = mask_np.shape
+    pixels = mask_np.flatten(order="F").astype(np.uint8)
+    counts: List[int] = []
+    run_length = 0
+    prev = 0
+    for pixel in pixels:
+        if pixel == prev:
+            run_length += 1
+        else:
+            counts.append(run_length)
+            run_length = 1
+            prev = int(pixel)
+    counts.append(run_length)
+    return {"size": [height, width], "counts": counts}
+
+
+def _is_auto_prompt(prompt: str) -> bool:
+    return prompt.strip().lower() in AUTO_PROMPT_ALIASES
+
+
+def _generate_grid_points(points_per_side: int, width: int, height: int) -> np.ndarray:
+    """Generate a grid of point prompts in absolute pixel coordinates."""
+    if points_per_side < 1:
+        raise ValueError("points_per_side must be >= 1")
+    x_coords = np.linspace(0.5, max(width - 0.5, 0.5), points_per_side, dtype=np.float32)
+    y_coords = np.linspace(0.5, max(height - 0.5, 0.5), points_per_side, dtype=np.float32)
+    xs, ys = np.meshgrid(x_coords, y_coords)
+    return np.stack([xs, ys], axis=-1).reshape(-1, 2)
+
+
+def _mask_box(mask: np.ndarray) -> Optional[List[float]]:
+    ys, xs = np.where(mask)
+    if ys.size == 0 or xs.size == 0:
+        return None
+    x0 = float(xs.min())
+    y0 = float(ys.min())
+    x1 = float(xs.max())
+    y1 = float(ys.max())
+    return [x0, y0, x1, y1]
+
+
+def _mask_iou(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
+    intersection = np.logical_and(mask_a, mask_b).sum()
+    union = np.logical_or(mask_a, mask_b).sum()
+    if union == 0:
+        return 0.0
+    return float(intersection) / float(union)
 
 
 def _resolve_bpe_path() -> str:
@@ -142,6 +210,7 @@ class SegmentAnythingWorker(BaseWorker):
     ):
         super().__init__(model_id, port, idle_timeout, model_config)
         self._processor = None
+        self._auto_predictor = None
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
     def load_model(self) -> Any:
@@ -188,6 +257,7 @@ class SegmentAnythingWorker(BaseWorker):
                 bpe_path=bpe_path,
                 checkpoint_path=checkpoint,
                 load_from_HF=use_hf,
+                enable_inst_interactivity=True,
             )
 
         use_hf = checkpoint_path is None
@@ -200,7 +270,13 @@ class SegmentAnythingWorker(BaseWorker):
                 model = _build(checkpoint_path, False)
             else:
                 raise
+        if (
+            model.inst_interactive_predictor is not None
+            and model.inst_interactive_predictor.model.backbone is None
+        ):
+            model.inst_interactive_predictor.model.backbone = model.backbone
         self._processor = Sam3Processor(model, device=self._device)
+        self._auto_predictor = model.inst_interactive_predictor
         return model
 
     def infer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -212,10 +288,9 @@ class SegmentAnythingWorker(BaseWorker):
         prompt = (payload.get("prompt") or "").strip()
         if not image_data:
             raise ValueError("Missing image payload")
-        if not prompt:
-            raise ValueError("Prompt is required for segmentation")
 
         confidence_threshold = payload.get("confidence_threshold")
+        threshold = self._processor.confidence_threshold
         if confidence_threshold is not None:
             threshold = float(confidence_threshold)
             if not 0.0 <= threshold <= 1.0:
@@ -231,41 +306,144 @@ class SegmentAnythingWorker(BaseWorker):
         image = decode_image(image_data)
         width, height = image.size
 
-        state = self._processor.set_image(image)
-        output = self._processor.set_text_prompt(prompt, state)
-
-        masks = output.get("masks")
-        boxes = output.get("boxes")
-        scores = output.get("scores")
-
-        if masks is None or masks.numel() == 0:
-            return {
-                "prompt": prompt,
-                "image_width": width,
-                "image_height": height,
-                "masks": [],
-            }
-
-        masks_cpu = masks.detach().cpu()
-        boxes_cpu = boxes.detach().cpu() if boxes is not None else None
-        scores_cpu = scores.detach().cpu() if scores is not None else None
-
-        mask_count = masks_cpu.shape[0]
-        limit = min(mask_count, max_masks) if max_masks is not None else mask_count
-
         items: List[Dict[str, Any]] = []
-        for idx in range(limit):
-            mask_png = _encode_mask_png(masks_cpu[idx], size=(height, width))
-            score = float(scores_cpu[idx]) if scores_cpu is not None else None
-            box = (
-                [float(x) for x in boxes_cpu[idx].tolist()]
-                if boxes_cpu is not None
-                else None
-            )
-            items.append({"mask": mask_png, "score": score, "box": box})
+        auto_mode = not prompt or _is_auto_prompt(prompt)
+        if auto_mode:
+            prompt_label = DEFAULT_AUTO_PROMPT
+            if self._auto_predictor is None:
+                raise RuntimeError("Automatic mask generation is not available")
+
+            points_per_side = payload.get("points_per_side")
+            if points_per_side is None:
+                points_per_side = DEFAULT_POINTS_PER_SIDE
+            points_per_batch = payload.get("points_per_batch")
+            if points_per_batch is None:
+                points_per_batch = DEFAULT_POINTS_PER_BATCH
+            auto_iou_threshold = payload.get("auto_iou_threshold")
+            if auto_iou_threshold is None:
+                auto_iou_threshold = DEFAULT_AUTO_IOU_THRESHOLD
+            auto_min_area_ratio = payload.get("auto_min_area_ratio")
+            if auto_min_area_ratio is None:
+                auto_min_area_ratio = DEFAULT_AUTO_MIN_AREA_RATIO
+
+            points_per_side = int(points_per_side)
+            if points_per_side < 1:
+                raise ValueError("points_per_side must be >= 1")
+            points_per_batch = int(points_per_batch)
+            if points_per_batch < 1:
+                raise ValueError("points_per_batch must be >= 1")
+            auto_iou_threshold = float(auto_iou_threshold)
+            if not 0.0 <= auto_iou_threshold <= 1.0:
+                raise ValueError("auto_iou_threshold must be between 0 and 1")
+            auto_min_area_ratio = float(auto_min_area_ratio)
+            if not 0.0 <= auto_min_area_ratio <= 1.0:
+                raise ValueError("auto_min_area_ratio must be between 0 and 1")
+
+            if max_masks is None:
+                max_masks = DEFAULT_AUTO_MAX_MASKS
+
+            self._auto_predictor.set_image(image)
+            points = _generate_grid_points(points_per_side, width, height)
+            labels = np.ones((points.shape[0], 1), dtype=np.int64)
+
+            def _predict_batch(batch_points: np.ndarray, batch_labels: np.ndarray):
+                try:
+                    return self._auto_predictor.predict(
+                        point_coords=batch_points,
+                        point_labels=batch_labels,
+                        multimask_output=False,
+                        normalize_coords=True,
+                    )
+                except torch.OutOfMemoryError:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    if batch_points.shape[0] <= 1:
+                        raise
+                    mid = batch_points.shape[0] // 2
+                    first = _predict_batch(batch_points[:mid], batch_labels[:mid])
+                    second = _predict_batch(batch_points[mid:], batch_labels[mid:])
+                    masks_a, scores_a, _ = first
+                    masks_b, scores_b, _ = second
+                    return (
+                        np.concatenate([masks_a, masks_b], axis=0),
+                        np.concatenate([scores_a, scores_b], axis=0),
+                        None,
+                    )
+
+            candidates: List[tuple[float, np.ndarray]] = []
+            for start in range(0, points.shape[0], points_per_batch):
+                batch_points = points[start : start + points_per_batch]
+                batch_labels = labels[start : start + points_per_batch]
+                if batch_points.size == 0:
+                    continue
+                batch_points = batch_points[:, None, :]
+                masks, scores, _ = _predict_batch(batch_points, batch_labels)
+                if masks.ndim == 3:
+                    masks = masks[None, ...]
+                if scores.ndim == 1:
+                    scores = scores[None, ...]
+
+                batch_size = scores.shape[0]
+                for idx in range(batch_size):
+                    score_row = scores[idx]
+                    if score_row.size == 0:
+                        continue
+                    best_idx = int(np.argmax(score_row))
+                    best_score = float(score_row[best_idx])
+                    if best_score < threshold:
+                        continue
+                    mask = masks[idx, best_idx]
+                    if mask.dtype != np.bool_:
+                        mask = mask > 0.5
+                    area_ratio = float(mask.mean())
+                    if area_ratio < auto_min_area_ratio:
+                        continue
+                    candidates.append((best_score, mask))
+
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            selected: List[tuple[float, np.ndarray]] = []
+            for score, mask in candidates:
+                if auto_iou_threshold > 0:
+                    if any(
+                        _mask_iou(mask, existing) >= auto_iou_threshold
+                        for _, existing in selected
+                    ):
+                        continue
+                selected.append((score, mask))
+                if max_masks is not None and len(selected) >= max_masks:
+                    break
+
+            for score, mask in selected:
+                rle = _mask_to_rle(mask, size=(height, width))
+                items.append({"rle": rle, "score": score, "box": _mask_box(mask)})
+        else:
+            prompt_label = prompt
+            state = self._processor.set_image(image)
+            output = self._processor.set_text_prompt(prompt, state)
+            masks = output.get("masks")
+            boxes = output.get("boxes")
+            scores = output.get("scores")
+
+            if masks is not None and masks.numel() > 0:
+                masks_cpu = masks.detach().cpu()
+                boxes_cpu = boxes.detach().cpu() if boxes is not None else None
+                scores_cpu = scores.detach().cpu() if scores is not None else None
+
+                mask_count = masks_cpu.shape[0]
+                limit = min(mask_count, max_masks) if max_masks is not None else mask_count
+
+                for idx in range(limit):
+                    rle = _mask_to_rle(masks_cpu[idx], size=(height, width))
+                    score = float(scores_cpu[idx]) if scores_cpu is not None else None
+                    box = (
+                        [float(x) for x in boxes_cpu[idx].tolist()]
+                        if boxes_cpu is not None
+                        else None
+                    )
+                    items.append({"rle": rle, "score": score, "box": box})
 
         return {
-            "prompt": prompt,
+            "prompt": prompt_label,
             "image_width": width,
             "image_height": height,
             "masks": items,
