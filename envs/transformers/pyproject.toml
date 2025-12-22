@@ -25,6 +25,8 @@ dependencies = [
     "protobuf>=4.25.0",
     # MinerU OCR
     "mineru-vl-utils[transformers]>=0.1.17",
+    # Segment Anything (SAM3)
+    "sam3==0.1.2",
     # Worker HTTP server
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",

@@ -43,6 +43,7 @@ WORKER_MODULES: Dict[str, str] = {
     "ocr": "src.worker.workers.ocr_worker",
     "speaker-diarization": "src.worker.workers.diarization_worker",
     "tts": "src.worker.workers.tts_worker",
+    "image-segmentation": "src.worker.workers.segmentation_worker",
     # Lib-based workers (non-ML)
     "doc-to-screenshot": "src.worker.workers.screenitshot_worker",
     "web-crawling": "src.worker.workers.crawl_worker",
@@ -642,8 +643,8 @@ def get_coordinator() -> WorkerCoordinator:
 
         _coordinator = WorkerCoordinator(
             worker_idle_timeout=get_setting_int("worker_idle_timeout_seconds", 60),
-            worker_startup_timeout=get_setting_int("worker_startup_timeout_seconds", 120),
-            worker_request_timeout=get_setting_int("worker_request_timeout_seconds", 300),
+            worker_startup_timeout=get_setting_int("worker_startup_timeout_seconds", 600),
+            worker_request_timeout=get_setting_int("worker_request_timeout_seconds", 600),
         )
     return _coordinator
 

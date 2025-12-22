@@ -34,6 +34,7 @@ from src.api.routers import (
     doc_to_markdown,
     doc_to_screenshot,
     environments,
+    image_segmentation,
 )
 from src.db.models import init_models_table, upsert_model, delete_model, get_all_models
 from src.db.libs import init_libs_table, upsert_lib
@@ -322,6 +323,7 @@ app.include_router(settings.router)
 app.include_router(doc_to_markdown.router)
 app.include_router(doc_to_screenshot.router)
 app.include_router(environments.router)
+app.include_router(image_segmentation.router)
 
 # Initialize logger for startup messages
 logger = logging.getLogger(__name__)
@@ -388,6 +390,7 @@ async def root():
             "text_to_speech": "/api/text-to-speech",
             "image_captioning": "/api/image-captioning",
             "image_ocr": "/api/image-ocr",
+            "image_segmentation": "/api/image-segmentation",
             "automatic_speech_recognition": "/api/automatic-speech-recognition",
             "automatic_speech_recognition_live": "/api/automatic-speech-recognition/live",
             "hardware": "/api/hardware",

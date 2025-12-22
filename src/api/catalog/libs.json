@@ -15,6 +15,20 @@
       "reference_url": "https://github.com/PaddlePaddle/PaddleOCR"
     },
     {
+      "id": "facebookresearch/sam3",
+      "label": "Segment Anything",
+      "provider": "Meta",
+      "tasks": ["image-segmentation"],
+      "architecture": "sam3",
+      "default_prompt": null,
+      "python_env": "transformers",
+      "platform_requirements": "Requires SAM3 checkpoints (HuggingFace facebook/sam3 is gated). Set hf_token or HF_TOKEN for HF access, or use ModelScope fallback; downloads weights on first use.",
+      "supports_markdown": false,
+      "requires_quantization": false,
+      "requires_download": false,
+      "reference_url": "https://github.com/facebookresearch/sam3"
+    },
+    {
       "id": "crawl4ai/async-webcrawler",
       "label": "Crawl4AI",
       "provider": "Crawl4AI",

@@ -58,7 +58,7 @@ Each environment has an ID that models reference in their manifest:
 
 | Env ID | Models/Libs | Key Dependencies | Reason |
 |--------|-------------|------------------|--------|
-| `transformers` | MinerU, Jina-VLM, Moondream, Jina-Embed, Qwen-Embed, Gemma, Qwen-Text | torch, transformers>=4.51, sentence-transformers, accelerate, flash-attn | Standard HF/PyTorch stack |
+| `transformers` | MinerU, Jina-VLM, Moondream, Jina-Embed, Qwen-Embed, Gemma, Qwen-Text, Segment Anything (SAM3) | torch, transformers>=4.51, sentence-transformers, accelerate, flash-attn | Standard HF/PyTorch stack |
 | `deepseek` | DeepSeek-OCR (+ future DeepSeek models) | torch, transformers==4.47.1, flash-attn, bitsandbytes | Pinned old transformers |
 | `paddle` | PaddleOCR-VL, PP-OCRv5 | paddlepaddle-gpu, paddleocr, paddlex, custom safetensors | PaddlePaddle framework |
 | `whisper` | Whisper-v3, Whisper-turbo, WhisperX, pyannote/* | torch, whisperx, pyannote.audio, librosa, torchaudio | Audio processing stack |

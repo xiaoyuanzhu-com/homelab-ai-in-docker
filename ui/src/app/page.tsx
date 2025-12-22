@@ -223,6 +223,14 @@ const TASK_CATEGORIES: TaskCategory[] = [
         available: true
       },
       {
+        id: "segment-anything",
+        title: "Segment Anything",
+        description: "Promptable segmentation with SAM3",
+        icon: <Layers className="h-5 w-5" />,
+        href: "/test",
+        available: true
+      },
+      {
         id: "tabular-regression",
         title: "Tabular Regression",
         description: "Predict continuous values",
