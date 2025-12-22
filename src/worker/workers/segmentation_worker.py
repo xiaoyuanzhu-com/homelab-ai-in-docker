@@ -109,6 +109,13 @@ def _resolve_modelscope_checkpoint() -> str:
     return str(ckpt_path)
 
 
+def _find_modelscope_checkpoint() -> Optional[str]:
+    """Return local ModelScope checkpoint path if already downloaded."""
+    cache_root = Path(os.getenv("MODELSCOPE_CACHE", Path.home() / ".cache/modelscope"))
+    ckpt_path = cache_root / "facebook" / "sam3" / "sam3.pt"
+    return str(ckpt_path) if ckpt_path.exists() else None
+
+
 def _is_hf_access_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     return (
@@ -151,6 +158,8 @@ class SegmentAnythingWorker(BaseWorker):
             checkpoint_path = str(checkpoint_path)
             if not Path(checkpoint_path).exists():
                 raise ValueError(f"SAM3 checkpoint not found at '{checkpoint_path}'")
+        else:
+            checkpoint_path = _find_modelscope_checkpoint()
 
         token = (
             get_hf_token()
@@ -181,10 +190,11 @@ class SegmentAnythingWorker(BaseWorker):
                 load_from_HF=use_hf,
             )
 
+        use_hf = checkpoint_path is None
         try:
-            model = _build(checkpoint_path, checkpoint_path is None)
+            model = _build(checkpoint_path, use_hf)
         except Exception as e:
-            if checkpoint_path is None and _is_hf_access_error(e):
+            if use_hf and _is_hf_access_error(e):
                 logger.warning("HF access rejected; falling back to ModelScope for SAM3.")
                 checkpoint_path = _resolve_modelscope_checkpoint()
                 model = _build(checkpoint_path, False)
