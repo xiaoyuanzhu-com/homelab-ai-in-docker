@@ -97,7 +97,7 @@ export default function SegmentAnythingPage() {
             o.type === "lib" && o.id === "facebookresearch/sam3" && o.status === "ready"
         );
         setLibsReady(ready);
-        if (!ready) toast.error("Segment Anything engine is not ready");
+        if (!ready) toast.error("SAM engine is not ready");
       } catch (err) {
         console.error("Failed to fetch segmentation options:", err);
         setLibsReady(false);
@@ -184,7 +184,7 @@ export default function SegmentAnythingPage() {
         ...(prompt.trim() ? { prompt } : {}),
       };
 
-      const resp = await fetch("/api/image-segmentation", {
+      const resp = await fetch("/api/sam", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -264,14 +264,14 @@ export default function SegmentAnythingPage() {
     <div className="text-sm text-destructive">{error}</div>
   ) : (
     <div className="text-sm text-muted-foreground">
-      Upload an image and run Segment Anything to see masks.
+      Upload an image and run SAM to see masks.
     </div>
   );
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2">Segment Anything</h1>
+        <h1 className="text-3xl font-bold mb-2">SAM</h1>
         <p className="text-muted-foreground">
           Promptable image segmentation powered by SAM3.
         </p>
@@ -356,7 +356,7 @@ export default function SegmentAnythingPage() {
                     Running...
                   </>
                 ) : (
-                  "Run Segment Anything"
+                  "Run SAM"
                 )}
               </Button>
             </div>
@@ -374,7 +374,7 @@ export default function SegmentAnythingPage() {
           rawPayload: {
             label: "Response payload",
             payload: result,
-            emptyMessage: "Run Segment Anything to see the response payload.",
+            emptyMessage: "Run SAM to see the response payload.",
           },
         }}
       />

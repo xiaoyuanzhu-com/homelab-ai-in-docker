@@ -224,10 +224,10 @@ const TASK_CATEGORIES: TaskCategory[] = [
       },
       {
         id: "segment-anything",
-        title: "Segment Anything",
+        title: "SAM",
         description: "Promptable segmentation with SAM3",
         icon: <Layers className="h-5 w-5" />,
-        href: "/test",
+        href: "/sam",
         available: true
       },
       {

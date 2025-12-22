@@ -27,7 +27,7 @@ def _available_segmentation_libs() -> list[str]:
         return []
 
 
-@router.post("/image-segmentation", response_model=SegmentationResponse)
+@router.post("/sam", response_model=SegmentationResponse)
 async def segment_image(request: SegmentationRequest) -> SegmentationResponse:
     """Run promptable image segmentation using Segment Anything (SAM3)."""
     request_id = str(uuid.uuid4())

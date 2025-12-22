@@ -191,6 +191,74 @@ Or using a library engine:
 
 ---
 
+## Image Segmentation (SAM)
+
+Promptable image segmentation using Segment Anything (SAM3).
+
+### `POST /api/sam`
+
+**Request:**
+
+```json
+{
+  "image": "base64-encoded-image-data",
+  "prompt": "person",
+  "lib": "facebookresearch/sam3",
+  "confidence_threshold": 0.5,
+  "max_masks": 8
+}
+```
+
+Auto mask generation (no prompt):
+
+```json
+{
+  "image": "base64-encoded-image-data",
+  "prompt": "auto",
+  "points_per_side": 16,
+  "points_per_batch": 16,
+  "auto_iou_threshold": 0.6,
+  "auto_min_area_ratio": 0.001
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `image` | string | Yes | Base64-encoded image |
+| `prompt` | string | No | Text prompt; omit or set to `auto` to segment everything |
+| `lib` | string | No | Library ID (default: `facebookresearch/sam3`) |
+| `confidence_threshold` | float | No | Minimum confidence to keep a mask (default: 0.5) |
+| `max_masks` | integer | No | Optional cap on number of masks returned |
+| `points_per_side` | integer | No | Auto mode: number of grid points per side |
+| `points_per_batch` | integer | No | Auto mode: number of points per batch |
+| `auto_iou_threshold` | float | No | Auto mode: IoU threshold for deduplication |
+| `auto_min_area_ratio` | float | No | Auto mode: minimum mask area ratio |
+
+**Response:**
+
+```json
+{
+  "request_id": "uuid",
+  "processing_time_ms": 420,
+  "model": "facebookresearch/sam3",
+  "prompt": "auto",
+  "image_width": 1024,
+  "image_height": 768,
+  "masks": [
+    {
+      "rle": {
+        "size": [768, 1024],
+        "counts": [12, 4, 8, 10]
+      },
+      "score": 0.94,
+      "box": [120.0, 84.0, 520.0, 640.0]
+    }
+  ]
+}
+```
+
+---
+
 ## Automatic Speech Recognition
 
 Unified endpoint for transcribing audio files. Supports multiple backends via the `lib` parameter.

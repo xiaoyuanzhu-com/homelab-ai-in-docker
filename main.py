@@ -390,7 +390,7 @@ async def root():
             "text_to_speech": "/api/text-to-speech",
             "image_captioning": "/api/image-captioning",
             "image_ocr": "/api/image-ocr",
-            "image_segmentation": "/api/image-segmentation",
+            "image_segmentation": "/api/sam",
             "automatic_speech_recognition": "/api/automatic-speech-recognition",
             "automatic_speech_recognition_live": "/api/automatic-speech-recognition/live",
             "hardware": "/api/hardware",
