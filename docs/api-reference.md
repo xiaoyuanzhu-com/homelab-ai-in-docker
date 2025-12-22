@@ -1046,7 +1046,20 @@ Model Context Protocol server for Claude Code integration.
 
 **Endpoint:** `/mcp` (Streamable HTTP transport)
 
-See [README.md](../README.md#mcp-integration) for setup instructions.
+**Available MCP Tools:**
+
+- `crawl_web` - Scrape web pages with JavaScript rendering
+- `embed_text` - Generate text embeddings for semantic search
+- `generate_text` - Generate text using language models
+- `caption_image` - Describe images in natural language
+- `ocr_image` - Extract text from images
+- `transcribe_audio` - Transcribe audio files
+
+**Setup:**
+
+1. Start the service and verify: `curl http://localhost:12310/api/health`
+2. Add a remote MCP server in Claude Code pointing to `http://localhost:12310/mcp`
+3. Claude Code will auto-discover the tools and expose them in the MCP sidebar
 
 ---
 
